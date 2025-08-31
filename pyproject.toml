@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usortm"
+version = "0.1.0"
+description = "Utilities for rapid and low-cost parsed protein library generation."
+authors = [{name = "Micah Olivas", email = "mbolivas@stanford.edu"}]
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/micaholivas/uSort-M"
+Repository = "https://github.com/micaholivas/uSort-M"
+
+[tool.setuptools.packages.find]
+include = ["usortm*"]
