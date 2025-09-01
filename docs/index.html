@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>uSort-M: Rapid Protein Library Generation</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica', Arial, sans-serif;
+            line-height: 1.6;
+            color: #24292e;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #0366d6;
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            color: #586069;
+            margin: 0;
+        }
+        
+        .section {
+            margin: 40px 0;
+            padding: 30px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8;
+        }
+        
+        .section h2 {
+            color: #0366d6;
+            border-bottom: 2px solid #e1e4e8;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .control-group {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #d0d7de;
+        }
+        
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #24292e;
+        }
+        
+        .control-group input, .control-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        .control-group input:focus, .control-group select:focus {
+            border-color: #0366d6;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+        }
+        
+        .plot-container {
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #d0d7de;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        button {
+            background-color: #0366d6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover {
+            background-color: #0256cc;
+        }
+        
+        .github-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #24292e;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        
+        .github-link:hover {
+            background-color: #1b1f23;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .info-box {
+            background-color: #dbeafe;
+            border: 1px solid #93c5fd;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 20px 0;
+        }
+        
+        .info-box h3 {
+            color: #1e40af;
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>uSort-M</h1>
+        <p>Rapid and low-cost parsed protein library generation</p>
+        <a href="https://github.com/micaholivas/uSort-M" class="github-link">View on GitHub</a>
+    </div>
+
+    <div class="section">
+        <h2>Overview</h2>
+        <p>uSort-M provides tools for modeling and simulating protein library distributions and recovery rates. 
+           Use the interactive widgets below to explore how different library parameters affect variant recovery.</p>
+        
+        <div class="info-box">
+            <h3>Installation</h3>
+            <pre><code>pip install -e .</code></pre>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Library Distribution Simulator</h2>
+        <p>Explore how different parameters affect the distribution of variant counts in your protein library.</p>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="meanVal">Mean Library Count:</label>
+                <input type="number" id="meanVal" value="1000" min="100" max="10000">
+            </div>
+            <div class="control-group">
+                <label for="foldChange">Fold Variation (90th/10th percentile):</label>
+                <input type="number" id="foldChange" value="4" min="1" max="10" step="0.1">
+            </div>
+            <div class="control-group">
+                <label for="sampleSize">Sample Size:</label>
+                <input type="number" id="sampleSize" value="100000" min="10000" max="1000000" step="10000">
+            </div>
+        </div>
+        
+        <button onclick="updateLibraryPlot()">Update Distribution</button>
+        <div class="plot-container">
+            <div id="libraryPlot" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Recovery Rate Simulator</h2>
+        <p>Simulate how sample size affects the recovery rate of variants from your library.</p>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="librarySize">Library Size:</label>
+                <input type="number" id="librarySize" value="10000" min="1000" max="100000" step="1000">
+            </div>
+            <div class="control-group">
+                <label for="maxSamples">Maximum Samples:</label>
+                <input type="number" id="maxSamples" value="50000" min="10000" max="200000" step="10000">
+            </div>
+            <div class="control-group">
+                <label for="numReplicates">Number of Replicates:</label>
+                <input type="number" id="numReplicates" value="10" min="5" max="50">
+            </div>
+        </div>
+        
+        <button onclick="updateRecoveryPlot()">Simulate Recovery</button>
+        <div class="plot-container">
+            <div id="recoveryPlot" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Library distribution functions
+        function lognormalSample(mu, sigma, size) {
+            const samples = [];
+            for (let i = 0; i < size; i++) {
+                // Box-Muller transform for normal distribution
+                const u1 = Math.random();
+                const u2 = Math.random();
+                const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                // Convert to lognormal
+                samples.push(Math.exp(mu + sigma * z));
+            }
+            return samples;
+        }
+
+        function updateLibraryPlot() {
+            const meanVal = parseFloat(document.getElementById('meanVal').value);
+            const foldChange = parseFloat(document.getElementById('foldChange').value);
+            const sampleSize = parseInt(document.getElementById('sampleSize').value);
+            
+            // Calculate lognormal parameters
+            const sigma = Math.log(foldChange) / (2 * 1.28155); // z-score for 90th percentile
+            const mu = Math.log(meanVal) - 0.5 * sigma * sigma;
+            
+            // Generate samples
+            const samples = lognormalSample(mu, sigma, sampleSize);
+            const logSamples = samples.map(s => Math.log10(s));
+            
+            // Calculate percentiles
+            logSamples.sort((a, b) => a - b);
+            const q10 = logSamples[Math.floor(sampleSize * 0.1)];
+            const q90 = logSamples[Math.floor(sampleSize * 0.9)];
+            const actualFoldChange = Math.pow(10, q90 - q10);
+            
+            // Create histogram
+            const trace = {
+                x: logSamples,
+                type: 'histogram',
+                nbinsx: 50,
+                histnorm: 'probability density',
+                name: 'Distribution',
+                marker: { color: 'rgba(54, 162, 235, 0.6)' }
+            };
+            
+            // Add percentile lines
+            const percentileLines = [
+                {
+                    type: 'scatter',
+                    x: [q10, q10],
+                    y: [0, 0.8],
+                    mode: 'lines',
+                    name: '10th percentile',
+                    line: { color: 'green', width: 2 }
+                },
+                {
+                    type: 'scatter',
+                    x: [q90, q90],
+                    y: [0, 0.8],
+                    mode: 'lines',
+                    name: '90th percentile',
+                    line: { color: 'green', width: 2 }
+                }
+            ];
+            
+            const layout = {
+                title: `Library Count Distribution (Fold-Variation: ${actualFoldChange.toFixed(2)})`,
+                xaxis: { title: 'Log₁₀(Variant Count)' },
+                yaxis: { title: 'Density' },
+                showlegend: true
+            };
+            
+            Plotly.newPlot('libraryPlot', [trace, ...percentileLines], layout, {responsive: true});
+        }
+
+        function simulateRecovery(librarySize, sampleSize, numReplicates) {
+            const recoveries = [];
+            
+            for (let rep = 0; rep < numReplicates; rep++) {
+                // Simple simulation: each variant has equal probability
+                const recovered = new Set();
+                for (let i = 0; i < sampleSize; i++) {
+                    const variant = Math.floor(Math.random() * librarySize);
+                    recovered.add(variant);
+                }
+                recoveries.push(recovered.size / librarySize);
+            }
+            
+            return recoveries;
+        }
+
+        function updateRecoveryPlot() {
+            const librarySize = parseInt(document.getElementById('librarySize').value);
+            const maxSamples = parseInt(document.getElementById('maxSamples').value);
+            const numReplicates = parseInt(document.getElementById('numReplicates').value);
+            
+            const sampleSizes = [];
+            const means = [];
+            const stds = [];
+            
+            // Generate data points
+            const stepSize = Math.max(1000, Math.floor(maxSamples / 20));
+            for (let samples = stepSize; samples <= maxSamples; samples += stepSize) {
+                const recoveries = simulateRecovery(librarySize, samples, numReplicates);
+                const mean = recoveries.reduce((a, b) => a + b, 0) / recoveries.length;
+                const variance = recoveries.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recoveries.length;
+                const std = Math.sqrt(variance);
+                
+                sampleSizes.push(samples);
+                means.push(mean);
+                stds.push(std);
+            }
+            
+            const trace = {
+                x: sampleSizes,
+                y: means,
+                error_y: {
+                    type: 'data',
+                    array: stds,
+                    visible: true
+                },
+                type: 'scatter',
+                mode: 'markers+lines',
+                name: 'Recovery Rate',
+                marker: { size: 6 },
+                line: { width: 2 }
+            };
+            
+            // Add coverage axis
+            const layout = {
+                title: `Recovery Rate vs Sample Size (Library Size: ${librarySize.toLocaleString()})`,
+                xaxis: { 
+                    title: 'Sample Size',
+                    tickformat: ',d'
+                },
+                yaxis: { 
+                    title: 'Recovery Rate',
+                    range: [0, 1.1]
+                },
+                showlegend: false
+            };
+            
+            Plotly.newPlot('recoveryPlot', [trace], layout, {responsive: true});
+        }
+
+        // Initialize plots when page loads
+        window.onload = function() {
+            updateLibraryPlot();
+            updateRecoveryPlot();
+        };
+    </script>
+</body>
+</html>
