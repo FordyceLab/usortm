@@ -57,6 +57,20 @@
             margin-bottom: 30px;
         }
         
+        .plot-section {
+            display: flex;
+            align-items: flex-start;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        
+        .controls-left {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-width: 300px;
+        }
+        
         .control-group {
             background: white;
             padding: 20px;
@@ -149,38 +163,34 @@
     </div>
 
     <div class="section">
-        <h2>Overview</h2>
-        <p>uSort-M provides tools for modeling and simulating protein library distributions and recovery rates. 
-           Use the interactive widgets below to explore how different library parameters affect variant recovery.</p>
-        
-        <div class="info-box">
-            <h3>Installation</h3>
-            <pre><code>pip install -e .</code></pre>
-        </div>
+        <h2>Introduction & Interactive Simulations</h2>
+        <p>uSort-M is a method for generating parsed protein libraries from oligonucleotide pool inputs. 
+           Use the interactive simulations below to explore how different library parameters affect variant distributions and recovery rates.</p>
     </div>
 
     <div class="section">
         <h2>Library Distribution Simulator</h2>
         <p>Explore how different parameters affect the distribution of variant counts in your protein library.</p>
         
-        <div class="controls">
-            <div class="control-group">
-                <label for="meanVal">Mean Library Count:</label>
-                <input type="number" id="meanVal" value="1000" min="100" max="10000">
+        <div class="plot-section">
+            <div class="controls-left">
+                <div class="control-group">
+                    <label for="meanVal">Mean Library Count:</label>
+                    <input type="number" id="meanVal" value="1000" min="100" max="10000">
+                </div>
+                <div class="control-group">
+                    <label for="foldChange">Fold Variation (90th/10th percentile):</label>
+                    <input type="number" id="foldChange" value="4" min="1" max="10" step="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="sampleSize">Sample Size:</label>
+                    <input type="number" id="sampleSize" value="100000" min="10000" max="1000000" step="10000">
+                </div>
+                <button onclick="updateLibraryPlot()">Update Distribution</button>
             </div>
-            <div class="control-group">
-                <label for="foldChange">Fold Variation (90th/10th percentile):</label>
-                <input type="number" id="foldChange" value="4" min="1" max="10" step="0.1">
+            <div class="plot-container">
+                <div id="libraryPlot" style="height: 500px; width: 500px;"></div>
             </div>
-            <div class="control-group">
-                <label for="sampleSize">Sample Size:</label>
-                <input type="number" id="sampleSize" value="100000" min="10000" max="1000000" step="10000">
-            </div>
-        </div>
-        
-        <button onclick="updateLibraryPlot()">Update Distribution</button>
-        <div class="plot-container">
-            <div id="libraryPlot" style="height: 400px;"></div>
         </div>
     </div>
 
@@ -188,25 +198,39 @@
         <h2>Recovery Rate Simulator</h2>
         <p>Simulate how sample size affects the recovery rate of variants from your library.</p>
         
-        <div class="controls">
-            <div class="control-group">
-                <label for="librarySize">Library Size:</label>
-                <input type="number" id="librarySize" value="10000" min="1000" max="100000" step="1000">
+        <div class="plot-section">
+            <div class="controls-left">
+                <div class="control-group">
+                    <label for="librarySize">Library Size:</label>
+                    <input type="number" id="librarySize" value="500" min="50" max="5000" step="100">
+                </div>
+                <div class="control-group">
+                    <label for="maxSamples">Maximum Samples:</label>
+                    <input type="number" id="maxSamples" value="1000" min="10" max="10000" step="100">
+                </div>
+                <button onclick="updateRecoveryPlot()">Simulate Recovery</button>
             </div>
-            <div class="control-group">
-                <label for="maxSamples">Maximum Samples:</label>
-                <input type="number" id="maxSamples" value="50000" min="10000" max="200000" step="10000">
+            <div class="plot-container">
+                <div id="recoveryPlot" style="height: 500px; width: 500px;"></div>
             </div>
-            <div class="control-group">
-                <label for="numReplicates">Number of Replicates:</label>
-                <input type="number" id="numReplicates" value="10" min="5" max="50">
-            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Software Installation</h2>
+        <p>uSort-M provides tools for modeling and simulating protein library distributions and recovery rates in your own Python environment.</p>
+        
+        <div class="info-box">
+            <h3>Installation</h3>
+            <pre><code>pip install -e .</code></pre>
         </div>
         
-        <button onclick="updateRecoveryPlot()">Simulate Recovery</button>
-        <div class="plot-container">
-            <div id="recoveryPlot" style="height: 400px;"></div>
+        <div class="info-box">
+            <h3>Usage</h3>
+            <pre><code>from usort_m import simulations</code></pre>
         </div>
+        
+        <p>For more details, documentation, and source code, visit the <a href="https://github.com/micaholivas/uSort-M" style="color: #0366d6; text-decoration: none;">GitHub repository</a>.</p>
     </div>
 
     <script>
@@ -277,7 +301,16 @@
                 title: `Library Count Distribution (Fold-Variation: ${actualFoldChange.toFixed(2)})`,
                 xaxis: { title: 'Log₁₀(Variant Count)' },
                 yaxis: { title: 'Density' },
-                showlegend: true
+                showlegend: true,
+                legend: {
+                    x: -0.1,
+                    y: 1,
+                    xanchor: 'right',
+                    yanchor: 'top'
+                },
+                autosize: false,
+                width: 500,
+                height: 500
             };
             
             Plotly.newPlot('libraryPlot', [trace, ...percentileLines], layout, {responsive: true});
@@ -302,14 +335,14 @@
         function updateRecoveryPlot() {
             const librarySize = parseInt(document.getElementById('librarySize').value);
             const maxSamples = parseInt(document.getElementById('maxSamples').value);
-            const numReplicates = parseInt(document.getElementById('numReplicates').value);
+            const numReplicates = 10 // Set this to 10 by default
             
             const sampleSizes = [];
             const means = [];
             const stds = [];
             
             // Generate data points
-            const stepSize = Math.max(1000, Math.floor(maxSamples / 20));
+            const stepSize = Math.max(100, Math.floor(maxSamples / 20));
             for (let samples = stepSize; samples <= maxSamples; samples += stepSize) {
                 const recoveries = simulateRecovery(librarySize, samples, numReplicates);
                 const mean = recoveries.reduce((a, b) => a + b, 0) / recoveries.length;
@@ -347,7 +380,10 @@
                     title: 'Recovery Rate',
                     range: [0, 1.1]
                 },
-                showlegend: false
+                showlegend: false,
+                autosize: false,
+                width: 500,
+                height: 500
             };
             
             Plotly.newPlot('recoveryPlot', [trace], layout, {responsive: true});
