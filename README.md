@@ -1,6 +1,6 @@
 # uSort-M
 
-Rapid and low-cost parsed protein library generation. 
+User-defined Sorted Mutant Libraries. Rapid and low-cost parsed protein library generation. 
 
 ## Installation
 
