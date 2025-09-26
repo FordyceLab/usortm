@@ -20,4 +20,5 @@ Homepage = "https://github.com/micaholivas/uSort-M"
 Repository = "https://github.com/micaholivas/uSort-M"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["usortm*"]
