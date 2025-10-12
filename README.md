@@ -5,8 +5,8 @@ User-defined Sorted Mutant Libraries. Rapid and low-cost parsed protein library 
 ## Installation
 
 ```bash
-git clone https://github.com/FordyceLab/uSort-M.git && cd usortm
-pip install -e .
+git clone https://github.com/FordyceLab/usortm.git && cd usortm
+pip install .
 ```
 
 ## Usage
