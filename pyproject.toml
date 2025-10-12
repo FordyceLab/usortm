@@ -16,8 +16,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/micaholivas/uSort-M"
-Repository = "https://github.com/micaholivas/uSort-M"
+Homepage = "https://github.com/micaholivas/usortm"
+Repository = "https://github.com/micaholivas/usortm"
 
 [tool.setuptools.packages.find]
 where = ["src"]
