@@ -354,6 +354,7 @@ def batch_demux(fastq,
             barcodes=barcodes,
             kit_name=kit_name,
             output_fastq=True,
+            max_reads=max_reads,
         )
 
 def create_read_df(base_dir):
