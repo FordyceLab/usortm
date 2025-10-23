@@ -505,29 +505,19 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
         from Bio import SeqIO
         ref_seqs = {rec.id: str(rec.seq) for rec in SeqIO.parse(ref_fasta, "fasta")}
 
-    df = df[[
-            'read_name', 
-            'fbc_name', 
-            'rbc_name', 
-            'ref_name', 
-            'read_seq'
-            ]]
+        def get_ref_id(ref_name):
+            if pd.isna(ref_name):
+                return None
+            return ref_name.split(":", 1)[-1] if ":" in ref_name else ref_name
 
-    # Drop reads without barcodes 
-    df.dropna(subset=['fbc_name', 'rbc_name', 'ref_name'], inplace=True)
+        df["ref_id"] = df["ref_name"].apply(get_ref_id)
+        df["ref_seq"] = df["ref_id"].map(ref_seqs)
+        df["ref_len"] = df["ref_seq"].str.len()
 
-    # Add well position based on barcodes
-    df["well_pos"] = df.apply(lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1)
+    print(df["well_pos"].unique())
+    df = df.sort_values(by="well_pos", key=lambda s: s.map(_parse_well))
+    return df
 
-    # Reorder columns
-    df = df[[
-            'read_name', 
-            'fbc_name', 
-            'rbc_name', 
-            'well_pos',
-            'ref_name', 
-            'read_seq'
-            ]]
     
     display(df.head())
     
