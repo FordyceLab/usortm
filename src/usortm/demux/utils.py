@@ -346,7 +346,6 @@ def batch_demux(fastq,
         fq_out = os.path.join(output_root, fq_base)
         os.makedirs(fq_out, exist_ok=True)
 
-        print(f"→ Demuxing {fq} into {fq_out}")
         demux(
             data=fq,
             output=fq_out,
