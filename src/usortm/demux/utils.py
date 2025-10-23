@@ -323,17 +323,25 @@ def batch_demux(fastq,
                 output_root, 
                 toml, 
                 barcodes, 
-                kit_name="levSeq_bcs_map"
+                kit_name="levSeq_bcs_map",
+                max_reads=None,
                 ):
     """
     Recursively find all FASTQs under fastq_dir and demux them.
     Each FASTQ gets its own subdirectory in output_root.
+    Uses tqdm for prettier, compact progress output.
     """
-    fastqs = glob.glob(os.path.join(fastq_dir, "**", "*.fastq*"), recursive=True)
-    print(f"Found {len(fastqs)} FASTQ files")
-
-    for fq in fastqs:
-        # make output subdir based on input file name (without extension)
+    if fastq.endswith('.fastq'):
+        fastqs = [fastq]
+        print("Single fastq")
+    else:
+        fastqs = glob.glob(os.path.join(fastq, "**", "*.fastq*"), recursive=True)
+        print(f"Found {len(fastqs)} FASTQ file(s)\n")
+        
+    for i, fq in enumerate(fastqs):
+        # Get file size
+        fq_size = int(os.path.getsize(fq))
+        print(f"[{i+1}/{len(fastqs)}]\tDemuxing {os.path.basename(fq)}")
         fq_base = os.path.splitext(os.path.basename(fq))[0]
         fq_out = os.path.join(output_root, fq_base)
         os.makedirs(fq_out, exist_ok=True)
