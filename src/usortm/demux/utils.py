@@ -563,3 +563,96 @@ def generate_well_df(read_df):
 
     return well_df
 
+def generate_per_well_consensus(well_df, read_df, out_root, reference_dir):
+    """Generate per-well consensus sequences and add alignment information to well_df
+    """
+    
+    # Make wells dir and wells/fastqs dir
+    wells_dir = os.path.join(out_root, "wells")
+    well_fastqs_dir = os.path.join(wells_dir, "fastqs")
+    os.makedirs(wells_dir, exist_ok=True)
+    os.makedirs(well_fastqs_dir, exist_ok=True)
+
+    # 1) Iterate over wells and export fastqs
+    all_wells = read_df['well_pos'].unique()
+
+    print("Writing per-well fastqs...")
+    for well in tqdm(all_wells):
+        current_per_well_df = read_df[read_df["well_pos"] == well]
+        out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
+
+        with open(out_path, "w") as f:
+            for _, row in current_per_well_df.iterrows():
+                f.write(f"@{row['read_name']}\n{row['read_seq']}\n+\n{row['read_qual']}\n")
+    
+    # Make consensus fastas
+    single_fasta_reference_dir = os.path.join(reference_dir, "single_ref_fastas")
+    well_consensus_dir = os.path.join(wells_dir, "consensus")
+    os.makedirs(well_consensus_dir, exist_ok=True)
+
+    # Add columns if missing
+    if "CIGAR" not in well_df.columns:
+        well_df["CIGAR"] = None
+    if "cons_seq" not in well_df.columns:
+        well_df["cons_seq"] = None
+
+    print("Generating consensus alignments...")
+    for well in tqdm(all_wells):
+        if well not in well_df["global_well"].values:
+            continue
+
+        major_ref = well_df.loc[well_df["global_well"] == well, "major_ref"].iloc[0]
+        if ":" in major_ref:
+            major_ref = major_ref.split(":")[-1]
+
+        ref_fa = os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta")
+        fq = os.path.join(well_fastqs_dir, f"{well}.fastq")
+        bam = os.path.join(well_consensus_dir, f"{well}.bam")
+        cons_fa = os.path.join(well_consensus_dir, f"{well}_consensus.fasta")
+        cons_bam = os.path.join(well_consensus_dir, f"{well}_consensus_align.bam")
+
+        # 1) Align reads to reference
+        subprocess.run(
+            f"minimap2 -a {ref_fa} {fq} | samtools sort -o {bam}",
+            shell=True,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+        # 2) Generate consensus
+        subprocess.run(
+            f"samtools consensus -f fasta {bam} > {cons_fa}",
+            shell=True,
+            check=False,
+        )
+
+        # 3) Align consensus to reference
+        subprocess.run(
+            f"minimap2 -a {ref_fa} {cons_fa} | samtools sort -o {cons_bam}",
+            shell=True,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+        # 4) Extract and store CIGAR + consensus sequence
+        cigar_str, cons_seq = None, None
+        try:
+            # Read CIGAR from consensus alignment
+            with pysam.AlignmentFile(cons_bam, "rb") as bamfile:
+                for read in bamfile:
+                    if not read.is_unmapped:
+                        cigar_str = read.cigarstring
+                        break
+
+            # Read consensus sequence
+            if os.path.exists(cons_fa):
+                with open(cons_fa) as f:
+                    lines = f.read().splitlines()
+                    cons_seq = "".join(l for l in lines if not l.startswith(">"))
+        except Exception as e:
+            print(f"Error processing {well}: {e}")
+
+        well_df.loc[well_df["global_well"] == well, ["CIGAR", "cons_seq"]] = [cigar_str, cons_seq]
+
+    return well_df
+
