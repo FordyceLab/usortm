@@ -691,3 +691,66 @@ def extract_matches(well_df):
 
     return well_df
 
+def export_reference_map(df, 
+                         filename):
+
+    mapping_dict = {}
+
+    # get list of refs from reference fasta
+    all_refs = []
+    f = "reference_fasta/multi_entry.fasta"
+    with open(f, 'r') as handle:
+        for record in SeqIO.parse(handle, "fasta"):
+            all_refs.append(record.id)
+
+    for ref in all_refs:
+        # filter df for each ref
+        sub = df[df['ref_name'] == ref]
+
+        # get pure well with the most reads for that ref
+        counts = sub['well_pos'].value_counts()
+        if len(counts) == 0:
+            mapping_dict[ref] = ["Missed", True, "Missed"]
+            continue
+
+        top_well = counts.idxmax()
+        top_count = counts.max()
+        total_count = counts.sum()
+        top_frac = top_count / total_count
+        if top_count >= 50 and top_frac >= 0.9:
+            mapping_dict[ref] = [top_well, False, None]
+
+        # If less than 50 reads but 100% in one well, take it too
+        elif top_count < 50 and top_frac == 1.0:
+            mapping_dict[ref] = [top_well, True, f"Low reads ({top_count}), but homogeneous"]
+        
+        # If more than 50 reads but less than 90% in one well, flag it
+        elif top_count >= 50 and top_frac < 0.9:
+            mapping_dict[ref] = [top_well, True, f"Mixed reads: aligned to {top_frac:.1%} of reads"]
+
+    # Generate a DataFrame from the mapping_dict
+    mapping_df = pd.DataFrame.from_dict(mapping_dict, orient='index', columns=['Well', 'Flag', 'Note'])
+    mapping_df.index.name = 'Reference'
+    mapping_df = mapping_df.reset_index()
+
+    # Save to CSV
+    mapping_df.to_csv(os.path.join(export_dir, filename), index=False)
+
+def export_well_map(well_df, filename):
+    """Export a mapping of wells to references.
+    """
+    export_df = well_df.copy()
+
+    row_string = 'ABCDEFGHIJKLMNOP'
+
+    for index, row in well_df.iterrows():
+        well_df.at[index, 'Row'] = row_string.index(row['well'][0])
+        well_df.at[index, 'Col'] = row['well'][1:]
+
+    # Sort by plate and well
+    export_df = export_df.sort_values(['plate', 'Row', 'Col'])
+    export_df = export_df.drop(columns=['Row', 'Col'])
+    export_df = export_df.reset_index(drop=True)
+
+    # Save to CSV
+    export_df.to_csv(os.path.join(export_dir, filename), index=False)
