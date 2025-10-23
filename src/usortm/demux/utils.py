@@ -1,5 +1,5 @@
-
 import os, glob, re, subprocess, pysam
+import gzip
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,66 @@ import seaborn as sns
 from scipy import stats
 import matplotlib.pyplot as plt
 
+
+export_dir = "demux_results"
+
+def get_fastqs(root_dir):
+    """Get all nested fastqs within a directory
+    """
+    file_paths = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        for filename in filenames:
+            if filename.endswith('fastq'):
+                full_file_path = os.path.join(dirpath, filename)
+                file_paths.append(full_file_path)
+    return file_paths
+
+def count_fastq_reads(filepath):
+    """Count reads in fastq
+    """
+    count = 0
+    with open(filepath, 'r') as f:
+        for i, line in enumerate(f):
+            if i % 4 == 0:  # Every 4th line (0-indexed) is a new read header
+                count += 1
+    return count
+
+def count_all_fastqs(root_dir):
+    """Count all nested fastqs in a directory
+    """
+    fastqs = get_fastqs(root_dir)
+    reads = 0
+    for fastq in fastqs:
+        reads += count_fastq_reads(fastq)
+    return reads
+
+def extract_first_n_reads(input_fastq_path, output_fastq_path, num_reads=1000):
+    """
+    Extracts the first 'num_reads' from a FASTQ file and writes them to a new file.
+
+    Args:
+        input_fastq_path (str): Path to the input FASTQ file.
+        output_fastq_path (str): Path to the output FASTQ file.
+        num_reads (int): The number of reads to extract.
+    """
+    reads_written = 0
+    with open(input_fastq_path, 'r') as infile, open(output_fastq_path, 'w') as outfile:
+        while reads_written < num_reads:
+            # Read the four lines of a FASTQ record
+            id_line = infile.readline()
+            if not id_line:  # End of file reached before getting enough reads
+                break
+            seq_line = infile.readline()
+            plus_line = infile.readline()
+            qual_line = infile.readline()
+
+            # Write the four lines to the output file
+            outfile.write(id_line)
+            outfile.write(seq_line)
+            outfile.write(plus_line)
+            outfile.write(qual_line)
+
+            reads_written += 1
 
 def compute_mean_qualities(reads):
     return np.mean(reads.quality, axis=1)
