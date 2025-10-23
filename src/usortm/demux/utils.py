@@ -656,3 +656,38 @@ def generate_per_well_consensus(well_df, read_df, out_root, reference_dir):
 
     return well_df
 
+def extract_matches(well_df):
+    """Extract reference matches using consensus CIGAR string
+    """
+
+    for index, row in well_df.iterrows():
+        # Get CIGAR string, reference length
+        well = row['global_well']
+        ref_len = row['ref_len']
+        ref_seq = row['ref_seq']
+        cigar = row['CIGAR']
+        cons_seq = row['cons_seq']
+
+        status = ""
+
+        # 1) Check for perfect matches
+        if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
+            if int(cigar[:-1]) == int(ref_len):
+                status = "Perfect Match"
+            else:
+                status = "Partial Match"
+        else:
+            status = "Other Error"        
+            
+            # 2) Check for silent mutations
+            # Translate each sequence
+            if len(cons_seq) == ref_len:
+                if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                    status = "Silent Mutation"
+            else:
+                status = "Error"
+
+        well_df.at[index, "cons_check"] = status
+
+    return well_df
+
