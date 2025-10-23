@@ -283,6 +283,7 @@ def demux(
     emit_summary=True,
     bc_both_ends=False,
     no_trim=False,
+    max_reads=None,
 ):
     """
     Run Dorado demux with a custom barcode arrangement and sequences.
@@ -296,6 +297,9 @@ def demux(
         "-o", output,
     ]
 
+    if max_reads is not None:
+        command.append("--max-reads")
+        command.append(str(max_reads))
     if output_fastq:
         command.append("--emit-fastq")
     if emit_summary:
