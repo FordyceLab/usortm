@@ -428,47 +428,45 @@ def create_read_df(base_dir):
 
 def barcode_to_well(fbc_name, rbc_name):
     """
-    Map FBxx + RBxx to 384-well plate coordinate like '1A1'.
-    FB01–FB96 give position inside 96-well quadrant.
-    RB01–RB32 give plate number (1–8) and quadrant.
+    Map FBxx + RBxx to interleaved 384-well coordinate like '1A3'.
+    Interleaving (by quadrant):
+      TL(q=0): odd rows,  odd cols
+      TR(q=1): odd rows,  even cols
+      BL(q=2): even rows, odd cols
+      BR(q=3): even rows, even cols
+    RB01–RB32 -> plate 1–8 and quadrant order TL, TR, BL, BR.
+    FB01–FB96 index within the 96 grid (A–H x 1–12).
     """
     if pd.isna(fbc_name) or pd.isna(rbc_name):
         return None
 
-    # Parse integers from names
-    fb = int(fbc_name.replace("FB", "")) - 1  # 0-based
-    rb = int(rbc_name.replace("RB", "")) - 1  # 0-based
+    # Parse integers (0-based)
+    fb = int(str(fbc_name).replace("FB", "")) - 1  # 0..95
+    rb = int(str(rbc_name).replace("RB", "")) - 1  # 0..31
+    if not (0 <= fb < 96 and 0 <= rb < 32):
+        return None
 
-    # Plate number (1–8)
+    # Plate number (1..8) and quadrant (0..3)
     plate_num = (rb // 4) + 1
-    quadrant = rb % 4  # 0=TL, 1=TR, 2=BL, 3=BR
+    quadrant = rb % 4  # 0=TL,1=TR,2=BL,3=BR
 
-    # Position inside 96 quadrant
-    row96 = fb // 12     # 0–7
-    col96 = fb % 12      # 0–11
+    # 96-well row/col (0-based)
+    row96 = fb // 12       # 0..7 (A..H)
+    col96 = fb % 12        # 0..11 (1..12)
 
-    # Map quadrant to 384 offsets
-    if quadrant == 0:    # top-left
-        row384 = row96
-        col384 = col96
-    elif quadrant == 1:  # top-right
-        row384 = row96
-        col384 = col96 + 12
-    elif quadrant == 2:  # bottom-left
-        row384 = row96 + 8
-        col384 = col96
-    elif quadrant == 3:  # bottom-right
-        row384 = row96 + 8
-        col384 = col96 + 12
+    # Interleaved offsets (1-based parity)
+    # TL: (row+1, col+1) = (odd, odd)
+    # TR: (odd, even), BL: (even, odd), BR: (even, even)
+    row_off = 1 if quadrant in (0, 1) else 2
+    col_off = 1 if quadrant in (0, 2) else 2
 
-    # Convert to well notation
-    row_letter = string.ascii_uppercase[row384]   # A–P
-    col_num = col384 + 1                         # 1–24
-    return f"{plate_num}{row_letter}{col_num}"
+    # 384 coordinates (1-based)
+    row384 = row96 * 2 + row_off          # 1..16
+    col384 = col96 * 2 + col_off          # 1..24
 
-def format_df(df, fbc_df=None, rbc_df=None):
+    row_letter = string.ascii_uppercase[row384 - 1]  # A..P
+    return f"{plate_num}{row_letter}{col384}"
 
-    # --- map to names via index ---
     if fbc_df is not None and "fbc" in df.columns:
         df["fbc_name"] = df["fbc"].map(fbc_df["name"])
 
