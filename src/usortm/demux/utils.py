@@ -251,19 +251,28 @@ def read_in_barcodes(fbc_path, rbc_path):
 
     return fbc_df, rbc_df
 
-def write_barcode_fastas(fbc_df, rbc_df):
+def write_barcode_fastas(fbc_df, 
+                         rbc_df,
+                         export_dir="demux_results"
+                         ):
     """Write all barcodes to fasta files.
     """
+    # If output directory doesn't exist, create it
+    if not os.path.exists(export_dir):
+        os.makedirs(export_dir, exist_ok=True)
+
     # First write out fbcs from barcode_df to fasta
-    with open(f"dorado_fbcs.fasta", 'w') as f:
+    with open(os.path.join(export_dir, "dorado_fbcs.fasta"), 'w') as f:
         for index, row in fbc_df.iterrows():
             f.write(f">LevSeq-fbc-{1+index:02}\n{row['barcode']}\n")
+    print("Wrote forward barcodes to:\tdorado_fbcs.fasta")
 
     # First write out fbcs from barcode_df to fasta
-    with open(f"dorado_rbcs.fasta", 'w') as f:
+    with open(os.path.join(export_dir, "dorado_rbcs.fasta"), 'w') as f:
         for index, row in rbc_df.iterrows():
             f.write(f">LevSeq-rbc-{1+index:02}\n{row['barcode']}\n")
-
+    print("Wrote forward barcodes to:\tdorado_rbcs.fasta")
+    
 def demux(
     data,
     output,
