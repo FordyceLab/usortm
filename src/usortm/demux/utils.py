@@ -356,83 +356,74 @@ def batch_demux(fastq,
             output_fastq=True,
         )
 
-def create_read_df(base_dir, debug_read=None):
-    """
-    Create a DataFrame with one row per read, containing:
-    - read_name
-    - fbc (forward barcode index)
-    - rbc (reverse barcode index)
-    - ref_name (name of reference sequence aligned to)
-    - read_seq (nucleotide sequence of the read)
-    """
+def create_read_df(base_dir):
+    import os, re, glob, pandas as pd
+    from tqdm import tqdm
+    from Bio import SeqIO
 
-    # Collect in dicts for fast lookups
-    fbc_map, rbc_map, ref_map, seq_map = {}, {}, {}, {}
+    fbc_map, rbc_map, ref_map, seq_map, qual_map, avgq_map = {}, {}, {}, {}, {}, {}
+    malformed_counts = {"fbc": 0, "rbc": 0, "ref": 0}
 
-    # Clean read ID function
-    def clean_id(rec_id):
-        return rec_id.split()[0]  # drop anything after whitespace
+    def normalize_id(rid):
+        if not rid: return None
+        rid = rid.split()[0]
+        return re.sub(r"\|ref=.*|/[12]$|_pool_plates.*", "", rid)
 
-    # --- load FBC demux ---
-    print("Loading FBC demux...")
-    for fq in tqdm(glob.glob(os.path.join(base_dir, "fbc", "**", "*.fastq*"), recursive=True)):
-        fname = os.path.basename(fq)
-        if "unclassified" in fname:
-            continue
-        m = re.search(r"barcode(\d+)", fname)
-        if not m:
-            continue
+    print("Collecting FBC demux...")
+    for fq in tqdm(glob.glob(f"{base_dir}/fbc/**/*.fastq*", recursive=True)):
+        if "unclassified" in fq: continue
+        m = re.search(r"barcode(\d+)", fq)
+        if not m: continue
         fbc = int(m.group(1)) - 1
-        for rec in SeqIO.parse(fq, "fastq"):
-            if debug_read and rec.id == debug_read:
-                print(f"Found read {rec.id} in FBC demux with fbc={fbc}")
-            fbc_map[rec.id] = fbc
+        try:
+            for rec in SeqIO.parse(fq, "fastq"):
+                rid = normalize_id(rec.id)
+                if rid: fbc_map[rid] = fbc
+        except: malformed_counts["fbc"] += 1
 
-    # --- load RBC demux ---
-    print("Loading RBC demux...")
-    for fq in tqdm(glob.glob(os.path.join(base_dir, "rbc", "**", "*.fastq*"), recursive=True)):
-        fname = os.path.basename(fq)
-        if "unclassified" in fname:
-            continue
-        m = re.search(r"barcode(\d+)", fname)
-        if not m:
-            continue
+    print("Collecting RBC demux...")
+    for fq in tqdm(glob.glob(f"{base_dir}/rbc/**/*.fastq*", recursive=True)):
+        if "unclassified" in fq: continue
+        m = re.search(r"barcode(\d+)", fq)
+        if not m: continue
         rbc = int(m.group(1)) - 1
-        for rec in SeqIO.parse(fq, "fastq"):
-            if debug_read and rec.id == debug_read:
-                print(f"Found read {rec.id} in RBC demux with rbc={rbc}")
-            rbc_map[rec.id] = rbc
+        try:
+            for rec in SeqIO.parse(fq, "fastq"):
+                rid = normalize_id(rec.id)
+                if rid: rbc_map[rid] = rbc
+        except: malformed_counts["rbc"] += 1
 
-    # --- load per-ref FASTQs ---
-    print("Loading per-ref FASTQs...")
-    for fq in tqdm(glob.glob(os.path.join(base_dir, "refs", "**", "*.fastq"), recursive=True)):
-        ref_name = os.path.splitext(os.path.basename(fq))[0]
-        for rec in SeqIO.parse(fq, "fastq"):
-            if debug_read and rec.id == debug_read:
-                print(f"Found read {rec.id} in refs with ref_name={ref_name}")
-            rid = clean_id(rec.id)
-            ref_map[rid] = ref_name
-            seq_map[rid] = str(rec.seq)
+    print("Collecting reference reads...")
+    for direction in ["fwd", "rev"]:
+        for fq in tqdm(glob.glob(f"{base_dir}/refs/{direction}/**/*.fastq*", recursive=True)):
+            try:
+                for rec in SeqIO.parse(fq, "fastq"):
+                    rid = normalize_id(rec.id)
+                    if not rid: continue
+                    m = re.search(r"\|ref=([^\s|]+)", rec.id)
+                    ref_name = m.group(1) if m else None
+                    if ref_name:
+                        quals = rec.letter_annotations["phred_quality"]
+                        ref_map[rid] = f"{direction}:{ref_name}"
+                        seq_map[rid] = str(rec.seq)
+                        qual_map[rid] = "".join(chr(q + 33) for q in quals)
+                        avgq_map[rid] = sum(quals) / len(quals)
+            except: malformed_counts["ref"] += 1
 
-    # --- build final dataframe ---
     print("Building DataFrame...")
     all_reads = set(fbc_map) | set(rbc_map) | set(ref_map)
-
-    records = []
-    for rid in all_reads:
-        records.append({
-            "read_name": rid,
-            "fbc": fbc_map.get(rid),
-            "rbc": rbc_map.get(rid),
-            "ref_name": ref_map.get(rid),
-            "read_seq": seq_map.get(rid),
-        })
-
-    df = pd.DataFrame.from_records(records)
-    print("DataFrame complete.")
+    df = pd.DataFrame([{
+        "read_name": rid,
+        "fbc": fbc_map.get(rid),
+        "rbc": rbc_map.get(rid),
+        "ref_name": ref_map.get(rid),
+        "read_seq": seq_map.get(rid),
+        "read_qual": qual_map.get(rid),
+        "avg_qual": avgq_map.get(rid)
+    } for rid in all_reads])
 
     print(f"Total reads: {len(df):,}")
-
+    print(f"Malformed counts: {malformed_counts}")
     return df
 
 def barcode_to_well(fbc_name, rbc_name):
