@@ -474,12 +474,36 @@ def _parse_well(w):
     else:
         return None
 
+def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
+    """
+    Format merged demux/reference DataFrame.
+    Adds readable barcode names, well positions, reference sequences, and lengths.
+    """
+    # --- map barcode numeric IDs to names ---
     if fbc_df is not None and "fbc" in df.columns:
         df["fbc_name"] = df["fbc"].map(fbc_df["name"])
-
     if rbc_df is not None and "rbc" in df.columns:
         df["rbc_name"] = df["rbc"].map(rbc_df["name"])
 
+    # --- drop reads missing required info ---
+    df = df.dropna(subset=["fbc_name", "rbc_name", "ref_name"]).copy()
+
+    # --- add well position ---
+    df["well_pos"] = df.apply(
+        lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1
+    )
+
+    # --- reorder / include quality columns ---
+    cols = [
+        "read_name", "fbc_name", "rbc_name", "well_pos",
+        "ref_name", "read_seq", "read_qual", "avg_qual"
+    ]
+    df = df[[c for c in cols if c in df.columns]]
+
+    # --- add reference sequences and lengths ---
+    if ref_fasta is not None:
+        from Bio import SeqIO
+        ref_seqs = {rec.id: str(rec.seq) for rec in SeqIO.parse(ref_fasta, "fasta")}
 
     df = df[[
             'read_name', 
