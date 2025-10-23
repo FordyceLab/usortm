@@ -311,7 +311,15 @@ def demux(
 
     return subprocess.run(command, check=True)
 
-def batch_demux(fastq_dir, 
+def human_format(num):
+    """Convert large numbers to human-readable form (e.g. 12.3k)."""
+    for unit in ["", "k", "M", "B"]:
+        if abs(num) < 1000:
+            return f"{num:.0f}{unit}"
+        num /= 1000.0
+    return f"{num:.1f}T"
+
+def batch_demux(fastq, 
                 output_root, 
                 toml, 
                 barcodes, 
