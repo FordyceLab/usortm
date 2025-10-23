@@ -518,7 +518,48 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
     df = df.sort_values(by="well_pos", key=lambda s: s.map(_parse_well))
     return df
 
+def generate_well_df(read_df):
     
-    display(df.head())
+    # Copy df
+    temp_df = read_df.copy()
+    temp_df = temp_df.dropna(subset=['well_pos'])
+    all_wells = temp_df.well_pos.unique()
     
-    return df
+    # Generate well_df
+    well_df = pd.DataFrame()
+
+    for index, well in tqdm(enumerate(all_wells), total=len(all_wells)):
+        curr = read_df[read_df['well_pos'] == well]
+        depth = len(curr)
+        refs = curr['ref_name'].to_list()
+        major_ref = max(set(refs), key=refs.count)
+        major_freq = refs.count(major_ref)/len(curr)
+        ref_seq = curr[curr['ref_name'] == major_ref]['ref_seq'].iloc[0]
+        ref_len = int(curr[curr['ref_name'] == major_ref]['ref_len'].iloc[0])
+
+        parsed_well = _parse_well(well)
+        plate_num = parsed_well[0]
+        well_row = parsed_well[1]
+        well_col = parsed_well[2]
+        plate_well = well_row + str(well_col)
+
+        well_df.at[index, 'plate'] = plate_num
+        well_df.at[index, 'well'] = plate_well
+        well_df.at[index, 'global_well'] = well
+        well_df.at[index, 'depth'] = depth
+        well_df.at[index, 'well_row'] = well_row
+        well_df.at[index, 'well_col'] = well_col
+
+        well_df.at[index, 'major_ref'] = major_ref
+        well_df.at[index, 'major_freq'] = major_freq
+        well_df.at[index, 'ref_len'] = ref_len
+        well_df.at[index, 'ref_seq'] = ref_seq
+
+    well_df.dropna(subset=['plate', 'well_row', 'well_col'], inplace=True)
+    well_df.sort_values(by=['plate', 'well_row', 'well_col'], inplace=True)
+
+    # Drop well_row and well_col
+    well_df.drop(columns=['well_row', 'well_col'], inplace=True)
+
+    return well_df
+
