@@ -467,6 +467,13 @@ def barcode_to_well(fbc_name, rbc_name):
     row_letter = string.ascii_uppercase[row384 - 1]  # A..P
     return f"{plate_num}{row_letter}{col384}"
 
+def _parse_well(w):
+    if type(w) == str:
+        m = re.match(r"(\d+)([A-P]+)(\d+)", str(w))
+        return (int(m.group(1)), m.group(2), int(m.group(3))) if m else (None, None, None)
+    else:
+        return None
+
     if fbc_df is not None and "fbc" in df.columns:
         df["fbc_name"] = df["fbc"].map(fbc_df["name"])
 
