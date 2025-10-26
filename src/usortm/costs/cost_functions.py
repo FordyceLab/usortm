@@ -3,7 +3,10 @@ import math
 import numpy as np
 
 def idt_eblocks_synthesis_cost(length, fragment_number):
-    return length * fragment_number * 0.07
+    if (length > 300) and (length <= 500):
+        return fragment_number * 35
+    else:
+        return length * fragment_number * 0.07
 
 def idt_gblocks_synthesis_cost(length, fragment_number):
     return length * fragment_number * 0.09
@@ -113,6 +116,7 @@ def generate_commercial_cost_stats_dict(commercial_cost_comparison_dict, library
                 for provider_data in provider_dict.values()
                 for cost_dict in provider_data.values()
             ]
+            print(costs)
             stats_for_frag[n] = {
                 'min': min(costs),
                 'mean': sum(costs) / len(costs),
