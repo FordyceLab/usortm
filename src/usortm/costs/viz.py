@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 def plot_cost_singleFrag_varyLib(frag_len, 
                                  cost_stats, 
                                  usortm_cost_dict, 
-                                 plot_export_dir
+                                 plot_export_dir,
+                                 fold_savings_lib_size=1000
                                  ):
 
     # =======================
@@ -68,20 +69,22 @@ def plot_cost_singleFrag_varyLib(frag_len,
         ax.scatter([crossover_x], [crossover_y], s=20, color='black', zorder=3)
 
     # --- Add dashed line + savings annotation at 1000 library size ---
-    lib_target = 1000
-    if lib_target in sizes and lib_target in usort_sizes:
-        grey_y = np.interp(lib_target, sizes, means)
-        blue_y = np.interp(lib_target, usort_sizes, usort_costs)
-        fold_savings = grey_y / blue_y
+    if fold_savings_lib_size:
+        lib_target = fold_savings_lib_size
+        if lib_target in sizes and lib_target in usort_sizes:
+            grey_y = np.interp(lib_target, sizes, means)
+            blue_y = np.interp(lib_target, usort_sizes, usort_costs)
+            fold_savings = grey_y / blue_y
 
-        # Dashed connector line
-        ax.plot([lib_target, lib_target], [blue_y, grey_y],
-                color='black', linestyle=(0, (3, 3)), linewidth=1, zorder=2)
-
-        # Arrows and label
-        ax.text(lib_target * 1.05, (grey_y + blue_y) / 2,
-                f"{fold_savings:.1f}-fold savings\n@{lib_target:,}",
-                va='center', ha='left', fontsize=8)
+            # Dashed connector line with endpoints and centered label
+            mid_y = (grey_y + blue_y) / 2
+            ax.plot([lib_target, lib_target], [blue_y, grey_y],
+                    color='black', linestyle='--', linewidth=1, zorder=2)
+            ax.scatter([lib_target, lib_target], [blue_y, grey_y],
+                    color='black', s=6, zorder=3)
+            ax.text(lib_target * 1.05, mid_y,
+                    f"{fold_savings:.1f}-fold savings\n@{lib_target:,}",
+                    va='center', ha='left', fontsize=8)
 
     # Set faceolor to none
     ax.set_facecolor('none')
