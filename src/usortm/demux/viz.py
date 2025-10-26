@@ -10,6 +10,44 @@ from bokeh.models import (
 from bokeh.layouts import column
 from bokeh.io import output_notebook
 
+def plot_length_hist(fastq, ax=None):
+    """
+    """
+    # Parse lengths
+    lengths = []
+    with open(fastq, 'r') as f:
+        for i, line in enumerate(f):
+            if i % 4 == 1:
+                lengths.append(len(line.strip()))
+    lengths = np.array(lengths)
+
+    # Plot
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    ax.hist(lengths,bins=50,alpha=0.4,)
+    ax.set_xlabel('Read Length (bp)')
+    ax.set_ylabel('Count')
+    ax.set_yticklabels([f"{int(x):,}" for x in ax.get_yticks()])
+
+    # Get N reads string:
+    if (len(lengths) >= 1000) and (len(lengths) < 1000000):
+        n_reads_str = f'N reads = {len(lengths)/1000:.1f}k'
+    elif len(lengths) >= 1000000:
+        n_reads_str = f'N reads = {len(lengths)/1000000:.1f}M'
+    else:
+        n_reads_str = f'N reads = {len(lengths)}'
+
+    ax.text(s=n_reads_str,x=0.95,y=0.9,fontdict={'fontsize':10}, ha='right', transform=plt.gca().transAxes)
+
+    # Calculate median and add triangle above it
+    median_len = np.median(lengths)
+    ax.plot([median_len], [ax.get_ylim()[1]*0.99], marker='v', color='red')
+    ax.text(s=f'Median = {int(median_len)} bp',x=0.95,y=0.85,fontdict={'fontsize':9}, color='red', ha='right', transform=plt.gca().transAxes)   
+
+    return ax
+
+
 def plot_quality_hist(reads, means):
     """
     """
