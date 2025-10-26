@@ -685,7 +685,15 @@ def extract_matches(well_df):
                 if Seq.translate(ref_seq) == Seq.translate(cons_seq):
                     status = "Silent Mutation"
             else:
-                status = "Error"
+                status = "Other Error"        
+                
+                # 2) Check for silent mutations
+                # Translate each sequence
+                if len(cons_seq) == ref_len:
+                    if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                        status = "Silent Mutation"
+                else:
+                    status = "Error"
 
         well_df.at[index, "cons_check"] = status
 
