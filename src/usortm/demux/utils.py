@@ -669,21 +669,17 @@ def extract_matches(well_df):
         cons_seq = row['cons_seq']
 
         status = ""
-
-        # 1) Check for perfect matches
-        if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
-            if int(cigar[:-1]) == int(ref_len):
-                status = "Perfect Match"
-            else:
-                status = "Partial Match"
+        
+        if cigar == None:
+            status = "Error"
+        
         else:
-            status = "Other Error"        
-            
-            # 2) Check for silent mutations
-            # Translate each sequence
-            if len(cons_seq) == ref_len:
-                if Seq.translate(ref_seq) == Seq.translate(cons_seq):
-                    status = "Silent Mutation"
+            # 1) Check for perfect matches
+            if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
+                if int(cigar[:-1]) == int(ref_len):
+                    status = "Perfect Match"
+                else:
+                    status = "Partial Match"
             else:
                 status = "Other Error"        
                 
