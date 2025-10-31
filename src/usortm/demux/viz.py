@@ -1,5 +1,8 @@
 import re, string, numpy as np, pandas as pd
 
+import bionumpy as bnp
+
+import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from bokeh.plotting import figure, show
@@ -25,7 +28,8 @@ def plot_length_hist(fastq, ax=None):
     if ax is None:
         fig, ax = plt.subplots()
 
-    ax.hist(lengths,bins=50,alpha=0.4,)
+    # ax.hist(lengths,bins=50,alpha=0.4,)
+    sns.histplot(lengths, bins=50, kde=False, color='C0', ax=ax, element='step')
     ax.set_xlabel('Read Length (bp)')
     ax.set_ylabel('Count')
     ax.set_yticklabels([f"{int(x):,}" for x in ax.get_yticks()])
@@ -48,16 +52,26 @@ def plot_length_hist(fastq, ax=None):
     return ax
 
 
-def plot_quality_hist(reads, means):
+def plot_quality_hist(reads, means=None, ax=None):
+    """Plot histogram of mean quality scores per read
     """
-    """
+
+    # If reads is a filepath, load as a bionumpy array
+    if reads.endswith('.fastq') or reads.endswith('.fq'):
+        reads = bnp.open(reads).read()
+
+    if means is None:
+        # Parse mean qualities
+        means = np.mean(reads.quality, axis=1)
+
     # Compute the 10th percentile of the mean qualities
     plt_q_10 = np.quantile(means, 0.1)
 
     # Plot
-    ax = plt.subplot()
+    if ax is None:
+        fig, ax = plt.subplots()
 
-    ax.hist(means,bins=50)
+    sns.histplot(means,bins=50, element='step', color='C0', ax=ax, kde=False)
     ax.axvspan(plt_q_10,max(means),0,870,color='green',zorder=-10, alpha=0.2)
     ax.set_xlabel('Mean Q Score')
     ax.set_xlim(0,50)
