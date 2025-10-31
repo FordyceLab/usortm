@@ -1,18 +1,7 @@
-import os
-import time
-import glob
+"""Not finalized."""
+
 
 import numpy as np
-import pandas as pd
-import seaborn as sns
-from tqdm import tqdm
-import matplotlib.pyplot as plt
-
-from scipy import stats
-from scipy.stats import lognorm
-from scipy.stats import norm
-
-import bionumpy as bnp
 
 
 def model_distribution(N, skew=5, seed=0):
