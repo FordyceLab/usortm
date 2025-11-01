@@ -67,7 +67,13 @@ def sortm(
     """
     samples = np.arange(n_sims)
 
+    # Initialize list of seeds for all simulations
+    if seed is not None:
+        seeds = np.arange(seed, seed + n_sims)
+
     for i in range(n_sims):
+        if seed is not None:
+            seed = seeds[i]
         pool = generate_pool(lib_size, skew, seed)
         assembled_pool = assemble(pool, p_incorrect)
         clones = transform(assembled_pool, transformation_scale, seed)
