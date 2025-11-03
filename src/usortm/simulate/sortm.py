@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from .sample import (
     generate_pool,
@@ -98,6 +99,7 @@ def simulate_coverage_curve(
     p_grow=0.67,
     p_fail=0.03,
     seed=None,
+    pbar=True,
 ):
     """Run the sortm function for many values of sorted wells and for many
     simulations per each value.
@@ -118,7 +120,7 @@ def simulate_coverage_curve(
     all_samples = {}
 
     # For each value of # wells sampled
-    for fold_sampling in fold_samplings:
+    for fold_sampling in tqdm(fold_samplings, disable=not pbar):
 
         # Sort them
         samples = sortm(
