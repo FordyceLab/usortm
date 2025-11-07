@@ -22,3 +22,6 @@ Repository = "https://github.com/micaholivas/usortm"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["usortm*"]
+
+[tool.setuptools.package-data]
+usortm = ["*.mplstyle"]

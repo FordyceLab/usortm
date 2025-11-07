@@ -1,0 +1,32 @@
+# publication.mplstyle
+figure.dpi: 300
+savefig.dpi: 300
+figure.figsize: 2.5, 2.5
+
+font.family: Helvetica
+font.size: 7
+
+axes.linewidth: 0.5
+axes.labelsize: 10
+
+xtick.labelsize: 8
+ytick.labelsize: 8
+
+xtick.direction: out
+ytick.direction: out
+
+xtick.major.size: 2.5
+ytick.major.size: 2.5
+xtick.major.width: 0.5
+ytick.major.width: 0.5
+
+xtick.minor.size: 1.5
+ytick.minor.size: 1.5
+xtick.minor.width: 0.5
+ytick.minor.width: 0.5
+
+lines.linewidth: 0.75
+legend.fontsize: 6
+
+pdf.fonttype: 42
+ps.fonttype: 42
