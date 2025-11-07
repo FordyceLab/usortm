@@ -168,3 +168,70 @@ def simulate_coverage_curve(
     df.insert(0, 'transformants', int(lib_size*transformation_scale))
 
     return df
+
+def simulate_coverage_curve_with_resampling(
+    n_wells=np.linspace(1, 3000, 20),
+    lib_size=328,
+    n_sims=100,
+    skew=4,
+    transformation_scale=30,
+    p_incorrect=0.1,
+    p_grow=0.67,
+    p_fail=0.03,
+    seed=None,
+    pbar=True,
+    resampling_well_count=None
+):
+    """
+    Simulate coverage curves with and without resampling from the remaining library.
+    Adds a 'Resampled' column for comparison.
+    """
+    rng = np.random.default_rng(seed)
+    starting_lib_size = lib_size
+    base_args = dict(
+        skew=skew,
+        transformation_scale=transformation_scale,
+        p_incorrect=p_incorrect,
+        p_grow=p_grow,
+        p_fail=p_fail,
+        n_sims=n_sims,
+        return_correct=True,
+        seed=seed,
+    )
+
+    def simulate_curve(resampled=False):
+        all_samples = {}
+        total_recovered, curr_lib_size = 0, starting_lib_size
+        samples_prev = np.zeros(n_sims)
+
+        for wells in tqdm(n_wells, disable=not pbar):
+            # Resynthesize at the resampling point
+            if resampled and resampling_well_count and wells == resampling_well_count:
+                recovered = int(np.mean(samples_prev))
+                total_recovered += recovered
+                curr_lib_size = starting_lib_size - recovered
+                samples_prev = np.zeros(n_sims)
+
+            # Adjust wells if past resampling point
+            curr_wells = wells - resampling_well_count if (
+                resampled and resampling_well_count and wells >= resampling_well_count
+            ) else wells
+
+            samples = sortm(lib_size=curr_lib_size,
+                            fold_sampling=curr_wells / curr_lib_size,
+                            **base_args)
+            samples = np.array(samples) + total_recovered
+            all_samples[wells] = samples
+            samples_prev = samples
+
+        df = pd.DataFrame(all_samples).melt(var_name='wells sampled', value_name='unique variants')
+        df['coverage'] = df['unique variants'] / starting_lib_size
+        df['transformants'] = int(starting_lib_size * transformation_scale)
+        df['Resampled'] = resampled
+        return df
+
+    # Combine both curves
+    df_noresamp = simulate_curve(resampled=False)
+    df_resamp = simulate_curve(resampled=True) if resampling_well_count else pd.DataFrame()
+    df_all = pd.concat([df_noresamp, df_resamp], ignore_index=True)
+    return df_all
