@@ -110,7 +110,8 @@ def assemble(pool, p_incorrect=0.3):
     """
     # Adjust to probs
     total = np.sum(pool)
-    probs = np.array(pool/total)
+    # probs = np.array(pool/total)
+    probs = pool/total
 
     # Remove these from pool
     new_probs = probs*(1-p_incorrect)
@@ -190,7 +191,7 @@ def sort(clones, fold_sampling=8, p_grow=0.9, seed=None):
 
     """
     # Determine number of grown up wells
-    variants = np.sum(clones)-1
+    variants = len(clones)-1
     sorted_wells = fold_sampling*variants
     grown_wells = p_grow*sorted_wells
     size = int(grown_wells)
