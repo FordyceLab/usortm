@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started - uSort-M</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="images/Thumbnail.png" type="image/png">
+  <!-- Highlight.js for code syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+  <style>
+    pre code.hljs {
+      background: #f6f8fa;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    pre {
+      background: #f6f8fa;
+      border-radius: 8px;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <a href="index.html" class="sidebar-header">
+        <img src="images/Thumbnail.png" alt="uSort-M">
+        <h1>uSort-M</h1>
+      </a>
+      
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html" class="active">Getting Started</a></li>
+      </ul>
+      
+      <div class="sidebar-section">Workflow</div>
+      <ul class="sidebar-nav">
+        <li><a href="workflow.html">Protocol Overview</a></li>
+        <li><a href="library-design.html">Library Design</a></li>
+        <li><a href="sorting.html">FACS Sorting</a></li>
+        <li><a href="barcoding.html">PCR Barcoding</a></li>
+        <li><a href="demultiplexing.html">Demultiplexing</a></li>
+      </ul>
+      
+      <div class="sidebar-section">Reference</div>
+      <ul class="sidebar-nav">
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="api.html">Python API</a></li>
+      </ul>
+      
+      <div class="sidebar-section">Links</div>
+      <ul class="sidebar-nav">
+        <li><a href="https://github.com/FordyceLab/usortm" target="_blank">GitHub</a></li>
+        <li><a href="https://www.fordycelab.com" target="_blank">Fordyce Lab</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main">
+      <div class="content">
+        <h1>Getting Started</h1>
+        
+        <h2>Installation</h2>
+        <p>uSort-M requires Python 3.8 or later.</p>
+        
+        <pre><code class="language-bash"># Install from source
+git clone https://github.com/FordyceLab/usortm.git
+cd usortm
+pip install -e ".[all]"</code></pre>
+        
+        <h3>Optional Dependencies</h3>
+        <p>The base installation includes cost estimation and CLI tools. Optional dependencies provide additional functionality:</p>
+        
+        <pre><code class="language-bash"># Visualization tools (matplotlib, bokeh)
+pip install -e ".[viz]"
+
+# Demultiplexing tools (biopython, pysam)
+pip install -e ".[demux]"
+
+# Development (pytest)
+pip install -e ".[dev]"
+
+# Everything
+pip install -e ".[all]"</code></pre>
+        
+        <h2>Quick Start</h2>
+        
+        <h3>1. Estimate Costs</h3>
+        <p>Before starting, get a quick estimate of costs and timeline:</p>
+        
+        <pre><code>usortm estimate --library-size 500 --seq-length 300</code></pre>
+        
+        <p>This displays:</p>
+        <ul>
+          <li>Cost breakdown (synthesis, cloning, sorting, barcoding, sequencing)</li>
+          <li>Comparison with traditional gene synthesis</li>
+          <li>Effort estimates (plates, time)</li>
+          <li>Projected timeline</li>
+        </ul>
+        
+        <h3>2. Plan Your Experiment</h3>
+        <p>Create a project from your variant list:</p>
+        
+        <pre><code>usortm plan variants.csv --output my_project/</code></pre>
+        
+        <p>Your <code>variants.csv</code> should contain your variant definitions:</p>
+        
+        <pre><code class="language-csv">name,mutation
+K44A,AAG->GCG
+G45A,GGC->GCG
+T46G,ACC->GGC</code></pre>
+        
+        <p>This generates:</p>
+        <ul>
+          <li><code>my_project/usortm_project.json</code> - Project state tracking</li>
+          <li><code>my_project/sorting_instructions.md</code> - Wet lab guide</li>
+          <li><code>my_project/barcodes/</code> - Barcode assignments</li>
+        </ul>
+        
+        <h3>3. Follow the Wet Lab Workflow</h3>
+        <p>The generated <code>sorting_instructions.md</code> contains detailed protocols for:</p>
+        
+        <div class="timeline">
+          <div class="timeline-item">
+            <span class="day">Day 1</span>
+            <span class="task">Pooled assembly and transformation</span>
+          </div>
+          <div class="timeline-item">
+            <span class="day">Day 2+</span>
+            <span class="task">FACS isolation into 384-well plates</span>
+          </div>
+          <div class="timeline-item">
+            <span class="day">Day N</span>
+            <span class="task">PCR barcoding and pooling</span>
+          </div>
+          <div class="timeline-item">
+            <span class="day">Submit</span>
+            <span class="task">Send for sequencing</span>
+          </div>
+        </div>
+        
+        <h3>4. Process Sequencing Data</h3>
+        <p>After receiving sequencing data:</p>
+        
+        <pre><code class="language-bash"># Demultiplex reads
+usortm demux my_project/ --fastq data.fastq
+
+# Generate hit-picking list
+usortm pick my_project/
+
+# Create final report
+usortm report my_project/</code></pre>
+        
+        <h2>Example Workflow</h2>
+        <p>Here's a complete example for a 500-variant library:</p>
+        
+        <pre><code class="language-bash"># Create variant list
+cat > variants.csv << EOF
+name,sequence
+variant_001,ATGAAG...
+variant_002,ATGGCG...
+EOF
+
+# Plan experiment
+usortm plan variants.csv --output acyp_library/ --seq-length 297
+
+# [Perform wet lab steps]
+# [Receive sequencing data]
+
+# Process results
+usortm demux acyp_library/ --fastq nanopore_data.fastq
+usortm pick acyp_library/
+usortm report acyp_library/
+
+# Final outputs in acyp_library/report/</code></pre>
+        
+        <h2>Next Steps</h2>
+        <ul>
+          <li><a href="workflow.html">Workflow Overview</a> - Detailed protocol information</li>
+          <li><a href="library-design.html">Library Design</a> - How to design your variant library</li>
+          <li><a href="cli.html">CLI Reference</a> - Complete command documentation</li>
+        </ul>
+        
+        <footer class="footer">
+          <p>
+            uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.
+          </p>
+        </footer>
+      </div>
+    </main>
+  </div>
+  <script>hljs.highlightAll();</script>
+</body>
+</html>
