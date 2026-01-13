@@ -94,44 +94,109 @@ def generate_commercial_costs(fragment_sizes, library_sizes, assembly_method, st
             - Cost: Cost in USD
             - CPV: Cost per variant in USD
     """
-    # --- Compute Costs ---
-    commercial_cost_comparison_dict = {}
+    if steps is None:
+        steps = ['synthesis', 'assembly', 'barcoding', 'sequencing']
+
+    cost_funcs = {
+        'synthesis': lambda frag_len, n, vendor: parsed_genefragments_synthesis_cost(frag_len, n, vendor),
+        'assembly': lambda frag_len, n, vendor: parsed_genefragments_assembly_cost(n, assembly_method),
+        'barcoding': lambda frag_len, n, vendor: parsed_genefragments_barcoding_cost(n),
+        'sequencing': lambda frag_len, n, vendor: parsed_genefragments_sequencing_cost(frag_len, n)
+    }
+
+    step_display_names = {
+        'synthesis': 'Synthesis',
+        'assembly': 'Assembly',
+        'barcoding': 'Barcoding',
+        'sequencing': 'Sequencing'
+    }
+
+    records = []
+    vendors = [
+        ('Twist', 'Gene Fragments', 'twist_genefragments'),
+        ('IDT', 'eBlocks', 'idt_eblocks'),
+        ('IDT', 'gBlocks', 'idt_gblocks')
+    ]
 
     for frag_len in fragment_sizes:
-        commercial_cost_comparison_dict[frag_len] = {
-            'Twist': {
-                'Gene Fragments': {
-                    int(n): int(twist_genefragments_synthesis_cost(frag_len, n)) + 
-                            int(parsed_genefragments_assembly_cost(n, assembly_method)) +
-                            int(parsed_genefragments_barcoding_cost(n)) +
-                            int(parsed_genefragments_sequencing_cost(frag_len, n))
-                    for n in library_sizes
-                }
-            },
-            'IDT': {
-                'eBlocks': {
-                    int(n): int(idt_eblocks_synthesis_cost(frag_len, n)) +
-                            int(parsed_genefragments_assembly_cost(n, assembly_method)) +
-                            int(parsed_genefragments_barcoding_cost(n)) +
-                            int(parsed_genefragments_sequencing_cost(frag_len, n))
-                    for n in library_sizes
-                },
-                'gBlocks': {
-                    int(n): int(idt_gblocks_synthesis_cost(frag_len, n)) +
-                            int(parsed_genefragments_assembly_cost(n, assembly_method)) +
-                            int(parsed_genefragments_barcoding_cost(n)) +
-                            int(parsed_genefragments_sequencing_cost(frag_len, n))
-                    for n in library_sizes
-                },
-            }
-        }
-    
-    return commercial_cost_comparison_dict
+        for n in library_sizes:
+            for vendor, product, vendor_key in vendors:
+                step_costs = []
+                for step in steps:
+                    if step in cost_funcs:
+                        cost = cost_funcs[step](frag_len, n, vendor_key)
+                        # Handle NaN values
+                        if cost is None or (isinstance(cost, float) and np.isnan(cost)):
+                            continue  # Skip this record if cost is NaN
+                        cost_int = int(cost)
+                        cpv = cost_int / n if n > 0 else 0
+                        records.append({
+                            "Length": int(frag_len),
+                            "Library Size": int(n),
+                            "Vendor": vendor,
+                            "Product": product,
+                            "Step": step_display_names[step],
+                            "Cost": cost_int,
+                            "CPV": cpv
+                        })
+                        step_costs.append(cost_int)
+
+                # Add total row if we had any valid costs
+                if step_costs:
+                    total_cost = sum(step_costs)
+                    total_cpv = total_cost / n if n > 0 else 0
+                    records.append({
+                        "Length": int(frag_len),
+                        "Library Size": int(n),
+                        "Vendor": vendor,
+                        "Product": product,
+                        "Step": "Total",
+                        "Cost": total_cost,
+                        "CPV": total_cpv
+                    })
+    return pd.DataFrame(records)
 
 def generate_commercial_cost_stats_dict(commercial_cost_comparison_dict, library_sizes):
     # --- Cost statistics ---
+    
+    # Handle DataFrame input
+    if isinstance(commercial_cost_comparison_dict, pd.DataFrame):
+        df = commercial_cost_comparison_dict
+        cost_stats = {}
+        
+        for frag_len in df['Length'].unique():
+            stats_for_frag = {}
+            frag_df = df[df['Length'] == frag_len]
+            
+            for n in library_sizes:
+                lib_df = frag_df[frag_df['Library Size'] == n]
+                # Sum costs by vendor/product combination
+                costs = lib_df.groupby(['Vendor', 'Product'])['Cost'].sum().values
+                
+                # Filter out any NaN or zero values
+                costs = [c for c in costs if not np.isnan(c) and c > 0]
+                
+                if len(costs) > 0:
+                    stats_for_frag[n] = {
+                        'min': min(costs),
+                        'mean': sum(costs) / len(costs),
+                        'max': max(costs),
+                        'count': len(costs),
+                    }
+                else:
+                    # No valid costs for this combination
+                    stats_for_frag[n] = {
+                        'min': np.nan,
+                        'mean': np.nan,
+                        'max': np.nan,
+                        'count': 0,
+                    }
+            cost_stats[frag_len] = stats_for_frag
+        
+        return cost_stats
+    
+    # Handle dictionary input (original logic)
     cost_stats = {}
-
     for frag_len, provider_dict in commercial_cost_comparison_dict.items():
         stats_for_frag = {}
         for n in library_sizes:
@@ -141,13 +206,23 @@ def generate_commercial_cost_stats_dict(commercial_cost_comparison_dict, library
                 for provider_data in provider_dict.values()
                 for cost_dict in provider_data.values()
             ]
-            print(costs)
-            stats_for_frag[n] = {
-                'min': min(costs),
-                'mean': sum(costs) / len(costs),
-                'max': max(costs),
-                'count': len(costs),
-            }
+            # Filter out NaN values
+            costs = [c for c in costs if not np.isnan(c)]
+            
+            if len(costs) > 0:
+                stats_for_frag[n] = {
+                    'min': min(costs),
+                    'mean': sum(costs) / len(costs),
+                    'max': max(costs),
+                    'count': len(costs),
+                }
+            else:
+                stats_for_frag[n] = {
+                    'min': np.nan,
+                    'mean': np.nan,
+                    'max': np.nan,
+                    'count': 0,
+                }
         cost_stats[frag_len] = stats_for_frag
 
     return cost_stats
@@ -174,7 +249,6 @@ def usortm_synthesis_cost(n_seqs,
     """
     # Check length: Twist for smaller than 300
     if seq_length <= 350:
-        print("Twist synthesis")
         # Select appropriate tier
         for (low, high), length_dict in library_costs.items():
             if low <= n_seqs <= high:
@@ -188,7 +262,6 @@ def usortm_synthesis_cost(n_seqs,
     
     # If larger than 300, use Instance pricing scheme
     else:
-        print("Instance synthesis")
         total_bp = seq_length*n_seqs
         if n_seqs < 3000:
             return 0.015*total_bp
@@ -232,6 +305,7 @@ def usortm_cloning_cost(library_size):
     return per_rxn*5
 
 def usortm_sorting_cost(library_size):
+    '''Calculate the sorting cost for a given library size.'''
     cost = 0
 
     # Assume 8x sorting
@@ -240,8 +314,8 @@ def usortm_sorting_cost(library_size):
     # Get number of 384-well plates
     n_plates = int(total_wells/384)
 
-    # Get sort minutes, assuming 30 minutes per plate
-    sort_minutes = n_plates*30
+    # Get total sort time in minutes, assuming 6 minutes per plate
+    sort_minutes = n_plates*6
 
     # Add one hour for setup and cleaning
     sort_minutes += 60
@@ -252,25 +326,24 @@ def usortm_sorting_cost(library_size):
     machine_hourly_rate = 70
     operator_hourly_rate = 65
 
+    # Compute total cost
     total_cost = (sort_minutes/60)*(machine_hourly_rate+operator_hourly_rate)
 
     return total_cost
 
-def usortm_barcoding_cost(library_size):
+def usortm_barcoding_cost(n_wells):
     # Assume 8x sorting
-    total_wells = library_size*8
-    n_plates = int(total_wells/384) # Get number of 384-well plates
+    # total_wells = library_size*8
+    total_wells = n_wells
+    n_plates = int(n_wells/384) # Get number of 384-well plates
     return n_plates*97.73 # From cost sheet
 
-def usortm_sequencing_cost(library_size, seq_length):
+def usortm_sequencing_cost(n_wells, seq_length):
     # Base cost of Plasmidsaurus Custom Sequencing
     cost = 500
 
-    # Assume 8x sorting
-    total_wells = library_size*8
-
     # 100 minimum reads per well
-    total_reads = total_wells*100
+    total_reads = n_wells*100
 
     # ASSUMING READ LENGTH IS CDS + 100 BASES FOR BARCODES
     total_bp = total_reads*(seq_length+100)
@@ -296,24 +369,74 @@ def usortm_hitpicking_cost(library_size, seq_length):
 
     return cost
 
-# --- uSort-M cost function ---
-def usortm_total_cost(library_sizes, seq_lengths):
-    
-    cost_dict = {}
+def get_usortm_costs(library_sizes, seq_lengths, steps=None):
+    """Compute total uSort-M costs for given library sizes and sequence lengths.
 
+    Calculates costs for the uSort-M workflow including oligo synthesis, cloning,
+    sorting, barcoding, sequencing, and hit-picking steps.
+
+    Args:
+        library_sizes: List of library sizes (number of variants) to evaluate.
+        seq_lengths: List of sequence lengths (bp) to evaluate.
+        steps: List of cost steps to include. Options: 'synthesis', 'cloning',
+               'sorting', 'barcoding', 'sequencing', 'hitpicking'. If None, includes all steps.
+
+    Returns:
+        pandas DataFrame with columns:
+            - Length: Sequence length (bp)
+            - Library Size: Number of variants
+            - Step: Cost step name (Synthesis, Cloning, Sorting, Barcoding, Sequencing, Hitpicking, Total)
+            - Cost: Cost in USD
+            - CPV: Cost per variant in USD
+    """
+    if steps is None:
+        steps = ["synthesis", "cloning", "sorting", "barcoding", "sequencing", "hitpicking"]
+
+    cost_funcs = {
+        "synthesis": lambda lib_size, seq_length: usortm_synthesis_cost(lib_size, seq_length),
+        "cloning": lambda lib_size, seq_length: usortm_cloning_cost(lib_size),
+        "sorting": lambda lib_size, seq_length: usortm_sorting_cost(lib_size),
+        "barcoding": lambda lib_size, seq_length: usortm_barcoding_cost(n_wells=lib_size*4),
+        "sequencing": lambda lib_size, seq_length: usortm_sequencing_cost(n_wells=lib_size*4, seq_length=seq_length),
+        "hitpicking": lambda lib_size, seq_length: usortm_hitpicking_cost(lib_size, seq_length),
+    }
+
+    step_display_names = {
+        "synthesis": "Synthesis",
+        "cloning": "Cloning",
+        "sorting": "Sorting",
+        "barcoding": "Barcoding",
+        "sequencing": "Sequencing",
+        "hitpicking": "Hitpicking"
+    }
+
+    records = []
     for seq_length in seq_lengths:
-        single_len_dict = {}
-
         for lib_size in library_sizes:
-            cost = usortm_synthesis_cost(lib_size, seq_length)
-            cost += usortm_cloning_cost(lib_size)
-            cost += usortm_sorting_cost(lib_size)
-            cost += usortm_barcoding_cost(lib_size)
-            cost += usortm_sequencing_cost(lib_size, seq_length)
-            cost += usortm_hitpicking_cost(lib_size, seq_length)
+            step_costs = []
+            for step in steps:
+                if step in cost_funcs:
+                    cost = cost_funcs[step](lib_size, seq_length)
+                    cost_int = int(cost)
+                    cpv = cost_int / lib_size if lib_size > 0 else 0
+                    records.append({
+                        "Length": int(seq_length),
+                        "Library Size": int(lib_size),
+                        "Step": step_display_names[step],
+                        "Cost": cost_int,
+                        "CPV": cpv,
+                    })
+                    step_costs.append(cost_int)
 
-            single_len_dict[int(lib_size)] = int(cost)
-        
-        cost_dict[int(seq_length)] = single_len_dict
-        
-    return cost_dict
+            # Add total row
+            if step_costs:
+                total_cost = sum(step_costs)
+                total_cpv = total_cost / lib_size if lib_size > 0 else 0
+                records.append({
+                    "Length": int(seq_length),
+                    "Library Size": int(lib_size),
+                    "Step": "Total",
+                    "Cost": total_cost,
+                    "CPV": total_cpv,
+                })
+    return pd.DataFrame(records)
