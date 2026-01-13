@@ -1,6 +1,7 @@
 import os
 import math
 import numpy as np
+import pandas as pd
 
 def parsed_genefragments_synthesis_cost(length, fragment_number, method):
     
@@ -70,8 +71,28 @@ def parsed_genefragments_sequencing_cost(fragment_length, library_size):
 
     return cost
 
-def generate_commercial_cost_dict(fragment_sizes, library_sizes, assembly_method):
-    """Tabulate all commercial costs and store in dictionary
+def generate_commercial_costs(fragment_sizes, library_sizes, assembly_method, steps=None):
+    """Tabulate all commercial gene fragment synthesis costs.
+
+    Calculates costs for commercial gene fragment synthesis from vendors (Twist, IDT)
+    including synthesis, assembly, barcoding, and sequencing steps.
+
+    Args:
+        fragment_sizes: List of fragment sizes (bp) to evaluate.
+        library_sizes: List of library sizes (number of variants) to evaluate.
+        assembly_method: Assembly method to use ('hifi' or 'goldengate').
+        steps: List of cost steps to include. Options: 'synthesis', 'assembly',
+               'barcoding', 'sequencing'. If None, includes all steps.
+
+    Returns:
+        pandas DataFrame with columns:
+            - Length: Fragment length (bp)
+            - Library Size: Number of variants
+            - Vendor: Vendor name (Twist, IDT)
+            - Product: Product name (Gene Fragments, eBlocks, gBlocks)
+            - Step: Cost step name (Synthesis, Assembly, Barcoding, Sequencing, Total)
+            - Cost: Cost in USD
+            - CPV: Cost per variant in USD
     """
     # --- Compute Costs ---
     commercial_cost_comparison_dict = {}
