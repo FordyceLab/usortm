@@ -2,22 +2,26 @@ import os
 import math
 import numpy as np
 
-def idt_eblocks_synthesis_cost(length, fragment_number):
-    if (length > 300) and (length <= 500):
-        return fragment_number * 35
-    else:
-        return length * fragment_number * 0.07
-
-def idt_gblocks_synthesis_cost(length, fragment_number):
-    return length * fragment_number * 0.09
-
-def twist_genefragments_synthesis_cost(length, fragment_number):
-    if length < 300:
-        return None
-    elif 300 <= length <= 500:
-        return fragment_number * 35
-    else:
-        return length * fragment_number * 0.07
+def parsed_genefragments_synthesis_cost(length, fragment_number, method):
+    
+    if method == 'idt_eblocks':
+        if (length > 300) and (length <= 500):
+            return fragment_number * 35
+        else:
+            return length * fragment_number * 0.07
+    
+    elif method == 'idt_gblocks':
+        return length * fragment_number * 0.09
+    
+    elif method == 'twist_genefragments':
+        if length < 300:
+            return np.nan  # Return NaN instead of None
+        elif 300 <= length <= 500:
+            return fragment_number * 35
+        else:
+            return length * fragment_number * 0.07
+    
+    return np.nan  # Default return for unknown methods
     
 def parsed_genefragments_assembly_cost(library_size, assembly_method):
     cost = 0
