@@ -5,7 +5,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-uSort-M converts pooled DNA libraries into collections of individually-isolated, sequence-verified variants at a fraction of traditional gene synthesis costs.
+uSort-M converts pooled DNA libraries into large collections of individually-isolated, sequence-verified variants at a fraction of traditional gene synthesis costs.
 
 ## Overview
 
