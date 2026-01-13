@@ -1,13 +1,15 @@
 # publication.mplstyle
-figure.dpi: 300
-savefig.dpi: 300
+figure.dpi: 150 # for on-screen display
+savefig.dpi: 300 # for saving rasterized plots
 figure.figsize: 2.5, 2.5
 
-font.family: Helvetica
-font.size: 7
+# Arial is visually similar to Helvetica and typically available as .ttf (not .ttc)
+font.family: Arial
+font.size: 8
 
 axes.linewidth: 0.5
 axes.labelsize: 10
+axes.edgecolor: black  # Set spine color to black (overrides seaborn's grey default)
 
 xtick.labelsize: 8
 ytick.labelsize: 8
@@ -15,8 +17,8 @@ ytick.labelsize: 8
 xtick.direction: out
 ytick.direction: out
 
-xtick.major.size: 2.5
-ytick.major.size: 2.5
+xtick.major.size: 3
+ytick.major.size: 3
 xtick.major.width: 0.5
 ytick.major.width: 0.5
 
@@ -26,7 +28,7 @@ xtick.minor.width: 0.5
 ytick.minor.width: 0.5
 
 lines.linewidth: 0.75
-legend.fontsize: 6
+legend.fontsize: 8
 
-pdf.fonttype: 42
+pdf.fonttype: 42  # Embed TrueType fonts for Illustrator compatibility
 ps.fonttype: 42
