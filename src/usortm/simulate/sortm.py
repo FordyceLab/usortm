@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from pysam import samples
 from tqdm import tqdm
 
 from .sample import (
@@ -64,7 +65,6 @@ def sortm(
         library member and the value corresponds to its abundance, or the
         number of sequenced wells containing that variant.
     
-    
     """
     samples = np.arange(n_sims)
 
@@ -75,6 +75,7 @@ def sortm(
     for i in range(n_sims):
         if seed is not None:
             seed = seeds[i]
+
         pool = generate_pool(lib_size, skew, seed)
         assembled_pool = assemble(pool, p_incorrect)
         clones = transform(assembled_pool, transformation_scale, seed)
@@ -90,7 +91,7 @@ def sortm(
 
 
 def simulate_coverage_curve(
-    fold_samplings=np.linspace(1, 5000, 25)/328,
+    fold_samplings=np.linspace(1, 10, 20),
     lib_size=328,
     n_sims=100,
     skew=4,
@@ -127,6 +128,7 @@ def simulate_coverage_curve(
             lib_size=lib_size,
             fold_sampling=fold_sampling,
             skew=skew,
+            n_sims=n_sims,
             transformation_scale=transformation_scale,
             p_incorrect=p_incorrect,
             p_grow=p_grow,
@@ -136,14 +138,14 @@ def simulate_coverage_curve(
         )
         
         # Add samples to dictionary
-        all_samples[fold_sampling] = samples
+        all_samples[float(fold_sampling)] = samples
         
         # Add zero
         all_samples[0] = np.array([0]*n_sims)
 
     # Convert to df
     df = pd.DataFrame(all_samples).melt(
-        var_name='wells sampled',
+        var_name='fold-sampling',
         value_name='unique variants'
     )
 
@@ -163,7 +165,7 @@ def simulate_coverage_curve(
         'PCR failure rate',
     ])
 
-    df.insert(0, 'fold-sampling', df['wells sampled']/lib_size)
+    df.insert(0, 'wells sampled', df['fold-sampling']*lib_size)
     df.insert(1, 'coverage', df['unique variants']/lib_size)
     df.insert(0, 'transformants', int(lib_size*transformation_scale))
 
