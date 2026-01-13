@@ -1,0 +1,128 @@
+---
+title: "Getting Started"
+---
+
+## Installation
+
+uSort-M requires Python 3.8 or later.
+
+```bash
+# Install from PyPI (coming soon)
+pip install usortm
+
+# Or install from source
+git clone https://github.com/FordyceLab/usortm.git
+cd usortm
+pip install -e ".[all]"
+```
+
+### Dependencies
+
+The base installation includes cost estimation and CLI tools. Optional dependencies provide additional functionality:
+
+```bash
+# Visualization tools (matplotlib, bokeh)
+pip install usortm[viz]
+
+# Demultiplexing tools (biopython, pysam)
+pip install usortm[demux]
+
+# Everything
+pip install usortm[all]
+```
+
+## Quick Start
+
+### 1. Estimate costs
+
+Before starting, get a quick estimate of costs and timeline:
+
+```bash
+usortm estimate --library-size 500 --seq-length 300
+```
+
+This shows:
+
+- Cost breakdown (synthesis, cloning, sorting, barcoding, sequencing)
+- Comparison with traditional gene synthesis
+- Effort estimates (plates, time)
+- Projected timeline
+
+### 2. Plan your experiment
+
+Create a project from your variant list:
+
+```bash
+usortm plan variants.csv --output my_project/
+```
+
+Your `variants.csv` should contain your variant definitions:
+
+```csv
+name,mutation
+K44A,AAG->GCG
+G45A,GGC->GCG
+T46G,ACC->GGC
+```
+
+This generates:
+
+- `my_project/usortm_project.json` - Project state tracking
+- `my_project/sorting_instructions.md` - Wet lab guide
+- `my_project/barcodes/` - Barcode assignments
+
+### 3. Follow the wet lab workflow
+
+The generated `sorting_instructions.md` contains detailed protocols for:
+
+1. **Day 1**: Pooled assembly and transformation
+2. **Day 2+**: FACS isolation into 384-well plates
+3. **Day N**: PCR barcoding and pooling
+4. **Submit**: Send for sequencing
+
+### 4. Process sequencing data
+
+After receiving sequencing data:
+
+```bash
+# Demultiplex reads
+usortm demux my_project/ --fastq data.fastq
+
+# Generate hit-picking list
+usortm pick my_project/
+
+# Create final report
+usortm report my_project/
+```
+
+## Example Workflow
+
+Here's a complete example for a 500-variant library:
+
+```bash
+# Create variant list
+cat > variants.csv << EOF
+name,sequence
+variant_001,ATGAAG...
+variant_002,ATGGCG...
+EOF
+
+# Plan experiment
+usortm plan variants.csv --output acyp_library/ --seq-length 297
+
+# [Perform wet lab steps]
+# [Receive sequencing data]
+
+# Process results
+usortm demux acyp_library/ --fastq nanopore_data.fastq
+usortm pick acyp_library/
+usortm report acyp_library/
+
+# Final outputs in acyp_library/report/
+```
+
+## Next Steps
+
+- [Workflow Overview](workflow/index.qmd) - Detailed protocol information
+- [Cost Calculator](tools/cost-calculator.qmd) - Interactive cost estimation
+- [CLI Reference](cli-reference.qmd) - Complete command documentation

@@ -1,0 +1,234 @@
+---
+title: "Cost Calculator"
+---
+
+Interactive tool for estimating uSort-M experiment costs.
+
+## Calculator
+
+```{ojs}
+//| echo: false
+//| panel: input
+
+viewof libSize = Inputs.range([50, 5000], {
+  value: 500, 
+  step: 50, 
+  label: "Library size (variants)"
+})
+
+viewof seqLen = Inputs.range([100, 1500], {
+  value: 300, 
+  step: 50, 
+  label: "Sequence length (bp)"
+})
+
+viewof foldSamp = Inputs.range([2, 20], {
+  value: 8, 
+  step: 1, 
+  label: "Fold sampling"
+})
+
+viewof skewVal = Inputs.range([1, 20], {
+  value: 4, 
+  step: 0.5, 
+  label: "Library skew (Q90/Q10)"
+})
+```
+
+### FACS Rates
+
+```{ojs}
+//| echo: false
+//| panel: input
+
+viewof machineRate = Inputs.range([0, 150], {
+  value: 70, 
+  step: 5, 
+  label: "Machine rate ($/hr)"
+})
+
+viewof operatorRate = Inputs.range([0, 150], {
+  value: 65, 
+  step: 5, 
+  label: "Operator rate ($/hr)"
+})
+```
+
+```{ojs}
+//| echo: false
+
+// Twist pricing
+twistPricing = [
+  {min: 2, max: 100, prices: {120: 400, 150: 466, 200: 520, 250: 689, 300: 1030, 350: 1288}},
+  {min: 101, max: 500, prices: {120: 800, 150: 933, 200: 1040, 250: 1379, 300: 2060, 350: 2575}},
+  {min: 501, max: 1000, prices: {120: 1200, 150: 1400, 200: 1560, 250: 2068, 300: 3090, 350: 3863}},
+  {min: 1001, max: 2000, prices: {120: 1600, 150: 1867, 200: 2080, 250: 2757, 300: 4121, 350: 5152}},
+  {min: 2001, max: 6000, prices: {120: 2400, 150: 2800, 200: 3120, 250: 4136, 300: 6181, 350: 7727}},
+]
+
+function getTwistCost(nSeqs, seqLength) {
+  const tier = twistPricing.find(t => nSeqs >= t.min && nSeqs <= t.max) || twistPricing[twistPricing.length - 1];
+  const lengths = [120, 150, 200, 250, 300, 350];
+  let bracket = lengths.find(l => seqLength <= l) || 350;
+  if (seqLength > 350) {
+    return nSeqs * seqLength * 0.09;  // Instance pricing
+  }
+  return tier.prices[bracket];
+}
+
+// Calculations
+synthCost = getTwistCost(libSize, seqLen)
+cloneCost = 53.60
+wells = Math.round(libSize * foldSamp)
+plates = Math.max(1, Math.ceil(wells / 384))
+sortMins = plates * 8 + 30
+sortCost = (sortMins / 60) * (machineRate + operatorRate)
+barcodeCost = plates * 97.73
+seqCost = 500 + (wells > 20000 ? 50 : 0)
+pickCost = libSize * 0.128 + Math.ceil(libSize / 384) * 7.84
+
+totalCost = synthCost + cloneCost + sortCost + barcodeCost + seqCost + pickCost
+
+// Traditional
+tradSynth = libSize * 35
+tradClone = libSize * (2680/250 + 165/(6*200) * 10)
+tradSeq = 500
+tradTotal = tradSynth + tradClone + tradSeq
+
+savingsFactor = tradTotal / totalCost
+```
+
+## Cost Summary
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+
+<div class="calculator-card">
+<h3>uSort-M Costs</h3>
+
+| Step | Cost |
+|------|-----:|
+| Synthesis | $${synthCost.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| Cloning | $${cloneCost.toFixed(0)} |
+| Sorting | $${sortCost.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| Barcoding | $${barcodeCost.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| Sequencing | $${seqCost.toFixed(0)} |
+| Hit-picking | $${pickCost.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| **Total** | **$${totalCost.toLocaleString(undefined, {maximumFractionDigits: 0})}** |
+
+</div>
+
+<div class="calculator-card">
+<h3>Traditional Synthesis</h3>
+
+| Step | Cost |
+|------|-----:|
+| Gene synthesis | $${tradSynth.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| Arrayed cloning | $${tradClone.toLocaleString(undefined, {maximumFractionDigits: 0})} |
+| Sequencing | $${tradSeq.toFixed(0)} |
+| **Total** | **$${tradTotal.toLocaleString(undefined, {maximumFractionDigits: 0})}** |
+
+</div>
+
+</div>
+
+<div class="results-panel" style="margin-top: 1.5rem;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div>
+<div style="font-size: 2rem; font-weight: 700; color: #059669;">
+${savingsFactor.toFixed(1)}x savings
+</div>
+<div style="color: #6b7280;">
+$${(tradTotal - totalCost).toLocaleString(undefined, {maximumFractionDigits: 0})} saved with uSort-M
+</div>
+</div>
+<div style="text-align: right;">
+<div style="font-weight: 600;">Cost per variant</div>
+<div style="font-size: 1.5rem; color: #059669;">$${(totalCost / libSize).toFixed(2)}</div>
+</div>
+</div>
+</div>
+
+## Effort Estimates
+
+```{ojs}
+//| echo: false
+
+sortHrs = sortMins / 60
+barcodeHrs = plates * 2
+sortDays = Math.max(1, Math.ceil((sortHrs + 2) / 8))
+barcodeDays = Math.max(1, Math.ceil(barcodeHrs / 8))
+totalDays = 1 + sortDays + barcodeDays + 3  // assembly + sort + barcode + seq
+```
+
+| Metric | Value |
+|--------|-------|
+| Total wells | ${wells.toLocaleString()} |
+| 384-well plates | ${plates} |
+| Sorting time | ${sortDays > 1 ? sortDays + " days (" + sortHrs.toFixed(1) + " hrs)" : sortHrs.toFixed(1) + " hours"} |
+| Barcoding time | ${barcodeDays > 1 ? barcodeDays + " days (" + barcodeHrs + " hrs)" : barcodeHrs + " hours"} |
+| **Total project time** | **~${totalDays} days** |
+
+## Cost Breakdown Visualization
+
+```{ojs}
+//| echo: false
+
+breakdownData = [
+  {step: "Synthesis", usortm: synthCost, traditional: tradSynth},
+  {step: "Cloning", usortm: cloneCost, traditional: tradClone},
+  {step: "Sorting", usortm: sortCost, traditional: 0},
+  {step: "Barcoding", usortm: barcodeCost, traditional: 0},
+  {step: "Sequencing", usortm: seqCost, traditional: tradSeq},
+  {step: "Hit-picking", usortm: pickCost, traditional: 0},
+]
+
+Plot.plot({
+  height: 350,
+  marginLeft: 100,
+  marginRight: 80,
+  x: {
+    label: "Cost (USD)",
+    grid: true,
+    tickFormat: d => `$${d.toLocaleString()}`
+  },
+  y: {
+    label: null,
+    domain: breakdownData.map(d => d.step)
+  },
+  marks: [
+    Plot.barX(breakdownData, {
+      y: "step",
+      x: "usortm",
+      fill: "#2563eb",
+      title: d => `uSort-M: $${d.usortm.toLocaleString()}`
+    }),
+    Plot.barX(breakdownData.filter(d => d.traditional > 0), {
+      y: "step",
+      x: "traditional",
+      fill: "#dc2626",
+      fillOpacity: 0.5,
+      title: d => `Traditional: $${d.traditional.toLocaleString()}`
+    }),
+    Plot.text(breakdownData, {
+      y: "step",
+      x: d => d.usortm,
+      text: d => `$${d.usortm.toLocaleString(undefined, {maximumFractionDigits: 0})}`,
+      dx: 5,
+      textAnchor: "start",
+      fill: "#2563eb"
+    }),
+    Plot.ruleX([0])
+  ]
+})
+```
+
+<div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
+<span style="display: flex; align-items: center; gap: 0.5rem;">
+<span style="width: 16px; height: 16px; background: #2563eb; border-radius: 2px;"></span>
+uSort-M
+</span>
+<span style="display: flex; align-items: center; gap: 0.5rem;">
+<span style="width: 16px; height: 16px; background: #dc2626; opacity: 0.5; border-radius: 2px;"></span>
+Traditional (where applicable)
+</span>
+</div>

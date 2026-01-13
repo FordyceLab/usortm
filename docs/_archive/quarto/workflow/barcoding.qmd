@@ -1,0 +1,181 @@
+---
+title: "PCR Barcoding"
+---
+
+## Overview
+
+After sorting and overnight growth, each well contains a clonal population. PCR barcoding adds well-specific DNA sequences that allow demultiplexing after pooled sequencing.
+
+## Barcode Systems
+
+### LevSeq (Recommended)
+
+Developed by the Arnold lab for Oxford Nanopore sequencing.
+
+**Advantages:**
+
+- Optimized for ONT error profile
+- 96 unique barcodes per plate
+- High demultiplexing accuracy
+- Well-characterized performance
+
+**Reference:** Wittmann BJ, et al. ACS Synth Biol. 2022.
+
+### evSeq
+
+Dual-indexing system with inner (well) and outer (plate) barcodes.
+
+**Advantages:**
+
+- Compatible with Illumina and ONT
+- 8 plate indices × 96 well indices = 768 unique combinations
+- Established protocol
+
+**Barcode structure:**
+
+```
+[Nextera adapter]-[plate i5/i7]-[inner well barcode]-[amplicon]-[inner well barcode]-[plate i5/i7]-[Nextera adapter]
+```
+
+### Custom Barcodes
+
+You can use custom barcode sets by providing a CSV mapping:
+
+```csv
+plate,well,barcode_seq
+1,A1,ATCGATCG
+1,A2,GCTAGCTA
+...
+```
+
+## Protocol
+
+### 1. Prepare Master Mix
+
+For one 384-well plate:
+
+| Component | Volume (µL) | Final Concentration |
+|-----------|-------------|---------------------|
+| 10× ThermoPol Buffer | 576 | 1× |
+| 10 mM dNTPs | 115.2 | 200 µM each |
+| Taq Polymerase | 28.8 | 0.025 U/µL |
+| DMSO | 230.4 | 4% |
+| Inner Primer Mix (10 µM) | 11.52 | 0.2 µM |
+| Water | 3038 | - |
+
+Total: 4,000 µL (10.4 µL per reaction)
+
+### 2. Distribute to Plate
+
+1. Aliquot 10 µL master mix to each well of a new 384-well PCR plate
+2. Add 0.5 µL of well-specific forward barcode primer
+3. Add 0.5 µL of well-specific reverse barcode primer
+
+**Tip:** Use a liquid handling robot or multichannel pipette for accuracy.
+
+### 3. Add Template
+
+1. Transfer 1 µL of overnight culture to corresponding PCR well
+2. Seal plate with PCR film
+3. Centrifuge briefly
+
+### 4. PCR Cycling
+
+| Step | Temperature | Time | Cycles |
+|------|-------------|------|--------|
+| Initial denaturation | 95°C | 3 min | 1 |
+| Denaturation | 95°C | 30 sec | |
+| Annealing | 55°C | 30 sec | 25-30 |
+| Extension | 72°C | 1 min | |
+| Final extension | 72°C | 5 min | 1 |
+| Hold | 4°C | ∞ | |
+
+### 5. Pooling
+
+1. Pool 2 µL from each well into a single tube
+2. Run 5 µL on agarose gel to verify amplification
+3. Clean up with column or beads (optional but recommended)
+4. Quantify by Qubit or NanoDrop
+
+## Plate-Level Indexing
+
+For experiments with multiple 384-well plates, add plate-level indices:
+
+### Option 1: Nested PCR
+
+Perform a second PCR adding plate indices to the pooled, barcoded amplicons.
+
+### Option 2: Indexed Primers
+
+Include plate indices in the outer primers during the initial barcoding PCR.
+
+**Nextera indices (from SI Table S4):**
+
+| Plate | i7 Index | i5 Index |
+|-------|----------|----------|
+| 1 | TCTCTTGTGTGG | TTTAGTCATTGA |
+| 2 | GTGGTATCTGAC | AAGATACAAGAG |
+| 3 | CAGAAGGCTTAT | GAGGATACACAT |
+| 4 | TAGCCACCAGCA | CCGCCCGCTCTA |
+| 5 | TCCTCGTCCTCT | TCCGCTCGGTAA |
+| 6 | GGACAATGCCCA | CCTCACGCATCG |
+| 7 | TATCACAATCCA | TCGGACTCCTCG |
+| 8 | CGTGGTAACTTC | CCAGCCATCCCG |
+
+## Time Estimates
+
+| Step | Time per Plate | Notes |
+|------|----------------|-------|
+| Master mix prep | 15 min | One-time |
+| Distribute mix | 10 min | With multichannel |
+| Add barcodes | 30 min | Manual or robot |
+| Add template | 30 min | Transfer from growth plate |
+| PCR | 90 min | Cycling program |
+| Pooling | 15 min | Per plate |
+| **Total** | **~2 hours** | Per 384-well plate |
+
+For large experiments (>8 plates), budget multiple days for barcoding.
+
+## Troubleshooting
+
+### No PCR Product
+
+**Possible causes:**
+
+- Insufficient template (low growth)
+- Primer issues
+- Inhibitors in culture
+
+**Solutions:**
+
+- Verify growth by OD or visual inspection
+- Test primers on positive control
+- Dilute template 1:10
+
+### Multiple Bands
+
+**Possible causes:**
+
+- Non-specific amplification
+- Primer dimers
+- Mixed cultures (doublets)
+
+**Solutions:**
+
+- Increase annealing temperature
+- Reduce primer concentration
+- Verify singlet sorting
+
+### Variable Band Intensity
+
+**Possible causes:**
+
+- Uneven cell growth
+- Pipetting errors
+- Edge effects
+
+**Solutions:**
+
+- Normalize template by OD
+- Use electronic pipettes
+- Check plate seal integrity

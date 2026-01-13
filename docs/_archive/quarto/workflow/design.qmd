@@ -1,0 +1,114 @@
+---
+title: "Library Design"
+---
+
+## Overview
+
+uSort-M works with any pooled DNA library. The key requirements are:
+
+1. Variants can be distinguished by sequencing
+2. Library can be transformed into a selectable host
+3. Cells can be isolated by FACS
+
+## Variant Design
+
+### Single Mutations
+
+For single amino acid substitutions, design oligos encoding each mutation in the context of flanking sequence for assembly:
+
+```
+Wild-type:  ...AAG-GGC-ACC...  (K-G-T)
+Variant 1:  ...GCG-GGC-ACC...  (A-G-T)  K→A
+Variant 2:  ...AAG-GCG-ACC...  (K-A-T)  G→A
+Variant 3:  ...AAG-GGC-GGC...  (K-G-G)  T→G
+```
+
+### Combinatorial Libraries
+
+For combinatorial libraries, design with:
+
+- Degenerate codons (NNK, NNS)
+- Defined codon sets
+- Saturation mutagenesis
+
+### Sequence Length
+
+Optimal sequence lengths depend on your assembly method and synthesis provider:
+
+| Length | Synthesis Method | Notes |
+|--------|------------------|-------|
+| 30-120 bp | Twist oligo pool (Tier 1) | Ideal for single mutations |
+| 121-300 bp | Twist oligo pool (Tier 2-3) | Good for larger variants |
+| 300-350 bp | Twist oligo pool (highest tier) | Maximum for pools |
+| >350 bp | Individual gene synthesis | Higher cost per variant |
+
+## Assembly Strategy
+
+### Golden Gate Assembly
+
+Recommended for most applications. Design your oligos with:
+
+- BsaI or BsmBI recognition sites
+- 4-bp overhangs for directional assembly
+- Compatible with pooled, one-pot reactions
+
+```
+5'-[overhang1]-[BsaI]-[your_sequence]-[BsaI]-[overhang2]-3'
+```
+
+### Gibson Assembly
+
+Use for larger inserts or when restriction sites are problematic:
+
+- 20-40 bp overlaps with destination vector
+- Single-tube isothermal reaction
+- Works well with pooled inputs
+
+## Ordering from Twist
+
+For Twist Bioscience oligo pools:
+
+1. Design sequences with required flanking regions
+2. Choose appropriate pool tier based on variant count
+3. Add amplification primers to each end
+4. Order as "Oligo Pool"
+
+**Pricing reference (from SI Table S2):**
+
+| Variants | 120 bp | 200 bp | 300 bp | 350 bp |
+|----------|--------|--------|--------|--------|
+| 2-100 | $400 | $520 | $1,030 | $1,288 |
+| 101-500 | $800 | $1,040 | $2,060 | $2,575 |
+| 501-1000 | $1,200 | $1,560 | $3,090 | $3,863 |
+| 1001-2000 | $1,600 | $2,080 | $4,121 | $5,152 |
+
+## Quality Control
+
+Before proceeding to sorting, verify your library by:
+
+1. **Amplification check**: PCR amplify pool, verify expected size
+2. **Sequencing QC**: Submit aliquot for amplicon sequencing
+3. **Transformation efficiency**: Plate dilutions to estimate CFU
+
+### Measuring Library Skew
+
+Library skew (Q90/Q10 ratio) affects required oversampling:
+
+| Skew | Required Fold Sampling | Notes |
+|------|------------------------|-------|
+| 1-2x | 2-3x | Ideal, well-balanced |
+| 2-4x | 4-6x | Typical for oligo pools |
+| 4-10x | 6-10x | Higher oversampling needed |
+| >10x | >10x | Consider re-synthesis |
+
+Measure skew by sequencing the input pool before transformation.
+
+## Example: hAcyP2 Library
+
+From the uSort-M paper, a 297-variant library of human Acylphosphatase 2:
+
+- **Sequence length**: 297 bp (99 amino acids)
+- **Variant design**: Single codon substitutions to Gly, Ala, Phe, or amber stop
+- **Assembly**: Golden Gate into pET-based expression vector
+- **Measured skew**: 1.99x (Q90/Q10)
+- **Recovery**: 95.3% at 8x oversampling

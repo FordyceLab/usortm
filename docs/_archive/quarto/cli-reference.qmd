@@ -1,0 +1,267 @@
+---
+title: "CLI Reference"
+---
+
+## Overview
+
+The uSort-M command-line interface provides tools for planning experiments, processing sequencing data, and generating outputs.
+
+```bash
+usortm --help
+```
+
+## Commands
+
+### `usortm estimate`
+
+Quick cost and effort estimation without creating a project.
+
+```bash
+usortm estimate --library-size 500 --seq-length 300
+```
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--library-size` | `-n` | Number of variants | *required* |
+| `--seq-length` | `-l` | Sequence length (bp) | 300 |
+| `--fold-sampling` | `-f` | Fold oversampling | 8.0 |
+| `--skew` | `-s` | Library skew (Q90/Q10) | 4.0 |
+| `--sorting-efficiency` | | Fraction of wells with growth | 0.67 |
+| `--machine-rate` | | FACS machine rate ($/hr) | 70 |
+| `--operator-rate` | | FACS operator rate ($/hr) | 65 |
+| `--compare/--no-compare` | | Show traditional comparison | True |
+| `--json` | | Output as JSON | False |
+
+**Example with custom parameters:**
+
+```bash
+usortm estimate \
+    --library-size 1500 \
+    --seq-length 450 \
+    --fold-sampling 10 \
+    --skew 6 \
+    --machine-rate 50 \
+    --operator-rate 40
+```
+
+---
+
+### `usortm plan`
+
+Initialize a project from a variant list.
+
+```bash
+usortm plan variants.csv --output my_project/
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `variants_file` | CSV file with variant definitions |
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--output` | `-o` | Output directory | `usortm_project` |
+| `--seq-length` | `-l` | Sequence length (bp) | 300 |
+| `--fold-sampling` | `-f` | Fold oversampling | 8.0 |
+| `--skew` | `-s` | Expected library skew | 4.0 |
+| `--target-coverage` | | Target recovery fraction | 0.90 |
+| `--barcodes` | `-b` | Barcode kit or CSV path | `levseq` |
+
+**Barcode options:**
+
+- `levseq` - Arnold lab LevSeq barcodes (recommended for ONT)
+- `evseq` - evSeq dual-indexing system
+- `path/to/barcodes.csv` - Custom barcode mapping
+
+**Generated files:**
+
+```
+my_project/
+├── usortm_project.json    # Project state
+├── variants.csv           # Copy of input variants
+├── sorting_instructions.md # Wet lab protocol
+└── barcodes/
+    └── levseq_template.csv # Barcode assignments
+```
+
+---
+
+### `usortm demux`
+
+Demultiplex sequencing data for a project.
+
+```bash
+usortm demux my_project/ --fastq data.fastq
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `project_dir` | Path to uSort-M project directory |
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--fastq` | `-f` | Input FASTQ file | *required* |
+| `--barcodes` | `-b` | Override barcode mapping | project default |
+| `--reference` | `-r` | Reference FASTA for alignment | None |
+| `--min-reads` | | Minimum reads per well | 100 |
+| `--min-fraction` | | Minimum consensus fraction | 0.8 |
+| `--threads` | `-t` | Threads for alignment | 4 |
+
+**Output:**
+
+```
+my_project/demux_output/
+├── demux_summary.json     # Summary statistics
+└── well_assignments.csv   # Variant per well
+```
+
+---
+
+### `usortm pick`
+
+Generate hit-picking list from demultiplexing results.
+
+```bash
+usortm pick my_project/
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `project_dir` | Path to uSort-M project directory |
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--targets` | `-t` | CSV of specific variants to pick | all |
+| `--output` | `-o` | Output file path | `project/hitlist.csv` |
+| `--volume` | `-v` | Transfer volume (µL) | 5.0 |
+| `--target-format` | | Target plate format (`96` or `384`) | 384 |
+| `--fill-order` | | Fill order (`column` or `row`) | column |
+| `--unique-only/--all-hits` | | Pick one well per variant | True |
+
+**Output format (semicolon-delimited):**
+
+```
+SampleID;SourcePlateID;SourceWell;TargetPlateID;TargetWell;TransferVolume
+K44A;1;K23;0;A1;5.0
+G45A;1;A11;0;B1;5.0
+```
+
+Compatible with Integra ASSIST PLUS liquid handling robots.
+
+---
+
+### `usortm report`
+
+Generate final report and plate maps.
+
+```bash
+usortm report my_project/
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `project_dir` | Path to uSort-M project directory |
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--format` | `-f` | Output format (`csv`, `html`, `json`, `all`) | all |
+
+**Output:**
+
+```
+my_project/report/
+├── summary.html          # Interactive HTML report
+├── plate_maps.csv        # Source and target assignments
+├── final_mapping.csv     # Variant to well mapping
+└── missing_variants.csv  # Unrecovered variants
+```
+
+---
+
+### `usortm integra`
+
+Standalone Integra ASSIST file generation (without project).
+
+```bash
+usortm integra variants.csv --output hitlist.csv
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `input_file` | CSV with variant, plate, well columns |
+
+**Options:**
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--output` | `-o` | Output file path | `hitlist.csv` |
+| `--volume` | `-v` | Transfer volume (µL) | 5.0 |
+| `--variant-col` | | Variant column name | `variant` |
+| `--plate-col` | | Plate column name | `plate` |
+| `--well-col` | | Well column name | `well` |
+| `--target-format` | | Target plate format | 384 |
+| `--fill-order` | | Fill order | column |
+
+---
+
+## JSON Output
+
+Several commands support `--json` output for programmatic use:
+
+```bash
+usortm estimate -n 500 -l 300 --json | jq '.costs.total'
+```
+
+Example JSON output:
+
+```json
+{
+  "library_size": 500,
+  "seq_length": 300,
+  "fold_sampling": 8.0,
+  "costs": {
+    "synthesis": 1373.33,
+    "cloning": 53.60,
+    "sorting": 117.00,
+    "barcoding": 977.30,
+    "sequencing": 500.00,
+    "hitpicking": 79.68,
+    "total": 3100.91
+  },
+  "effort": {
+    "total_wells": 4000,
+    "n_plates": 10,
+    "sort_hours": 1.8,
+    "sort_days": 1.0,
+    "barcode_hours": 20,
+    "barcode_days": 2.5
+  }
+}
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `USORTM_FACS_MACHINE_RATE` | Default FACS machine rate | 70 |
+| `USORTM_FACS_OPERATOR_RATE` | Default FACS operator rate | 65 |
