@@ -4,7 +4,28 @@ import numpy as np
 import pandas as pd
 
 def parsed_genefragments_synthesis_cost(length, fragment_number, method):
-    
+    """
+    Calculate gene fragment synthesis cost based on length, number of fragments, and method.
+
+    As of 1/13/2026, methods are priced as follows:
+        1. IDT eBlocks:
+            - Length > 300 and <= 500 bp: $35 per fragment
+            - Length <= 300 bp: $0.07 per base pair
+        2. IDT gBlocks:
+            - $0.09 per base pair
+        3. Twist Gene Fragments:
+            - Length < 300 bp: Not available (returns NaN)
+            - Length between 300 and 500 bp: $35 per fragment
+            - Length > 500 bp: $0.07 per base pair  
+
+    Args:
+        length: Length of the fragment in base pairs.
+        fragment_number: Number of fragments to be synthesized.
+        method: Synthesis method/vendor ('idt_eblocks', 'idt_gblocks', 'twist_genefragments').
+    Returns:
+        Cost in USD as a float, or NaN if not applicable.
+
+    """
     if method == 'idt_eblocks':
         if (length > 300) and (length <= 500):
             return fragment_number * 35
@@ -304,30 +325,34 @@ def usortm_cloning_cost(library_size):
 
     return per_rxn*5
 
-def usortm_sorting_cost(library_size):
-    '''Calculate the sorting cost for a given library size.'''
-    cost = 0
+def usortm_sorting_cost(library_size, fold_sampling=8, machine_rate=70, operator_rate=65):
+    '''Calculate the sorting cost for a given library size.
 
-    # Assume 8x sorting
-    total_wells = library_size*8
+    Args:
+        library_size: Number of unique variants in library
+        fold_sampling: Fold oversampling (wells sorted / library size). Default: 8
+        machine_rate: FACS machine hourly rate in USD. Default: 70 (Stanford rate)
+        operator_rate: FACS operator hourly rate in USD. Default: 65 (Stanford rate)
+
+    Returns:
+        Total sorting cost in USD
+    '''
+    # Calculate total wells to sort
+    total_wells = library_size * fold_sampling
 
     # Get number of 384-well plates
-    n_plates = int(total_wells/384)
+    n_plates = int(total_wells / 384)
 
     # Get total sort time in minutes, assuming 6 minutes per plate
-    sort_minutes = n_plates*6
+    sort_minutes = n_plates * 6
 
     # Add one hour for setup and cleaning
     sort_minutes += 60
 
-    # Convert to cost
+    # Compute total cost
     # Rates defined at: https://facs.stanford.edu/facility-info/policies/proposed-rates-2024-2025
     # Sony SH800Z and BD Aria are both $70/hr
-    machine_hourly_rate = 70
-    operator_hourly_rate = 65
-
-    # Compute total cost
-    total_cost = (sort_minutes/60)*(machine_hourly_rate+operator_hourly_rate)
+    total_cost = (sort_minutes / 60) * (machine_rate + operator_rate)
 
     return total_cost
 
@@ -369,7 +394,7 @@ def usortm_hitpicking_cost(library_size, seq_length):
 
     return cost
 
-def get_usortm_costs(library_sizes, seq_lengths, steps=None):
+def get_usortm_costs(library_sizes, seq_lengths, steps=None, fold_sampling=8):
     """Compute total uSort-M costs for given library sizes and sequence lengths.
 
     Calculates costs for the uSort-M workflow including oligo synthesis, cloning,
@@ -380,6 +405,7 @@ def get_usortm_costs(library_sizes, seq_lengths, steps=None):
         seq_lengths: List of sequence lengths (bp) to evaluate.
         steps: List of cost steps to include. Options: 'synthesis', 'cloning',
                'sorting', 'barcoding', 'sequencing', 'hitpicking'. If None, includes all steps.
+        fold_sampling: Fold oversampling (wells sorted / library size). Default: 8
 
     Returns:
         pandas DataFrame with columns:
@@ -395,9 +421,9 @@ def get_usortm_costs(library_sizes, seq_lengths, steps=None):
     cost_funcs = {
         "synthesis": lambda lib_size, seq_length: usortm_synthesis_cost(lib_size, seq_length),
         "cloning": lambda lib_size, seq_length: usortm_cloning_cost(lib_size),
-        "sorting": lambda lib_size, seq_length: usortm_sorting_cost(lib_size),
-        "barcoding": lambda lib_size, seq_length: usortm_barcoding_cost(n_wells=lib_size*4),
-        "sequencing": lambda lib_size, seq_length: usortm_sequencing_cost(n_wells=lib_size*4, seq_length=seq_length),
+        "sorting": lambda lib_size, seq_length: usortm_sorting_cost(lib_size, fold_sampling=fold_sampling),
+        "barcoding": lambda lib_size, seq_length: usortm_barcoding_cost(n_wells=int(lib_size*fold_sampling)),
+        "sequencing": lambda lib_size, seq_length: usortm_sequencing_cost(n_wells=int(lib_size*fold_sampling), seq_length=seq_length),
         "hitpicking": lambda lib_size, seq_length: usortm_hitpicking_cost(lib_size, seq_length),
     }
 
