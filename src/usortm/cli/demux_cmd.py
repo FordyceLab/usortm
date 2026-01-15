@@ -129,6 +129,7 @@ def demux(
             min_reads=min_reads,
             min_fraction=min_fraction,
             threads=threads,
+            project_params=project,
         )
         
         progress.update(task, completed=True)
@@ -217,10 +218,11 @@ def _run_demux(
     min_reads: int,
     min_fraction: float,
     threads: int,
+    project_params: dict = None,
 ) -> dict:
     """
     Run demultiplexing pipeline.
-    
+
     This is a simplified implementation. For production use, this would
     integrate with minimap2/dorado for proper alignment-based demultiplexing.
     """
@@ -231,9 +233,9 @@ def _run_demux(
     # 3. Match to barcode_map
     # 4. Build consensus per well
     # 5. Call variants
-    
+
     total_wells = len(barcode_map)
-    
+
     # Simulate realistic results
     results = {
         "total_reads": 0,
@@ -242,7 +244,7 @@ def _run_demux(
         "wells_passing": 0,
         "well_assignments": {},
     }
-    
+
     # Try to count actual reads if we can
     try:
         # Count lines in FASTQ (4 lines per read)
@@ -253,12 +255,41 @@ def _run_demux(
         # Estimate from file size - ensure minimum of 1 read
         file_size = fastq.stat().st_size
         results["total_reads"] = max(1, file_size // 500)
-    
-    # Simulate assignment based on typical uSort-M results
-    # ~65% of reads assigned, ~67% of wells with growth
-    results["assigned_reads"] = int(results["total_reads"] * 0.65)
-    results["wells_with_data"] = min(int(total_wells * 0.67), total_wells)
-    results["wells_passing"] = int(results["wells_with_data"] * 0.85)
+
+    # Use simulation to predict growth rate if project params available
+    if project_params:
+        import numpy as np
+        from usortm.simulate.sortm import sortm
+
+        library_size = project_params.get("library_size", 1000)
+        fold_sampling = project_params.get("fold_sampling", 8.0)
+        skew = project_params.get("skew", 4.0)
+        p_grow = 0.67  # Typical sorting efficiency
+
+        # Run simulation to predict wells with growth
+        predicted_variants = sortm(
+            n_sims=50,
+            lib_size=library_size,
+            fold_sampling=fold_sampling,
+            skew=skew,
+            p_grow=p_grow,
+            return_correct=True,
+            seed=42,
+        )
+
+        # Calculate expected fraction of wells with growth based on simulation
+        expected_wells_with_data = int(np.mean(predicted_variants))
+        growth_fraction = expected_wells_with_data / library_size if library_size > 0 else p_grow
+
+        # Use simulation-based predictions
+        results["assigned_reads"] = int(results["total_reads"] * 0.65)  # Barcode assignment rate
+        results["wells_with_data"] = min(int(total_wells * growth_fraction), total_wells)
+        results["wells_passing"] = int(results["wells_with_data"] * 0.85)
+    else:
+        # Fallback to default values if no project params
+        results["assigned_reads"] = int(results["total_reads"] * 0.65)
+        results["wells_with_data"] = min(int(total_wells * 0.67), total_wells)
+        results["wells_passing"] = int(results["wells_with_data"] * 0.85)
     
     # Create placeholder well assignments
     for i, (barcode, info) in enumerate(barcode_map.items()):

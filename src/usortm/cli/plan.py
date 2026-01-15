@@ -94,18 +94,44 @@ def plan(
     # Calculate sorting requirements
     total_wells = int(library_size * fold_sampling)
     n_plates = max(1, (total_wells + 383) // 384)  # Round up
-    
+
     # Estimate costs (import here to avoid circular imports)
     from usortm.costs import cost_functions as cf
-    
+
     synthesis_cost = cf.usortm_synthesis_cost(library_size, seq_length)
     cloning_cost = cf.usortm_cloning_cost(library_size)
-    sorting_cost = _calculate_sorting_cost(library_size, fold_sampling)
-    barcoding_cost = n_plates * 97.73
-    sequencing_cost = cf.usortm_sequencing_cost(library_size, seq_length)
+    sorting_cost = cf.usortm_sorting_cost(library_size, fold_sampling=fold_sampling)
+    barcoding_cost = cf.usortm_barcoding_cost(n_wells=total_wells)
+    sequencing_cost = cf.usortm_sequencing_cost(n_wells=total_wells, seq_length=seq_length)
     hitpicking_cost = cf.usortm_hitpicking_cost(library_size, seq_length)
     total_cost = synthesis_cost + cloning_cost + sorting_cost + barcoding_cost + sequencing_cost + hitpicking_cost
-    
+
+    # Predict coverage using simulation
+    import numpy as np
+    from usortm.simulate.sortm import sortm
+
+    console.print("[dim]Running coverage simulation...[/dim]")
+    predicted_variants = sortm(
+        n_sims=100,
+        lib_size=library_size,
+        fold_sampling=fold_sampling,
+        skew=skew,
+        p_grow=0.67,  # Typical sorting efficiency
+        return_correct=True,
+        seed=42,
+    )
+    expected_coverage = np.mean(predicted_variants) / library_size
+    coverage_std = np.std(predicted_variants) / library_size
+
+    # Check if fold sampling is sufficient
+    if expected_coverage < target_coverage:
+        console.print()
+        console.print(f"[yellow]⚠ Warning:[/yellow] Expected coverage ([cyan]{expected_coverage:.1%}[/cyan]) "
+                     f"is below target ([cyan]{target_coverage:.1%}[/cyan])")
+        recommended_fold = fold_sampling * (target_coverage / expected_coverage) * 1.1  # 10% buffer
+        console.print(f"  → Consider increasing fold sampling to [cyan]{recommended_fold:.1f}×[/cyan]")
+        console.print()
+
     # Display summary
     console.print()
     summary_table = Table(
@@ -126,6 +152,11 @@ def plan(
     summary_table.add_row(
         "Fold sampling", f"{fold_sampling}×",
         "Target coverage", f"{target_coverage:.0%}",
+    )
+    coverage_color = "green" if expected_coverage >= target_coverage else "yellow"
+    summary_table.add_row(
+        "Predicted coverage", f"[{coverage_color}]{expected_coverage:.1%}[/{coverage_color}] (±{coverage_std:.1%})",
+        "Library skew", f"{skew}× (Q90/Q10)",
     )
     summary_table.add_row(
         "Total wells", f"{total_wells:,}",
@@ -152,6 +183,8 @@ def plan(
         "fold_sampling": fold_sampling,
         "skew": skew,
         "target_coverage": target_coverage,
+        "expected_coverage": round(expected_coverage, 4),
+        "coverage_std": round(coverage_std, 4),
         "n_plates": n_plates,
         "total_wells": total_wells,
         "barcode_kit": barcode_kit,
@@ -222,15 +255,6 @@ def _save_variants(variants: list[dict], output_path: Path):
         writer = csv.DictWriter(f, fieldnames=variants[0].keys())
         writer.writeheader()
         writer.writerows(variants)
-
-
-def _calculate_sorting_cost(library_size: int, fold_sampling: float) -> float:
-    """Calculate sorting costs."""
-    total_wells = int(library_size * fold_sampling)
-    n_plates = max(1, total_wells // 384)
-    sort_minutes = n_plates * 30 + 60
-    hourly_rate = 135  # Stanford default
-    return (sort_minutes / 60) * hourly_rate
 
 
 def _generate_barcode_assignments(n_plates: int, barcode_kit: str, output_dir: Path) -> dict:

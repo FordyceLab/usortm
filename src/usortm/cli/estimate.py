@@ -28,7 +28,7 @@ def estimate(
         max=2000,
     ),
     fold_sampling: float = typer.Option(
-        8.0,
+        4.0,
         "--fold-sampling", "-f",
         help="Fold oversampling during sorting (wells sorted / library size).",
         min=1.0,
@@ -82,17 +82,17 @@ def estimate(
     from usortm.costs import cost_functions as cf
     
     # Calculate uSort-M costs
-    synthesis_cost = cf.usortm_synthesis_cost(library_size, seq_length)
-    cloning_cost = cf.usortm_cloning_cost(library_size)
-    sorting_cost = _calculate_sorting_cost(
-        library_size, fold_sampling, machine_rate, operator_rate
-    )
-    barcoding_cost = cf.usortm_barcoding_cost(library_size * fold_sampling / library_size)  
-    # Recalculate with actual wells
     total_wells = int(library_size * fold_sampling)
     n_plates = max(1, total_wells // 384)
-    barcoding_cost = n_plates * 97.73
-    sequencing_cost = cf.usortm_sequencing_cost(library_size, seq_length)
+
+    synthesis_cost = cf.usortm_synthesis_cost(library_size, seq_length)
+    cloning_cost = cf.usortm_cloning_cost(library_size)
+    sorting_cost = cf.usortm_sorting_cost(
+        library_size, fold_sampling=fold_sampling,
+        machine_rate=machine_rate, operator_rate=operator_rate
+    )
+    barcoding_cost = cf.usortm_barcoding_cost(n_wells=total_wells)
+    sequencing_cost = cf.usortm_sequencing_cost(n_wells=total_wells, seq_length=seq_length)
     hitpicking_cost = cf.usortm_hitpicking_cost(library_size, seq_length)
     
     usortm_total = (
@@ -102,8 +102,12 @@ def estimate(
     
     # Calculate traditional costs for comparison
     if compare:
-        trad_synthesis = library_size * 35  # ~$35 per gene fragment
-        trad_cloning = library_size * (2680/250 + 165/(6*200) * 10)  # Per-variant assembly + transform
+        trad_synthesis = cf.parsed_genefragments_synthesis_cost(
+            seq_length, library_size, method='twist_genefragments'
+        )
+        trad_cloning = cf.parsed_genefragments_assembly_cost(
+            library_size, assembly_method='hifi'
+        )
         trad_sequencing = cf.parsed_genefragments_sequencing_cost(seq_length, library_size)
         trad_total = trad_synthesis + trad_cloning + trad_sequencing
     
@@ -294,17 +298,3 @@ def estimate(
     
     console.print(f"  Days {seq_start}-{seq_start + 2}: Sequencing + analysis")
     console.print()
-
-
-def _calculate_sorting_cost(
-    library_size: int,
-    fold_sampling: float,
-    machine_rate: float,
-    operator_rate: float,
-) -> float:
-    """Calculate sorting costs based on configurable rates."""
-    total_wells = int(library_size * fold_sampling)
-    n_plates = max(1, total_wells // 384)
-    sort_minutes = n_plates * 8 + 30  # 8 min/plate + 30 min setup
-    hourly_rate = machine_rate + operator_rate
-    return (sort_minutes / 60) * hourly_rate
