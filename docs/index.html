@@ -4,10 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>uSort-M - Rapid and low-cost parsed variant library generation</title>
+  <!-- Apply theme immediately to prevent flash -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <!-- Critical CSS for instant theme application -->
+  <style>
+    :root {
+      --color-bg: #fafafa;
+      --color-sidebar: #f5f5f5;
+      --color-text: #333;
+      --color-card-bg: white;
+      --color-border: #e5e5e5;
+    }
+    [data-theme="dark"] {
+      --color-bg: #1a1a2e;
+      --color-sidebar: #16213e;
+      --color-text: #e2e8f0;
+      --color-card-bg: #1e293b;
+      --color-border: #2d3748;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+    }
+    .sidebar {
+      background: var(--color-sidebar);
+    }
+    /* Page transition - only animate main content */
+    .main {
+      animation: fadeIn 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="images/Thumbnail.png" type="image/png">
   <!-- Highlight.js for code syntax highlighting -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+  <!-- Using custom theme-aware syntax highlighting from style.css -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
@@ -26,6 +69,14 @@
       border-radius: 8px;
       padding: 1.5rem;
       min-height: 420px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    /* Plot background for visibility */
+    #cost-plot {
+      background: var(--color-sidebar);
+      border-radius: 6px;
+      padding: 1rem;
     }
     
     .effort-timeline-container {
@@ -36,7 +87,7 @@
     
     .quick-stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(4, 1fr);
       gap: 0.75rem;
     }
     
@@ -60,7 +111,13 @@
       font-size: 1.25rem;
       font-weight: 700;
     }
-    
+
+    /* Make primary metrics (savings and plates) bigger */
+    .stat-box.primary .value {
+      font-size: 2rem;
+      font-weight: 800;
+    }
+
     .stat-box .value.accent { color: var(--color-accent); }
     .stat-box .value.success { color: var(--color-success); }
     .stat-box .value.muted { color: var(--color-text-muted); }
@@ -69,7 +126,75 @@
       font-size: 0.75rem;
       color: var(--color-text-muted);
     }
-    
+
+    /* Cost comparison within stat box - spans 2 columns in 4-column grid */
+    .cost-comparison-box {
+      grid-column: span 2;
+    }
+
+    /* Parameters display below plot */
+    .plot-parameters {
+      margin-top: 0.75rem;
+      padding: 0.75rem;
+      background: var(--color-card-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .plot-parameters .param {
+      display: inline;
+    }
+
+    .plot-parameters .param-label {
+      color: var(--color-text-muted);
+    }
+
+    .plot-parameters .param-value {
+      font-weight: 700;
+      color: var(--color-text);
+    }
+
+    .cost-comparison {
+      display: flex;
+      justify-content: space-around;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .cost-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.15rem;
+    }
+
+    .cost-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .cost-value.accent {
+      color: var(--color-accent);
+    }
+
+    .cost-value.muted {
+      color: var(--color-text-muted);
+    }
+
+    .cost-label {
+      font-size: 0.65rem;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+    }
+
     /* Dynamic timeline */
     .dynamic-timeline {
       background: var(--color-card-bg);
@@ -166,13 +291,13 @@
         <li><a href="https://github.com/FordyceLab/usortm" target="_blank">GitHub</a></li>
         <li><a href="https://www.fordycelab.com" target="_blank">Fordyce Lab</a></li>
       </ul>
-      
-      <!-- Theme toggle -->
-      <div class="theme-toggle" onclick="toggleTheme()">
-        <span class="theme-toggle-icon" id="theme-icon">🌙</span>
-        <span id="theme-label">Dark mode</span>
-      </div>
     </nav>
+
+    <!-- Theme toggle -->
+    <div class="theme-toggle" onclick="toggleTheme()">
+      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
+      <span id="theme-label">Dark mode</span>
+    </div>
 
     <!-- Main Content -->
     <main class="main">
@@ -184,10 +309,10 @@
             <h1>uSort-M</h1>
             <p class="tagline">Rapid and low-cost parsed variant library generation</p>
             <p>
-              uSort-M converts pooled DNA libraries into collections of individually-isolated,
-              sequence-verified clones. Using FACS to isolate single cells and long-read sequencing to sequence-verify clones, uSort-M achieves
-              <b>10-50x</b> cost savings compared to traditional gene synthesis. For most libraries, the time required to
-              sort, barcode, sequence, and cherrypick desired clones is less than <b>10 days</b>.
+              uSort-M converts pooled DNA libraries into collections of isolated,
+              sequence-verified sequences. Using FACS to isolate single cells and long-read sequencing to sequence-verify clones, uSort-M achieves
+              significant (often <b>>10x</b>) cost savings compared to traditional gene synthesis. For most libraries, the time required to
+              clone, sort, barcode, sequence, and parse thousands of sequences is often less than <b>10 days</b>.
             </p>
             <div style="margin-top: 1rem;">
               <a href="getting-started.html" class="btn btn-primary">Get Started</a>
@@ -218,7 +343,7 @@
             <span class="inline-input">
               <input type="number" id="seq-length" value="300" min="100" max="1500" step="50">
             </span>
-            bp in length and I want to generate a library of 
+            bp in length and I want to generate a parsed library of 
             <span class="inline-input">
               <input type="number" id="library-size" value="500" min="50" max="5000" step="50">
             </span>
@@ -230,27 +355,47 @@
             <!-- Left: Cost Plot -->
             <div class="cost-chart-container">
               <div id="cost-plot"></div>
+              <!-- Simulation Parameters -->
+              <div class="plot-parameters">
+                <span class="param"><span class="param-label">Fold sampling:</span> <span class="param-value" id="param-fold-sampling">4×</span></span>
+                <span class="param"><span class="param-label">Library skew:</span> <span class="param-value" id="param-skew">4× (Q90/Q10)</span></span>
+                <span class="param"><span class="param-label">Growth rate:</span> <span class="param-value" id="param-growth">67%</span></span>
+                <span class="param"><span class="param-label">PCR failure:</span> <span class="param-value" id="param-pcr-fail">3%</span></span>
+              </div>
             </div>
             
             <!-- Right: Stats + Timeline -->
             <div class="effort-timeline-container">
-              <!-- Quick stats - 4 boxes in 2x2 grid -->
+              <!-- Quick stats - 6 boxes in 2 rows -->
               <div class="quick-stats">
-                <div class="stat-box">
+                <div class="stat-box primary">
                   <div class="label">Savings</div>
                   <div class="value success" id="savings-fold">7.8x</div>
                 </div>
-                <div class="stat-box">
-                  <div class="label">uSort-M / variant</div>
-                  <div class="value accent" id="cost-per-variant-usortm">$6.18</div>
-                </div>
-                <div class="stat-box">
-                  <div class="label">Plates</div>
+                <div class="stat-box primary">
+                  <div class="label">Plates Sorted</div>
                   <div class="value" id="n-plates">10</div>
                 </div>
                 <div class="stat-box">
-                  <div class="label">Traditional / variant</div>
-                  <div class="value muted" id="cost-per-variant-trad">$48.10</div>
+                  <div class="label">Total Days</div>
+                  <div class="value accent" id="total-days">6</div>
+                </div>
+                <div class="stat-box">
+                  <div class="label">Total Cost</div>
+                  <div class="value accent" id="total-cost-usortm">$3,090</div>
+                </div>
+                <div class="stat-box cost-comparison-box">
+                  <div class="label">Cost per Variant</div>
+                  <div class="cost-comparison">
+                    <div class="cost-item">
+                      <span class="cost-value accent" id="cost-per-variant-usortm">$6.18</span>
+                      <span class="cost-label">uSort-M</span>
+                    </div>
+                    <div class="cost-item">
+                      <span class="cost-value muted" id="cost-per-variant-trad">$48.10</span>
+                      <span class="cost-label">Traditional</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               
@@ -325,324 +470,279 @@ usortm plan variants.csv --output my_project/</code></pre>
 
   <!-- Observable Runtime for Interactive Plots -->
   <script type="module">
-    import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
-    
-    // Twist pricing tiers
-    const twistTiers = [
-      {min: 2, max: 100, prices: {120: 400, 150: 466, 200: 520, 250: 689, 300: 1030, 350: 1288}},
-      {min: 101, max: 500, prices: {120: 800, 150: 933, 200: 1040, 250: 1379, 300: 2060, 350: 2575}},
-      {min: 501, max: 1000, prices: {120: 1200, 150: 1400, 200: 1560, 250: 2068, 300: 3090, 350: 3863}},
-      {min: 1001, max: 2000, prices: {120: 1600, 150: 1867, 200: 2080, 250: 2757, 300: 4121, 350: 5152}},
-      {min: 2001, max: 6000, prices: {120: 2400, 150: 2800, 200: 3120, 250: 4136, 300: 6181, 350: 7727}},
-    ];
-    
-    function getTwistPrice(nSeqs, seqLen) {
-      const tier = twistTiers.find(t => nSeqs >= t.min && nSeqs <= t.max) || twistTiers[twistTiers.length - 1];
-      const lengths = [120, 150, 200, 250, 300, 350];
-      let bracket = lengths.find(l => seqLen <= l) || 350;
-      if (seqLen > 350) return nSeqs * seqLen * 0.09;
-      return tier.prices[bracket];
+// Cost plot that uses Python-generated data
+// This ensures perfect consistency with the usortm package
+
+import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
+
+// Cache for loaded cost curves
+const costDataCache = {};
+
+// Load cost data from Python-generated JSON files
+async function loadCostData(seqLength) {
+  // Find nearest available sequence length
+  const available = [300, 500, 750, 1000];
+  const nearest = available.reduce((prev, curr) =>
+    Math.abs(curr - seqLength) < Math.abs(prev - seqLength) ? curr : prev
+  );
+
+  if (!costDataCache[nearest]) {
+    const response = await fetch(`cost_data/cost_curve_${nearest}bp.json`);
+    costDataCache[nearest] = await response.json();
+  }
+
+  return costDataCache[nearest];
+}
+
+// Interpolate cost for a specific library size
+function interpolateCost(data, libSize) {
+  // Find surrounding data points
+  const before = data.filter(d => d.library_size <= libSize).pop();
+  const after = data.find(d => d.library_size >= libSize);
+
+  if (!before) return after;
+  if (!after) return before;
+  if (before.library_size === libSize) return before;
+
+  // Linear interpolation
+  const ratio = (libSize - before.library_size) / (after.library_size - before.library_size);
+
+  return {
+    library_size: libSize,
+    usortm_cost: before.usortm_cost + ratio * (after.usortm_cost - before.usortm_cost),
+    traditional_cost: before.traditional_cost + ratio * (after.traditional_cost - before.traditional_cost),
+    traditional_min: before.traditional_min + ratio * (after.traditional_min - before.traditional_min),
+    traditional_max: before.traditional_max + ratio * (after.traditional_max - before.traditional_max),
+  };
+}
+
+async function updatePlot(seqLen, currentLib) {
+  const costData = await loadCostData(seqLen);
+  const currentCosts = interpolateCost(costData, currentLib);
+
+  // Extend data range if needed
+  const maxLib = Math.max(Math.max(...costData.map(d => d.library_size)), currentLib * 1.2);
+
+  const container = document.getElementById("cost-plot");
+  const containerWidth = container.parentElement.clientWidth - 48;
+  const plotWidth = Math.min(450, Math.max(300, containerWidth));
+  const plotHeight = Math.min(400, plotWidth);
+
+  // Prepare data for plotting
+  const plotData = [];
+  costData.forEach(d => {
+    plotData.push({library: d.library_size, cost: d.usortm_cost, method: "uSort-M"});
+    plotData.push({library: d.library_size, cost: d.traditional_cost, method: "Traditional"});
+    plotData.push({library: d.library_size, costMin: d.traditional_min, costMax: d.traditional_max, method: "TradRange"});
+  });
+
+  const plot = Plot.plot({
+    width: plotWidth,
+    height: plotHeight,
+    marginLeft: 70,
+    marginBottom: 55,
+    marginRight: 25,
+    marginTop: 20,
+    style: {
+      background: "transparent",
+      fontSize: "15px"
+    },
+    x: {
+      label: "Library Size (variants)",
+      labelOffset: 42,
+      labelFontSize: 15,
+      tickFormat: d => d >= 1000 ? `${d/1000}k` : d,
+      domain: [0, maxLib]
+    },
+    y: {
+      label: "Total Cost (USD)",
+      labelOffset: 55,
+      labelFontSize: 15,
+      tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
+      grid: true
+    },
+    marks: [
+      // Traditional range (shaded area)
+      Plot.areaY(plotData.filter(d => d.method === "TradRange"), {
+        x: "library",
+        y1: "costMin",
+        y2: "costMax",
+        fill: "#9ca3af",
+        fillOpacity: 0.2
+      }),
+      // Traditional line (grey)
+      Plot.line(plotData.filter(d => d.method === "Traditional"), {
+        x: "library",
+        y: "cost",
+        stroke: "#6b7280",
+        strokeWidth: 2.5
+      }),
+      // uSort-M line (blue)
+      Plot.line(plotData.filter(d => d.method === "uSort-M"), {
+        x: "library",
+        y: "cost",
+        stroke: "#2563eb",
+        strokeWidth: 2.5
+      }),
+      // Vertical dashed line at current position
+      Plot.ruleX([currentLib], {
+        stroke: "#d1d5db",
+        strokeDasharray: "4,4"
+      }),
+      // Connector line between points
+      Plot.link([{
+        x1: currentLib, y1: currentCosts.usortm_cost,
+        x2: currentLib, y2: currentCosts.traditional_cost
+      }], {
+        x1: "x1", y1: "y1", x2: "x2", y2: "y2",
+        stroke: "#374151",
+        strokeDasharray: "3,3",
+        strokeWidth: 1.5
+      }),
+      // Current position markers
+      Plot.dot([
+        {library: currentLib, cost: currentCosts.usortm_cost, method: "uSort-M"},
+        {library: currentLib, cost: currentCosts.traditional_cost, method: "Traditional"}
+      ], {
+        x: "library",
+        y: "cost",
+        r: 7,
+        fill: d => d.method === "uSort-M" ? "#2563eb" : "#6b7280",
+        stroke: "white",
+        strokeWidth: 2
+      })
+    ]
+  });
+
+  container.innerHTML = "";
+  container.appendChild(plot);
+
+  return currentCosts;
+}
+
+async function updateUI() {
+  const libSize = parseInt(document.getElementById("library-size").value) || 500;
+  const seqLen = parseInt(document.getElementById("seq-length").value) || 300;
+
+  const costs = await updatePlot(seqLen, libSize);
+
+  // Update stats
+  const savings = costs.traditional_cost / costs.usortm_cost;
+  document.getElementById("savings-fold").textContent = `${savings.toFixed(1)}x`;
+  document.getElementById("cost-per-variant-usortm").textContent = `$${(costs.usortm_cost / libSize).toFixed(2)}`;
+  document.getElementById("cost-per-variant-trad").textContent = `$${(costs.traditional_cost / libSize).toFixed(2)}`;
+
+  // Calculate plates for timeline
+  const foldSampling = 4;
+  const wells = libSize * foldSampling;
+  const plates = Math.max(1, Math.ceil(wells / 384));
+  document.getElementById("n-plates").textContent = plates;
+
+  // Update total cost
+  document.getElementById("total-cost-usortm").textContent = `$${Math.round(costs.usortm_cost).toLocaleString()}`;
+
+  // Calculate and update total days from timeline
+  const totalDays = updateTimeline(plates, libSize, seqLen);
+  document.getElementById("total-days").textContent = totalDays;
+
+  resizeInputs();
+}
+
+function updateTimeline(plates, libSize, seqLen) {
+  // Calculate timing
+  const foldSampling = 4;
+  const wells = libSize * foldSampling;
+  const sortMins = plates * 30 + 60;
+  const sortHours = sortMins / 60;
+  const barcodeHours = plates * 50 / 60;
+  const seqGb = Math.ceil(wells * (seqLen + 100) * 100 / 1e9);
+
+  const sortDays = Math.max(1, Math.ceil((sortHours + 2) / 8));
+  const barcodeDays = Math.max(1, Math.ceil(barcodeHours / 8));
+  const barcodeStart = 2 + sortDays;
+  const seqStart = barcodeStart + barcodeDays;
+  const seqDays = 3;
+  const hitpickStart = seqStart + seqDays;
+  const totalDays = hitpickStart; // Total days including hit-picking
+
+  const formatTime = (hours) => {
+    if (hours < 1) return `${Math.round(hours * 60)} min`;
+    if (hours <= 8) return `${hours.toFixed(1)} hr`;
+    return `${(hours / 8).toFixed(1)} days`;
+  };
+
+  const steps = [
+    {
+      day: "Day 1",
+      task: "Assembly + Transformation",
+      detail: "Pooled Golden Gate/Gibson assembly"
+    },
+    {
+      day: sortDays > 1 ? `Days 2-${1 + sortDays}` : "Day 2",
+      task: "FACS Isolation",
+      detail: `${wells.toLocaleString()} wells across ${plates} plates (${formatTime(sortHours)})`
+    },
+    {
+      day: barcodeDays > 1 ? `Days ${barcodeStart}-${barcodeStart + barcodeDays - 1}` : `Day ${barcodeStart}`,
+      task: "PCR Barcoding",
+      detail: `${plates} plates barcoded + pooled (${formatTime(barcodeHours)})`
+    },
+    {
+      day: `Days ${seqStart}-${seqStart + seqDays - 1}`,
+      task: "Sequencing",
+      detail: `~${seqGb} Gb via <a href="https://www.plasmidsaurus.com/custom" target="_blank">Plasmidsaurus Custom</a> (3-4 days)`
+    },
+    {
+      day: `Day ${hitpickStart}`,
+      task: "Hit Picking",
+      detail: `Cherry-pick ${libSize.toLocaleString()} clones (${formatTime(libSize * 0.75 / 60)})`
     }
-    
-    function calculateCosts(libSize, seqLen) {
-      // uSort-M costs
-      const synthCost = getTwistPrice(libSize, seqLen);
-      const cloneCost = 53.60 + 3.13; // Assembly + transformation
-      const foldSampling = 8;
-      const wells = Math.round(libSize * foldSampling);
-      const plates = Math.max(1, Math.ceil(wells / 384));
-      const sortMins = plates * 5 + 30; // 5 min per plate + setup
-      const sortCost = (sortMins / 60) * 135; // $135/hr FACS
-      const barcodeCost = plates * 97.73;
-      // Sequencing: $500 base + $50 per Gb, 100x coverage
-      const seqGb = Math.max(1, Math.ceil(wells * seqLen * 100 / 1e9));
-      const seqCost = 500 + (seqGb - 1) * 50;
-      const pickCost = libSize * 0.128 + Math.ceil(libSize / 384) * 7.84;
-      const totalUsortm = synthCost + cloneCost + sortCost + barcodeCost + seqCost + pickCost;
-      
-      // Traditional costs - range based on different providers
-      // IDT gBlocks: $0.09/bp, IDT eBlocks: $0.07/bp, Twist: $0.07/bp
-      const tradSynthMin = libSize * seqLen * 0.07; // Twist/eBlocks
-      const tradSynthMax = libSize * seqLen * 0.09; // gBlocks
-      const tradSynthMean = libSize * 35; // ~$35/gene at typical lengths
-      const tradClone = libSize * (2680/250 + 165/(6*200) * 10);
-      const tradSeq = 500;
-      const totalTradMin = tradSynthMin + tradClone + tradSeq;
-      const totalTradMax = tradSynthMax + tradClone + tradSeq;
-      const totalTrad = tradSynthMean + tradClone + tradSeq;
-      
-      // Timing
-      const sortHours = sortMins / 60;
-      const barcodeMinutes = plates * 50;
-      const barcodeHours = barcodeMinutes / 60;
-      // Hitpicking: ~45 sec per variant
-      const hitpickMins = libSize * 0.75;
-      const hitpickHours = hitpickMins / 60;
-      
-      return {
-        usortm: totalUsortm,
-        traditional: totalTrad,
-        tradMin: totalTradMin,
-        tradMax: totalTradMax,
-        savings: totalTrad / totalUsortm,
-        perVariantUsortm: totalUsortm / libSize,
-        perVariantTrad: totalTrad / libSize,
-        wells,
-        plates,
-        sortHours,
-        barcodeHours,
-        hitpickHours,
-        seqGb
-      };
-    }
-    
-    function generateCurveData(seqLen, maxLib) {
-      const data = [];
-      for (let lib = 50; lib <= maxLib; lib += 25) {
-        const costs = calculateCosts(lib, seqLen);
-        data.push({library: lib, cost: costs.usortm, method: "uSort-M"});
-        data.push({library: lib, cost: costs.traditional, method: "Traditional"});
-        data.push({library: lib, costMin: costs.tradMin, costMax: costs.tradMax, method: "TradRange"});
-      }
-      return data;
-    }
-    
-    function updatePlot(seqLen, currentLib) {
-      // Dynamically adjust max x based on current selection
-      const maxLib = Math.max(2500, Math.ceil(currentLib * 1.3 / 500) * 500);
-      const data = generateCurveData(seqLen, maxLib);
-      const currentCosts = calculateCosts(currentLib, seqLen);
-      
-      // Get container width for responsive sizing
-      const container = document.getElementById("cost-plot");
-      const containerWidth = container.parentElement.clientWidth - 48; // padding
-      const plotWidth = Math.min(450, Math.max(300, containerWidth));
-      const plotHeight = Math.min(400, plotWidth);
-      
-      // Position labels to avoid overlap
-      const usortmLabelX = Math.min(currentLib + maxLib * 0.08, maxLib * 0.85);
-      const tradLabelX = Math.min(currentLib + maxLib * 0.08, maxLib * 0.85);
-      
-      const plot = Plot.plot({
-        width: plotWidth,
-        height: plotHeight,
-        marginLeft: 70,
-        marginBottom: 55,
-        marginRight: 25,
-        marginTop: 20,
-        style: {
-          background: "transparent",
-          fontSize: "13px"
-        },
-        x: {
-          label: "Library Size (variants)",
-          labelOffset: 42,
-          tickFormat: d => d >= 1000 ? `${d/1000}k` : d,
-          domain: [0, maxLib]
-        },
-        y: {
-          label: "Total Cost (USD)",
-          labelOffset: 55,
-          tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
-          grid: true
-        },
-        marks: [
-          // Traditional range (shaded area)
-          Plot.areaY(data.filter(d => d.method === "TradRange"), {
-            x: "library",
-            y1: "costMin",
-            y2: "costMax",
-            fill: "#9ca3af",
-            fillOpacity: 0.2
-          }),
-          // Traditional line (grey)
-          Plot.line(data.filter(d => d.method === "Traditional"), {
-            x: "library",
-            y: "cost",
-            stroke: "#6b7280",
-            strokeWidth: 2.5
-          }),
-          // uSort-M line (blue)
-          Plot.line(data.filter(d => d.method === "uSort-M"), {
-            x: "library",
-            y: "cost",
-            stroke: "#2563eb",
-            strokeWidth: 2.5
-          }),
-          // Vertical dashed line at current position
-          Plot.ruleX([currentLib], {
-            stroke: "#d1d5db",
-            strokeDasharray: "4,4"
-          }),
-          // Connector line between points
-          Plot.link([{
-            x1: currentLib, y1: currentCosts.usortm,
-            x2: currentLib, y2: currentCosts.traditional
-          }], {
-            x1: "x1", y1: "y1", x2: "x2", y2: "y2",
-            stroke: "#374151",
-            strokeDasharray: "3,3",
-            strokeWidth: 1.5
-          }),
-          // Current position markers
-          Plot.dot([
-            {library: currentLib, cost: currentCosts.usortm, method: "uSort-M"},
-            {library: currentLib, cost: currentCosts.traditional, method: "Traditional"}
-          ], {
-            x: "library",
-            y: "cost",
-            r: 7,
-            fill: d => d.method === "uSort-M" ? "#2563eb" : "#6b7280",
-            stroke: "white",
-            strokeWidth: 2
-          }),
-          // Cost label for uSort-M (positioned close to point)
-          Plot.text([{
-            x: usortmLabelX,
-            y: currentCosts.usortm,
-            label: `uSort-M: $${currentCosts.usortm.toLocaleString(undefined, {maximumFractionDigits: 0})}`
-          }], {
-            x: "x",
-            y: "y",
-            text: "label",
-            textAnchor: "start",
-            dy: 4,
-            fontSize: 12,
-            fontWeight: 600,
-            fill: "#2563eb"
-          }),
-          // Cost label for Traditional (positioned close to point)
-          Plot.text([{
-            x: tradLabelX,
-            y: currentCosts.traditional,
-            label: `Traditional: $${currentCosts.traditional.toLocaleString(undefined, {maximumFractionDigits: 0})}`
-          }], {
-            x: "x",
-            y: "y",
-            text: "label",
-            textAnchor: "start",
-            dy: -8,
-            fontSize: 12,
-            fontWeight: 600,
-            fill: "#6b7280"
-          })
-        ]
-      });
-      
-      container.innerHTML = "";
-      container.appendChild(plot);
-    }
-    
-    function formatTime(hours) {
-      if (hours < 1) return `${Math.round(hours * 60)} min`;
-      if (hours <= 8) return `${hours.toFixed(1)} hr`;
-      const days = hours / 8;
-      return `${days.toFixed(1)} days`;
-    }
-    
-    function updateTimeline(costs, libSize) {
-      const sortDays = Math.max(1, Math.ceil((costs.sortHours + 2) / 8));
-      const barcodeDays = Math.max(1, Math.ceil(costs.barcodeHours / 8));
-      const barcodeStart = 2 + sortDays;
-      const seqStart = barcodeStart + barcodeDays;
-      const seqDays = 3; // Plasmidsaurus custom sequencing
-      const hitpickStart = seqStart + seqDays;
-      
-      const steps = [
-        {
-          day: "Day 1",
-          task: "Assembly + Transformation",
-          detail: "Pooled Golden Gate/Gibson assembly"
-        },
-        {
-          day: sortDays > 1 ? `Days 2-${1 + sortDays}` : "Day 2",
-          task: "FACS Isolation",
-          detail: `${costs.wells.toLocaleString()} wells across ${costs.plates} plates (${formatTime(costs.sortHours)})`
-        },
-        {
-          day: barcodeDays > 1 ? `Days ${barcodeStart}-${barcodeStart + barcodeDays - 1}` : `Day ${barcodeStart}`,
-          task: "PCR Barcoding",
-          detail: `${costs.plates} plates barcoded + pooled (${formatTime(costs.barcodeHours)})`
-        },
-        {
-          day: `Days ${seqStart}-${seqStart + seqDays - 1}`,
-          task: "Sequencing",
-          detail: `~${costs.seqGb} Gb via <a href="https://www.plasmidsaurus.com/custom" target="_blank">Plasmidsaurus Custom</a> (3-4 days)`
-        },
-        {
-          day: `Day ${hitpickStart}`,
-          task: "Hit Picking",
-          detail: `Cherry-pick ${libSize.toLocaleString()} clones (${formatTime(costs.hitpickHours)})`
-        }
-      ];
-      
-      const container = document.getElementById("timeline-steps");
-      container.innerHTML = steps.map(s => `
-        <div class="timeline-step">
-          <div class="step-day">${s.day}</div>
-          <div class="step-info">
-            <div class="step-task">${s.task}</div>
-            <div class="step-detail">${s.detail}</div>
-          </div>
-        </div>
-      `).join("");
-    }
-    
-    function resizeInput(input) {
-      const span = document.createElement('span');
-      span.style.visibility = 'hidden';
-      span.style.position = 'absolute';
-      span.style.fontSize = '2rem';
-      span.style.fontWeight = '600';
-      span.style.fontFamily = getComputedStyle(input).fontFamily;
-      span.textContent = input.value || input.placeholder;
-      document.body.appendChild(span);
-      
-      const width = Math.max(70, span.offsetWidth + 35);
-      input.style.width = `${width}px`;
-      
-      document.body.removeChild(span);
-    }
-    
-    function updateUI() {
-      const libSize = parseInt(document.getElementById("library-size").value) || 500;
-      const seqLen = parseInt(document.getElementById("seq-length").value) || 300;
-      
-      const costs = calculateCosts(libSize, seqLen);
-      
-      // Update stats
-      document.getElementById("savings-fold").textContent = `${costs.savings.toFixed(1)}x`;
-      document.getElementById("cost-per-variant-usortm").textContent = `$${costs.perVariantUsortm.toFixed(2)}`;
-      document.getElementById("cost-per-variant-trad").textContent = `$${costs.perVariantTrad.toFixed(2)}`;
-      document.getElementById("n-plates").textContent = costs.plates;
-      
-      // Update timeline
-      updateTimeline(costs, libSize);
-      
-      // Update plot
-      updatePlot(seqLen, libSize);
-      
-      // Resize inputs
-      resizeInput(document.getElementById("library-size"));
-      resizeInput(document.getElementById("seq-length"));
-    }
-    
-    // Event listeners
-    document.getElementById("library-size").addEventListener("input", updateUI);
-    document.getElementById("seq-length").addEventListener("input", updateUI);
-    
-    // Handle window resize
-    window.addEventListener("resize", () => {
-      const libSize = parseInt(document.getElementById("library-size").value) || 500;
-      const seqLen = parseInt(document.getElementById("seq-length").value) || 300;
-      updatePlot(seqLen, libSize);
-    });
-    
-    // Initial render
-    updateUI();
-    
-    // Initialize highlight.js
-    hljs.highlightAll();
+  ];
+
+  const container = document.getElementById("timeline-steps");
+  container.innerHTML = steps.map(s => `
+    <div class="timeline-step">
+      <div class="step-day">${s.day}</div>
+      <div class="step-info">
+        <div class="step-task">${s.task}</div>
+        <div class="step-detail">${s.detail}</div>
+      </div>
+    </div>
+  `).join("");
+
+  return totalDays;
+}
+
+function resizeInputs() {
+  ["library-size", "seq-length"].forEach(id => {
+    const input = document.getElementById(id);
+    const span = document.createElement('span');
+    span.style.visibility = 'hidden';
+    span.style.position = 'absolute';
+    span.style.fontSize = '2rem';
+    span.style.fontWeight = '600';
+    span.style.fontFamily = getComputedStyle(input).fontFamily;
+    span.textContent = input.value || input.placeholder;
+    document.body.appendChild(span);
+
+    const width = Math.max(70, span.offsetWidth + 35);
+    input.style.width = `${width}px`;
+
+    document.body.removeChild(span);
+  });
+}
+
+// Event listeners
+document.getElementById("library-size").addEventListener("input", updateUI);
+document.getElementById("seq-length").addEventListener("input", updateUI);
+window.addEventListener("resize", updateUI);
+
+// Initial render
+updateUI();
+
+// Initialize highlight.js
+hljs.highlightAll();
+
   </script>
   
   <!-- Theme toggle script -->
