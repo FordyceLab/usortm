@@ -4,6 +4,50 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Python API - uSort-M</title>
+  <!-- Apply theme immediately to prevent flash -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <!-- Critical CSS for instant theme application -->
+  <style>
+    :root {
+      --color-bg: #fafafa;
+      --color-sidebar: #f5f5f5;
+      --color-text: #333;
+      --color-card-bg: white;
+      --color-border: #e5e5e5;
+    }
+    [data-theme="dark"] {
+      --color-bg: #1a1a2e;
+      --color-sidebar: #16213e;
+      --color-text: #e2e8f0;
+      --color-card-bg: #1e293b;
+      --color-border: #2d3748;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+    }
+    .sidebar {
+      background: var(--color-sidebar);
+    }
+    /* Page transition - only animate main content */
+    .main {
+      animation: fadeIn 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="images/Thumbnail.png" type="image/png">
 </head>
@@ -37,6 +81,11 @@
         <li><a href="https://www.fordycelab.com" target="_blank">Fordyce Lab</a></li>
       </ul>
     </nav>
+    <!-- Theme toggle -->
+    <div class="theme-toggle" onclick="toggleTheme()">
+      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
+      <span id="theme-label">Dark mode</span>
+    </div>
     <main class="main">
       <div class="content">
         <h1>Python API</h1>
@@ -48,5 +97,42 @@
       </div>
     </main>
   </div>
+
+  <!-- Theme toggle script -->
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+      html.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+
+      updateThemeUI(newTheme);
+    }
+
+    function updateThemeUI(theme) {
+      const icon = document.getElementById('theme-icon');
+      const label = document.getElementById('theme-label');
+
+      if (theme === 'dark') {
+        icon.textContent = '☀️';
+        label.textContent = 'Light mode';
+      } else {
+        icon.textContent = '🌙';
+        label.textContent = 'Dark mode';
+      }
+    }
+
+    // Initialize theme on page load
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+      document.documentElement.setAttribute('data-theme', theme);
+      updateThemeUI(theme);
+    })();
+  </script>
 </body>
 </html>
