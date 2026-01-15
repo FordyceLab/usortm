@@ -1,0 +1,23 @@
+{
+  "usortm": {
+    "synthesis": 1373.33,
+    "cloning": 53.6,
+    "sorting": 202.5,
+    "barcoding": 488.65,
+    "sequencing": 500,
+    "hitpicking": 79.68,
+    "total": 2697.76
+  },
+  "traditional": {
+    "synthesis": 10500.0,
+    "assembly": 6047.5,
+    "barcoding": 127.25,
+    "sequencing": 500,
+    "total": 17174.75
+  },
+  "savings": 6.37,
+  "per_variant_usortm": 5.4,
+  "per_variant_traditional": 34.35,
+  "wells": 2000,
+  "plates": 6
+}
