@@ -27,14 +27,6 @@ pip install -e .
 pip install -e ".[all]"
 ```
 
-### Optional dependencies
-
-```bash
-pip install -e ".[viz]"    # Visualization (matplotlib, bokeh)
-pip install -e ".[demux]"  # Demultiplexing (biopython, pysam)
-pip install -e ".[dev]"    # Development (pytest)
-```
-
 ## Quick Start
 
 ### Estimate costs
@@ -52,7 +44,7 @@ usortm plan variants.csv --output my_project/
 # 2. [Perform wet lab: assembly, sorting, barcoding, sequencing]
 
 # 3. Process sequencing data
-usortm demux my_project/ --fastq data.fastq
+usortm demux my_project/ --fastq sequencing-data.fastq
 
 # 4. Generate hit-picking list
 usortm pick my_project/
@@ -135,18 +127,13 @@ results = sortm.sortm(
 
 Full documentation available at [fordycelab.github.io/usortm](https://fordycelab.github.io/usortm)
 
-- [Getting Started](https://fordycelab.github.io/usortm/getting-started.html)
-- [Workflow Guide](https://fordycelab.github.io/usortm/workflow/)
-- [Cost Calculator](https://fordycelab.github.io/usortm/tools/cost-calculator.html)
-- [CLI Reference](https://fordycelab.github.io/usortm/cli-reference.html)
-
 ## Citation
 
 If you use uSort-M in your research, please cite:
 
 ```
 Olivas MB, Almhjell PJ, Shanahan JD, Fordyce PM. uSort-M: Scalable isolation 
-of user-defined sequences from diverse pooled libraries. bioRxiv (2026).
+of user-defined sequences from diverse pooled libraries. bioRxiv (2026). DOI: 10.64898/2026.01.12.699065
 ```
 
 ## License
