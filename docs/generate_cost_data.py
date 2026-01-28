@@ -23,6 +23,7 @@ from usortm.costs.cost_functions import (
     parsed_genefragments_barcoding_cost,
     parsed_genefragments_sequencing_cost
 )
+from usortm.costs.time_functions import calculate_total_timeline
 
 
 def calculate_usortm_cost(lib_size, seq_length):
@@ -112,6 +113,9 @@ def generate_detailed_costs(lib_size, seq_length):
     }
     trad_breakdown['total'] = sum(trad_breakdown.values())
 
+    # Calculate timeline
+    timeline = calculate_total_timeline(lib_size, seq_length, fold_sampling=foldSampling)
+
     return {
         'usortm': {k: round(v, 2) for k, v in usortm_breakdown.items()},
         'traditional': {k: round(v, 2) for k, v in trad_breakdown.items()},
@@ -120,6 +124,7 @@ def generate_detailed_costs(lib_size, seq_length):
         'per_variant_traditional': round(trad_breakdown['total'] / lib_size, 2),
         'wells': wells,
         'plates': plates,
+        'timeline': timeline,
     }
 
 

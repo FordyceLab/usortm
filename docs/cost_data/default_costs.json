@@ -19,5 +19,45 @@
   "per_variant_usortm": 5.4,
   "per_variant_traditional": 34.35,
   "wells": 2000,
-  "plates": 6
+  "plates": 6,
+  "timeline": {
+    "assembly_days": 2,
+    "sort_days": 1,
+    "barcode_days": 1,
+    "seq_days": 3,
+    "demux_days": 1,
+    "total_days": 8,
+    "timeline": [
+      {
+        "step": "Library Assembly",
+        "start": 0,
+        "end": 2,
+        "days": 2
+      },
+      {
+        "step": "FACS Sorting",
+        "start": 2,
+        "end": 3,
+        "days": 1
+      },
+      {
+        "step": "PCR Barcoding",
+        "start": 3,
+        "end": 4,
+        "days": 1
+      },
+      {
+        "step": "Sequencing",
+        "start": 4,
+        "end": 7,
+        "days": 3
+      },
+      {
+        "step": "Demux & Analysis",
+        "start": 7,
+        "end": 8,
+        "days": 1
+      }
+    ]
+  }
 }
