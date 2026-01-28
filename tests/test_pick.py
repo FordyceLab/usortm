@@ -1,0 +1,254 @@
+"""Tests for the pick CLI command."""
+
+import pytest
+from pathlib import Path
+import csv
+import json
+from typer.testing import CliRunner
+from usortm.cli import app
+
+runner = CliRunner()
+
+
+@pytest.fixture
+def mock_project_dir(tmp_path):
+    """Create a mock project directory with demux results."""
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+
+    # Create project state file
+    state = {
+        "library_size": 100,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {
+            "demux": {
+                "completed": True,
+                "timestamp": "2024-01-01T00:00:00",
+            }
+        }
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    # Create demux output directory
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # Create well assignments file
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "var1", "reads": 100, "consensus_fraction": 0.95},
+        {"plate": "1", "well": "B1", "variant": "var2", "reads": 200, "consensus_fraction": 0.98},
+        {"plate": "1", "well": "C1", "variant": "var1", "reads": 150, "consensus_fraction": 0.93},
+        {"plate": "1", "well": "D1", "variant": "var3", "reads": 80, "consensus_fraction": 0.90},
+        {"plate": "2", "well": "A1", "variant": "var4", "reads": 120, "consensus_fraction": 0.96},
+    ]
+
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+
+    # Create demux summary
+    summary = {
+        "total_reads": 1000,
+        "assigned_reads": 950,
+        "wells_with_data": 5,
+        "wells_passing": 5,
+    }
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump(summary, f)
+
+    return project_dir
+
+
+def test_pick_basic(mock_project_dir):
+    """Test basic pick list generation."""
+    result = runner.invoke(app, ["pick", str(mock_project_dir)])
+
+    assert result.exit_code == 0
+    assert "Hit Picking" in result.stdout
+
+    # Check output file was created
+    hitlist = mock_project_dir / "hitlist.csv"
+    assert hitlist.exists()
+
+    # Read and validate output
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        header = next(reader)
+        assert header == ["SampleID", "SourcePlateID", "SourceWell", "TargetPlateID", "TargetWell", "TransferVolume"]
+
+        rows = list(reader)
+        assert len(rows) > 0  # At least one hit
+
+
+def test_pick_unique_only(mock_project_dir):
+    """Test unique-only flag picks one well per variant."""
+    result = runner.invoke(app, ["pick", str(mock_project_dir), "--unique-only"])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        rows = list(reader)
+
+        # Should have 4 unique variants (var1, var2, var3, var4)
+        variants = [row[0] for row in rows]
+        assert len(variants) == len(set(variants))  # All unique
+
+        # var1 appears twice in input - should pick the one with higher reads
+        var1_rows = [row for row in rows if row[0] == "var1"]
+        assert len(var1_rows) == 1
+        # Should pick C1 (150 reads) over A1 (100 reads)
+        assert var1_rows[0][2] == "C1"
+
+
+def test_pick_all_hits(mock_project_dir):
+    """Test all-hits flag picks all wells."""
+    result = runner.invoke(app, ["pick", str(mock_project_dir), "--all-hits"])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        rows = list(reader)
+
+        # Should have all 5 wells
+        assert len(rows) == 5
+
+
+def test_pick_custom_output(mock_project_dir):
+    """Test custom output path."""
+    output_path = mock_project_dir / "custom_hits.csv"
+    result = runner.invoke(app, [
+        "pick",
+        str(mock_project_dir),
+        "--output", str(output_path),
+    ])
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+
+
+def test_pick_custom_volume(mock_project_dir):
+    """Test custom transfer volume."""
+    result = runner.invoke(app, [
+        "pick",
+        str(mock_project_dir),
+        "--volume", "10.0",
+    ])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        row = next(reader)
+        # Volume should be 10.0
+        assert row[5] == "10.0"
+
+
+def test_pick_target_filter(mock_project_dir, tmp_path):
+    """Test filtering by target variants."""
+    # Create targets file
+    targets_file = tmp_path / "targets.csv"
+    with open(targets_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["variant"])
+        writer.writerow(["var2"])
+        writer.writerow(["var4"])
+
+    result = runner.invoke(app, [
+        "pick",
+        str(mock_project_dir),
+        "--targets", str(targets_file),
+    ])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        rows = list(reader)
+
+        # Should only have var2 and var4
+        variants = [row[0] for row in rows]
+        assert set(variants) == {"var2", "var4"}
+
+
+def test_pick_fill_order_column(mock_project_dir):
+    """Test column-wise fill order."""
+    result = runner.invoke(app, [
+        "pick",
+        str(mock_project_dir),
+        "--fill-order", "column",
+        "--target-format", "96",
+    ])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        rows = list(reader)
+
+        # First well should be A1, second should be B1 (column-wise)
+        assert rows[0][4] == "A1"
+        assert rows[1][4] == "B1"
+
+
+def test_pick_fill_order_row(mock_project_dir):
+    """Test row-wise fill order."""
+    result = runner.invoke(app, [
+        "pick",
+        str(mock_project_dir),
+        "--fill-order", "row",
+        "--target-format", "96",
+    ])
+
+    assert result.exit_code == 0
+
+    hitlist = mock_project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # Skip header
+        rows = list(reader)
+
+        # First well should be A1, second should be A2 (row-wise)
+        assert rows[0][4] == "A1"
+        assert rows[1][4] == "A2"
+
+
+def test_pick_no_demux_results(tmp_path):
+    """Test error when no demux results exist."""
+    project_dir = tmp_path / "no_demux_project"
+    project_dir.mkdir()
+
+    # Create project state without demux
+    state = {
+        "library_size": 100,
+        "workflow_steps": {}
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    result = runner.invoke(app, ["pick", str(project_dir)])
+
+    assert result.exit_code == 1
+    assert "No demultiplexing results" in result.stdout
+
+
+def test_pick_invalid_project(tmp_path):
+    """Test error with invalid project directory."""
+    result = runner.invoke(app, ["pick", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Not a valid uSort-M project" in result.stdout
