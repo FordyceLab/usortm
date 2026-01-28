@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>uSort-M - Rapid and low-cost parsed variant library generation</title>
+
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-GT0D649KGB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-GT0D649KGB', {
+      'anonymize_ip': true,
+      'allow_google_signals': false,
+      'allow_ad_personalization_signals': false
+    });
+  </script>
+
   <!-- Apply theme immediately to prevent flash -->
   <script>
     (function() {
@@ -387,6 +401,7 @@
       align-items: flex-start;
       padding: 0.5rem 0;
       border-bottom: 1px solid var(--color-border);
+      position: relative;
     }
     
     .timeline-step:last-child {
@@ -481,10 +496,11 @@
             <h1>uSort-M</h1>
             <p class="tagline">Rapid and low-cost parsed variant library generation</p>
             <p>
-              uSort-M converts pooled DNA libraries into collections of isolated,
-              sequence-verified sequences. Using FACS to isolate single <i>E. coli</i> cells transformed with the library and long-read sequencing to sequence-verify clones, uSort-M achieves
-              significant (often <b>>10x</b>) cost savings compared to traditional gene synthesis. For most libraries, the time required to
-              clone, sort, barcode, and sequence-verify thousands of sequences is often less than <b>10 days</b>.
+              uSort-M converts pooled DNA libraries into collections of isolated and 
+              verified sequences. uSort-M achieves significant (often <b>>10x</b>) 
+              cost savings compared to traditional gene synthesis. For most libraries, 
+              the time required to clone, sort, barcode, and sequence-verify thousands 
+              of sequences is often less than <b>10 days</b>.
             </p>
             <div style="margin-top: 1rem;">
               <a href="getting-started.html" class="btn btn-primary">Get Started</a>
@@ -509,14 +525,14 @@
 
         <!-- Cost Calculator Section -->
         <section>
-          <h2 style="text-align: center; margin-top: 4rem;">Cost Comparison</h2>
+          <h2 style="text-align: center; margin-top: 6rem;">What will it cost?</h2>
 
-          <p class="input-sentence" style="text-align: center;">
-            My gene is 
+          <p class="input-sentence" style="text-align: center; line-height: 1.4; margin-bottom: 0.25rem;">
+            My gene is
             <span class="inline-input">
               <input type="number" id="seq-length" value="300" min="100" max="1500" step="50">
             </span>
-            bp in length and I want to generate a parsed library of 
+            bp in length and I want to parse
             <span class="inline-input">
               <input type="number" id="library-size" value="500" min="50" max="5000" step="50">
             </span>
@@ -524,9 +540,8 @@
           </p>
 
           <!-- Synthesis Strategy Assumptions -->
-          <p class="synthesis-footnote" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: transparent; border-left: 2px solid var(--color-border); font-size: 0.75rem; line-height: 1.5; color: var(--color-text-light); opacity: 0.85;">
-            <strong style="font-size: 0.8rem;">Synthesis Strategy Assumptions:</strong>
-            <span style="display: block; margin-top: 0.25rem;">
+          <p class="synthesis-footnote" style="margin-top: 0; margin-bottom: 2rem; padding: 0.25rem 0.75rem; background: transparent; font-size: 0.75rem; line-height: 1.5; color: var(--color-text-light); opacity: 0.85; text-align: center;">
+            <span style="display: block; margin-top: 0;">
               <strong>uSort-M:</strong> <span id="usortm-assumption">0-300 bp uses IDT oPools or Twist Oligo Pools; &gt;300 bp uses 30 bp substitution library cloned into full-length gene</span>.<br>
               <strong>Traditional:</strong> <span id="traditional-assumption">Direct gene fragment synthesis (Twist Gene Fragments, IDT eBlocks)</span>.
             </span>
@@ -595,8 +610,8 @@
               <!-- Quick stats - 2 boxes in 1 row -->
               <div class="quick-stats">
                 <div class="stat-box primary">
-                  <div class="label">Total Days</div>
-                  <div class="value accent" id="total-days">6</div>
+                  <div class="label">Total Time</div>
+                  <div class="value accent"><span id="total-days">6</span> <span style="font-size: 0.5em; color: var(--color-text-muted); font-weight: 400;">days</span></div>
                 </div>
                 <div class="stat-box">
                   <div class="label">Cost per Variant</div>
@@ -648,6 +663,9 @@ usortm plan variants.csv --output my_project/</code></pre>
           <p>
             uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.
           </p>
+          <p style="font-size: 0.85em; color: var(--color-text-muted); margin-top: 0.5rem;">
+            This site uses Google Analytics to understand documentation usage patterns. We anonymize IP addresses and do not collect personally identifiable information.
+          </p>
         </footer>
       </div>
     </main>
@@ -665,8 +683,8 @@ const costDataCache = {};
 
 // Load cost data from Python-generated JSON files
 async function loadCostData(seqLength) {
-  // Find nearest available sequence length
-  const available = [300, 500, 750, 1000];
+  // Find nearest available sequence length (100-1500 bp in 50 bp steps)
+  const available = Array.from({length: 29}, (_, i) => 100 + i * 50);
   const nearest = available.reduce((prev, curr) =>
     Math.abs(curr - seqLength) < Math.abs(prev - seqLength) ? curr : prev
   );
@@ -886,19 +904,13 @@ function updateFootnoteAssumptions(seqLen) {
 
   // Update uSort-M assumption based on length
   if (seqLen <= 300) {
-    usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from commercial vendor (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>)`;
-  } else if (seqLen <= 500) {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>) assembled into ${seqLen} bp gene to generate substitution library`;
+    usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
   } else {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>) assembled into ${seqLen} bp gene to generate substitution library`;
+    usortmAssumption.innerHTML = `pool of 30 bp inserts from <a href="library-design.html#library-size-skew">commercial vendor</a> assembled into ${seqLen} bp gene to generate substitution library`;
   }
 
   // Update traditional assumption based on length
-  if (seqLen <= 500) {
-    traditionalAssumption.innerHTML = `Direct gene fragment synthesis (<a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a>, <a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/gblocks-gene-fragments" target="_blank">IDT gBlocks</a>, <a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/eblocks-gene-fragments" target="_blank">IDT eBlocks</a>)`;
-  } else {
-    traditionalAssumption.innerHTML = `Direct gene fragment synthesis (<a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a>, Instance Bio or custom synthesis)`;
-  }
+  traditionalAssumption.innerHTML = `Direct gene fragment synthesis from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
 }
 
 function updateTimeline(plates, libSize, seqLen) {
@@ -949,19 +961,27 @@ function updateTimeline(plates, libSize, seqLen) {
       day: `Day ${hitpickStart}`,
       task: "Hit Picking",
       detail: `Cherry-pick ${libSize.toLocaleString()} clones (${formatTime(libSize * 0.75 / 60)})`
+    },
+    {
+      day: `Day ${totalDays}`,
+      task: "Completed",
+      detail: "Arrayed library ready for screening"
     }
   ];
 
   const container = document.getElementById("timeline-steps");
-  container.innerHTML = steps.map(s => `
-    <div class="timeline-step">
-      <div class="step-day">${s.day}</div>
-      <div class="step-info">
-        <div class="step-task">${s.task}</div>
-        <div class="step-detail">${s.detail}</div>
+  container.innerHTML = steps.map((s, i) => {
+    const arrowClass = (i === 0 || i === 5) ? ' has-arrow' : '';
+    return `
+      <div class="timeline-step${arrowClass}">
+        <div class="step-day">${s.day}</div>
+        <div class="step-info">
+          <div class="step-task">${s.task}</div>
+          <div class="step-detail">${s.detail}</div>
+        </div>
       </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   return totalDays;
 }

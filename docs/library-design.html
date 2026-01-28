@@ -4,6 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Library Design - uSort-M</title>
+
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-GT0D649KGB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-GT0D649KGB', {
+      'anonymize_ip': true,
+      'allow_google_signals': false,
+      'allow_ad_personalization_signals': false
+    });
+  </script>
+
   <!-- Apply theme immediately to prevent flash -->
   <script>
     (function() {
@@ -124,16 +138,35 @@
 
         <h2>Design Considerations</h2>
         
-        <h3>Library Size & Skew</h3>
+        <h3 id="library-size-skew">Library Size & Skew</h3>
         <p>
-          The most critical factor affecting recovery efficiency is <strong>library skew</strong>—the 
-          fold-difference between the most and least abundant variants. Commercial oligo pools typically 
-          have low skew (&lt;4-fold) for sequences under 350 bp. Longer assemblies may have higher skew 
-          (10-fold or more).
+          The most critical factor affecting recovery efficiency is <strong>library skew</strong>—the
+          fold-difference between the most and least abundant variants. The choice of synthesis vendor
+          affects both library skew and sequence length constraints.
         </p>
-        
+
+        <h4>Commercial Oligo Pool Vendors</h4>
+        <p>
+          For sequences ≤300 bp (or 30 bp inserts for substitution libraries):
+        </p>
+        <ul>
+          <li><a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a> — Excellent uniformity, typically &lt;4-fold skew</li>
+          <li><a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a> — High-quality synthesis, typically &lt;4-fold skew</li>
+        </ul>
+
+        <h4>Gene Fragment Vendors</h4>
+        <p>
+          For direct gene synthesis (traditional approach, or full-length genes for substitution libraries):
+        </p>
+        <ul>
+          <li><a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a> — Up to 1800 bp</li>
+          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/gblocks-gene-fragments" target="_blank">IDT gBlocks</a> — 125-3000 bp</li>
+          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/eblocks-gene-fragments" target="_blank">IDT eBlocks</a> — 300-2000 bp</li>
+          <li>Instance Bio — Cost-effective for longer genes, higher skew (10-fold or more)</li>
+        </ul>
+
         <div class="callout">
-          <strong>💡 Tip:</strong> Use the <code>usortm estimate</code> command to predict required 
+          <strong>💡 Tip:</strong> Use the <code>usortm estimate</code> command to predict required
           oversampling for your library parameters before ordering synthesis.
         </div>
 
@@ -351,6 +384,9 @@ sfGFP_F64I,F64I</code></pre>
 
         <footer class="footer">
           <p>uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.</p>
+          <p style="font-size: 0.85em; color: var(--color-text-muted); margin-top: 0.5rem;">
+            This site uses Google Analytics to understand documentation usage patterns. We anonymize IP addresses and do not collect personally identifiable information.
+          </p>
         </footer>
       </div>
     </main>
