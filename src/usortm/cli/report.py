@@ -1,10 +1,11 @@
-"""Generate final report and plate maps for a uSort-M project."""
+"""Generate final reports and plate maps from demultiplexing results."""
 
 from typing import Optional
 from pathlib import Path
 import csv
 import json
 from datetime import datetime
+from collections import Counter
 
 import typer
 from rich.console import Console
@@ -20,433 +21,454 @@ PROJECT_STATE_FILE = "usortm_project.json"
 def report(
     project_dir: Path = typer.Argument(
         ...,
-        help="Path to uSort-M project directory.",
+        help="Path to uSort-M project directory (with demux results).",
         exists=True,
     ),
-    output_format: str = typer.Option(
+    format: str = typer.Option(
         "all",
         "--format", "-f",
-        help="Output format: 'csv', 'html', 'json', or 'all'.",
+        help="Output format: csv, html, json, or all",
     ),
 ):
     """
-    Generate final report and plate maps for a [blue]uSort-M[/blue] project.
-    
-    Creates:
-    
-    • Plate maps showing variant locations
-    • Coverage summary statistics
-    • Missing variants list
-    • Final variant → well mapping
-    
+    Generate final report and plate maps.
+
+    Creates comprehensive reports including:
+    • Interactive HTML summary
+    • Plate maps (CSV)
+    • Final variant mapping (CSV)
+    • Missing variants list (CSV)
+
     [bold]Example:[/bold]
-    
-        usortm report my_project/
+
+        usortm report my_project/ --format all
     """
+    # Validate format
+    valid_formats = ["csv", "html", "json", "all"]
+    if format not in valid_formats:
+        console.print(f"[red]Error:[/red] Invalid format '{format}'. Choose from: {', '.join(valid_formats)}")
+        raise typer.Exit(1)
+
     # Load project state
     state_file = project_dir / PROJECT_STATE_FILE
     if not state_file.exists():
-        console.print(f"[red]Error:[/red] Not a valid uSort-M project.")
+        console.print(f"[red]Error:[/red] Not a valid uSort-M project (missing {PROJECT_STATE_FILE})")
+        console.print(f"Run 'usortm plan' first to create a project.")
         raise typer.Exit(1)
-    
+
     with open(state_file) as f:
         project = json.load(f)
-    
+
+    # Check if demux has been run
+    if "workflow_steps" not in project or not project["workflow_steps"].get("demux", {}).get("completed"):
+        console.print("[red]Error:[/red] No demultiplexing results found.")
+        console.print("Run 'usortm demux' first to process sequencing data.")
+        raise typer.Exit(1)
+
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Final Report",
+        "[bold blue]uSort-M[/bold blue] Reporting",
         border_style="blue",
     ))
     console.print()
-    
+
+    # Load demux results
+    demux_output = project_dir / "demux_output"
+    well_assignments_file = demux_output / "well_assignments.csv"
+    demux_summary_file = demux_output / "demux_summary.json"
+
+    if not well_assignments_file.exists() or not demux_summary_file.exists():
+        console.print(f"[red]Error:[/red] Demux results incomplete")
+        raise typer.Exit(1)
+
+    well_data = _load_well_assignments(well_assignments_file)
+    with open(demux_summary_file) as f:
+        demux_summary = json.load(f)
+
+    console.print(f"[green]✓[/green] Loaded demux results ({len(well_data)} wells with data)")
+
     # Create report directory
     report_dir = project_dir / "report"
     report_dir.mkdir(exist_ok=True)
-    
-    # Load original variants
-    variants_file = project_dir / "variants.csv"
-    original_variants = set()
-    if variants_file.exists():
-        with open(variants_file, newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                name = row.get("name") or row.get("variant") or list(row.values())[0]
-                original_variants.add(name)
-    
-    # Load demux results
-    demux_output = project_dir / "demux_output"
-    recovered_variants = {}
-    
-    if (demux_output / "well_assignments.csv").exists():
-        with open(demux_output / "well_assignments.csv", newline="") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                variant = row["variant"]
-                if variant not in recovered_variants:
-                    recovered_variants[variant] = []
-                recovered_variants[variant].append({
-                    "plate": int(row["plate"]),
-                    "well": row["well"],
-                    "reads": int(row["reads"]),
-                })
-    
-    # Load hit list if available
-    hitlist_file = project_dir / "hitlist.csv"
-    picked_variants = {}
-    if hitlist_file.exists():
-        with open(hitlist_file, newline="") as f:
-            # Handle semicolon-delimited
-            reader = csv.DictReader(f, delimiter=";")
-            for row in reader:
-                picked_variants[row["SampleID"]] = {
-                    "target_plate": int(row["TargetPlateID"]),
-                    "target_well": row["TargetWell"],
-                }
-    
-    # Calculate statistics
-    library_size = project.get("library_size", len(original_variants))
-    n_recovered = len(recovered_variants)
-    n_picked = len(picked_variants)
-    coverage = n_recovered / library_size if library_size > 0 else 0
-    
-    # Find missing variants
-    missing_variants = original_variants - set(recovered_variants.keys())
-    
-    # Generate plate maps
-    _generate_plate_maps(recovered_variants, picked_variants, report_dir, output_format)
-    
-    # Generate missing variants list
-    _generate_missing_list(missing_variants, report_dir)
-    
-    # Generate final mapping
-    _generate_final_mapping(picked_variants, recovered_variants, report_dir)
-    
-    # Generate summary report
-    _generate_summary_html(project, recovered_variants, picked_variants, missing_variants, report_dir)
-    
-    # Update project state
-    project["workflow_steps"]["report"] = {
-        "completed": True,
-        "timestamp": datetime.now().isoformat(),
-        "coverage": round(coverage, 4),
-        "recovered": n_recovered,
-        "missing": len(missing_variants),
-    }
-    
-    with open(state_file, "w") as f:
-        json.dump(project, f, indent=2)
-    
+
+    # Generate reports based on format
+    generated_files = []
+
+    if format in ["csv", "all"]:
+        # Generate CSV reports
+        plate_maps_file = report_dir / "plate_maps.csv"
+        _save_plate_maps(well_data, plate_maps_file)
+        generated_files.append(plate_maps_file)
+
+        final_mapping_file = report_dir / "final_mapping.csv"
+        _save_final_mapping(well_data, final_mapping_file)
+        generated_files.append(final_mapping_file)
+
+        missing_variants_file = report_dir / "missing_variants.csv"
+        _save_missing_variants(project, well_data, missing_variants_file)
+        generated_files.append(missing_variants_file)
+
+    if format in ["json", "all"]:
+        # Generate JSON report
+        json_file = report_dir / "report.json"
+        _save_json_report(project, demux_summary, well_data, json_file)
+        generated_files.append(json_file)
+
+    if format in ["html", "all"]:
+        # Generate HTML report
+        html_file = report_dir / "summary.html"
+        _save_html_report(project, demux_summary, well_data, html_file)
+        generated_files.append(html_file)
+
     # Display summary
     console.print()
-    summary_table = Table(
-        title="Project Summary",
+    console.print("[green]✓[/green] Reports generated!")
+    console.print()
+
+    for file_path in generated_files:
+        console.print(f"  • {file_path.relative_to(project_dir)}")
+
+    console.print()
+
+    # Display quick stats
+    stats_table = Table(
+        title="Workflow Summary",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
     )
-    summary_table.add_column("Metric", style="dim")
-    summary_table.add_column("Value", justify="right")
-    
-    summary_table.add_row("Library size", f"{library_size:,}")
-    summary_table.add_row("Variants recovered", f"{n_recovered:,}")
-    summary_table.add_row("Coverage", f"[green]{coverage:.1%}[/green]")
-    summary_table.add_row("Missing variants", f"{len(missing_variants):,}")
-    summary_table.add_row("Variants picked", f"{n_picked:,}")
-    
-    console.print(summary_table)
-    console.print()
-    
-    # Cost summary
-    if "costs" in project:
-        costs = project["costs"]
-        console.print(f"[bold]Final cost:[/bold] [green]${costs['total']:,.2f}[/green]")
-        console.print(f"[bold]Cost per variant recovered:[/bold] ${costs['total']/n_recovered:.2f}")
-        console.print()
-    
-    console.print("[green]✓[/green] Report generated:")
-    console.print(f"  • {report_dir}/summary.html")
-    console.print(f"  • {report_dir}/plate_maps.csv")
-    console.print(f"  • {report_dir}/final_mapping.csv")
-    console.print(f"  • {report_dir}/missing_variants.csv")
-    console.print()
-    
-    if missing_variants:
-        console.print(f"[yellow]Note:[/yellow] {len(missing_variants)} variants not recovered.")
-        console.print("  Consider re-sorting with increased fold sampling, or")
-        console.print("  re-synthesize missing variants if critical.")
+    stats_table.add_column("Metric", style="dim")
+    stats_table.add_column("Value", justify="right")
+
+    stats_table.add_row("Library size", f"{project.get('library_size', 'N/A')}")
+    stats_table.add_row("Total reads", f"{demux_summary.get('total_reads', 0):,}")
+    stats_table.add_row("Wells with data", f"{demux_summary.get('wells_with_data', 0):,}")
+
+    unique_variants = len(set(w["variant"] for w in well_data))
+    stats_table.add_row("Unique variants", f"{unique_variants}")
+
+    library_size = project.get("library_size", 1)
+    if library_size > 0:
+        coverage_pct = (unique_variants / library_size) * 100
+        stats_table.add_row("Library coverage", f"{coverage_pct:.1f}%")
+
+    console.print(stats_table)
     console.print()
 
 
-def _generate_plate_maps(recovered: dict, picked: dict, output_dir: Path, format: str):
-    """Generate plate maps showing variant locations."""
-    # CSV format
-    if format in ["csv", "all"]:
-        with open(output_dir / "plate_maps.csv", "w", newline="") as f:
-            writer = csv.writer(f)
+def _load_well_assignments(assignments_file: Path) -> list:
+    """Load well assignments from demux output."""
+    well_data = []
+
+    with open(assignments_file, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            well_data.append({
+                "plate": row["plate"],
+                "well": row["well"],
+                "variant": row["variant"],
+                "reads": int(row["reads"]),
+                "consensus_fraction": float(row["consensus_fraction"]),
+            })
+
+    return well_data
+
+
+def _save_plate_maps(well_data: list, output_file: Path):
+    """Save plate maps with well-to-variant assignments."""
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["plate", "well", "variant", "reads", "consensus_fraction"])
+
+        for well in well_data:
             writer.writerow([
-                "variant", "source_plate", "source_well", "reads",
-                "target_plate", "target_well", "status"
+                well["plate"],
+                well["well"],
+                well["variant"],
+                well["reads"],
+                well["consensus_fraction"],
             ])
-            
-            for variant, wells in recovered.items():
-                # Use the best well (most reads)
-                best_well = max(wells, key=lambda w: w["reads"])
-                
-                target_info = picked.get(variant, {})
-                status = "picked" if variant in picked else "recovered"
-                
-                writer.writerow([
-                    variant,
-                    best_well["plate"],
-                    best_well["well"],
-                    best_well["reads"],
-                    target_info.get("target_plate", ""),
-                    target_info.get("target_well", ""),
-                    status,
-                ])
 
 
-def _generate_missing_list(missing: set, output_dir: Path):
-    """Generate list of missing variants."""
-    with open(output_dir / "missing_variants.csv", "w", newline="") as f:
+def _save_final_mapping(well_data: list, output_file: Path):
+    """Save final variant-to-well mapping."""
+    # Group wells by variant
+    variant_map = {}
+    for well in well_data:
+        variant = well["variant"]
+        if variant not in variant_map:
+            variant_map[variant] = []
+        variant_map[variant].append(well)
+
+    with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["variant"])
-        for v in sorted(missing):
-            writer.writerow([v])
+        writer.writerow(["variant", "num_wells", "best_plate", "best_well", "best_reads"])
 
+        for variant, wells in sorted(variant_map.items()):
+            # Find best well (highest read count)
+            best_well = max(wells, key=lambda x: x["reads"])
 
-def _generate_final_mapping(picked: dict, recovered: dict, output_dir: Path):
-    """Generate final variant → well mapping for picked variants."""
-    with open(output_dir / "final_mapping.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["variant", "plate", "well"])
-        
-        for variant, info in sorted(picked.items()):
             writer.writerow([
                 variant,
-                info["target_plate"] + 1,  # Convert to 1-indexed
-                info["target_well"],
+                len(wells),
+                best_well["plate"],
+                best_well["well"],
+                best_well["reads"],
             ])
 
 
-def _generate_summary_html(project: dict, recovered: dict, picked: dict, 
-                          missing: set, output_dir: Path):
-    """Generate HTML summary report."""
-    library_size = project.get("library_size", len(recovered) + len(missing))
-    n_recovered = len(recovered)
-    coverage = n_recovered / library_size if library_size > 0 else 0
-    costs = project.get("costs", {})
-    
-    html = f"""<!DOCTYPE html>
-<html>
+def _save_missing_variants(project: dict, well_data: list, output_file: Path):
+    """Save list of variants not recovered."""
+    # Get expected variants from project
+    expected_variants = set()
+    library_file = project.get("library_file")
+
+    if library_file:
+        library_path = Path(library_file)
+        if library_path.exists():
+            try:
+                with open(library_path, newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if "name" in row:
+                            expected_variants.add(row["name"])
+                        elif "variant" in row:
+                            expected_variants.add(row["variant"])
+            except:
+                pass  # If we can't read it, skip
+
+    # Get recovered variants
+    recovered_variants = set(w["variant"] for w in well_data)
+
+    # Find missing variants
+    missing_variants = expected_variants - recovered_variants
+
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["variant", "status"])
+
+        if len(expected_variants) == 0:
+            writer.writerow(["N/A", "No library file found in project"])
+        else:
+            for variant in sorted(missing_variants):
+                writer.writerow([variant, "missing"])
+
+
+def _save_json_report(project: dict, demux_summary: dict, well_data: list, output_file: Path):
+    """Save comprehensive JSON report."""
+    # Calculate statistics
+    unique_variants = len(set(w["variant"] for w in well_data))
+    variant_counts = Counter(w["variant"] for w in well_data)
+
+    read_counts = [w["reads"] for w in well_data]
+    avg_reads = sum(read_counts) / len(read_counts) if read_counts else 0
+
+    report = {
+        "generated": datetime.now().isoformat(),
+        "project": {
+            "library_size": project.get("library_size"),
+            "seq_length": project.get("seq_length"),
+            "fold_sampling": project.get("fold_sampling"),
+        },
+        "demux": demux_summary,
+        "variants": {
+            "unique": unique_variants,
+            "total_wells": len(well_data),
+            "avg_reads_per_well": round(avg_reads, 1),
+            "variants_with_multiple_wells": sum(1 for count in variant_counts.values() if count > 1),
+        },
+        "coverage": {
+            "library_size": project.get("library_size", 1),
+            "recovered": unique_variants,
+            "percent": round((unique_variants / project.get("library_size", 1)) * 100, 1),
+        }
+    }
+
+    with open(output_file, "w") as f:
+        json.dump(report, f, indent=2)
+
+
+def _save_html_report(project: dict, demux_summary: dict, well_data: list, output_file: Path):
+    """Save interactive HTML summary report."""
+    # Calculate statistics
+    unique_variants = len(set(w["variant"] for w in well_data))
+    variant_counts = Counter(w["variant"] for w in well_data)
+
+    read_counts = [w["reads"] for w in well_data]
+    avg_reads = sum(read_counts) / len(read_counts) if read_counts else 0
+    max_reads = max(read_counts) if read_counts else 0
+    min_reads = min(read_counts) if read_counts else 0
+
+    library_size = project.get("library_size", 1)
+    coverage_pct = (unique_variants / library_size) * 100 if library_size > 0 else 0
+
+    # Generate HTML
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>uSort-M Project Report</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>uSort-M Report</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
-            background: #f5f5f5;
+            background: #fafafa;
         }}
-        .header {{
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            color: white;
-            padding: 2rem;
-            border-radius: 12px;
-            margin-bottom: 2rem;
+        h1 {{
+            color: #2563eb;
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 0.5rem;
         }}
-        .header h1 {{
-            margin: 0;
-            font-size: 2rem;
-        }}
-        .header p {{
-            margin: 0.5rem 0 0;
-            opacity: 0.9;
-        }}
-        .card {{
-            background: white;
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }}
-        .card h2 {{
-            margin-top: 0;
+        h2 {{
             color: #1e40af;
-            font-size: 1.25rem;
+            margin-top: 2rem;
         }}
-        .stats-grid {{
+        .stat-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
+            margin: 2rem 0;
         }}
-        .stat {{
-            text-align: center;
-            padding: 1rem;
-            background: #f0f9ff;
+        .stat-box {{
+            background: white;
+            padding: 1.5rem;
             border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .stat-label {{
+            font-size: 0.875rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }}
         .stat-value {{
             font-size: 2rem;
             font-weight: bold;
-            color: #1e40af;
+            color: #1e293b;
+            margin-top: 0.5rem;
         }}
-        .stat-label {{
-            font-size: 0.875rem;
-            color: #64748b;
-        }}
-        .cost-row {{
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #e2e8f0;
-        }}
-        .cost-row:last-child {{
-            border-bottom: none;
-            font-weight: bold;
-        }}
-        .progress-bar {{
-            height: 24px;
-            background: #e2e8f0;
-            border-radius: 12px;
-            overflow: hidden;
-        }}
-        .progress-fill {{
-            height: 100%;
-            background: linear-gradient(90deg, #22c55e, #16a34a);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
+        .success {{
+            color: #059669;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
-        }}
-        th, td {{
-            text-align: left;
-            padding: 0.75rem;
-            border-bottom: 1px solid #e2e8f0;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
         }}
         th {{
-            background: #f8fafc;
-            font-weight: 600;
+            background: #2563eb;
+            color: white;
+            text-align: left;
+            padding: 1rem;
+        }}
+        td {{
+            padding: 0.75rem 1rem;
+            border-top: 1px solid #e5e7eb;
+        }}
+        tr:hover {{
+            background: #f9fafb;
+        }}
+        .footer {{
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 0.875rem;
         }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>uSort-M Project Report</h1>
-        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-    </div>
-    
-    <div class="card">
-        <h2>Coverage Summary</h2>
-        <div class="progress-bar">
-            <div class="progress-fill" style="width: {coverage*100:.1f}%">
-                {coverage*100:.1f}%
-            </div>
+    <h1>uSort-M Workflow Report</h1>
+    <p><strong>Generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+
+    <h2>Project Overview</h2>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">Library Size</div>
+            <div class="stat-value">{project.get('library_size', 'N/A')}</div>
         </div>
-        <div class="stats-grid" style="margin-top: 1rem;">
-            <div class="stat">
-                <div class="stat-value">{library_size:,}</div>
-                <div class="stat-label">Library Size</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value">{n_recovered:,}</div>
-                <div class="stat-label">Recovered</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value">{len(picked):,}</div>
-                <div class="stat-label">Picked</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value">{len(missing):,}</div>
-                <div class="stat-label">Missing</div>
-            </div>
+        <div class="stat-box">
+            <div class="stat-label">Sequence Length</div>
+            <div class="stat-value">{project.get('seq_length', 'N/A')} bp</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Fold Sampling</div>
+            <div class="stat-value">{project.get('fold_sampling', 'N/A')}×</div>
         </div>
     </div>
-    
-    <div class="card">
-        <h2>Cost Breakdown</h2>
-        <div class="cost-row">
-            <span>Synthesis</span>
-            <span>${costs.get('synthesis', 0):,.2f}</span>
+
+    <h2>Demultiplexing Results</h2>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">Total Reads</div>
+            <div class="stat-value">{demux_summary.get('total_reads', 0):,}</div>
         </div>
-        <div class="cost-row">
-            <span>Cloning</span>
-            <span>${costs.get('cloning', 0):,.2f}</span>
+        <div class="stat-box">
+            <div class="stat-label">Assigned Reads</div>
+            <div class="stat-value">{demux_summary.get('assigned_reads', 0):,}</div>
         </div>
-        <div class="cost-row">
-            <span>Sorting</span>
-            <span>${costs.get('sorting', 0):,.2f}</span>
-        </div>
-        <div class="cost-row">
-            <span>Barcoding</span>
-            <span>${costs.get('barcoding', 0):,.2f}</span>
-        </div>
-        <div class="cost-row">
-            <span>Sequencing</span>
-            <span>${costs.get('sequencing', 0):,.2f}</span>
-        </div>
-        <div class="cost-row">
-            <span>Hit-picking</span>
-            <span>${costs.get('hitpicking', 0):,.2f}</span>
-        </div>
-        <div class="cost-row">
-            <span>Total</span>
-            <span>${costs.get('total', 0):,.2f}</span>
-        </div>
-        <div class="cost-row" style="margin-top: 1rem; border-top: 2px solid #1e40af; padding-top: 1rem;">
-            <span>Cost per variant recovered</span>
-            <span>${costs.get('total', 0) / max(n_recovered, 1):.2f}</span>
+        <div class="stat-box">
+            <div class="stat-label">Wells with Data</div>
+            <div class="stat-value">{demux_summary.get('wells_with_data', 0):,}</div>
         </div>
     </div>
-    
-    <div class="card">
-        <h2>Experiment Parameters</h2>
-        <table>
+
+    <h2>Variant Recovery</h2>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">Unique Variants</div>
+            <div class="stat-value success">{unique_variants}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Library Coverage</div>
+            <div class="stat-value success">{coverage_pct:.1f}%</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Avg Reads/Well</div>
+            <div class="stat-value">{avg_reads:.0f}</div>
+        </div>
+    </div>
+
+    <h2>Read Depth Statistics</h2>
+    <table>
+        <thead>
             <tr>
-                <th>Parameter</th>
+                <th>Metric</th>
                 <th>Value</th>
             </tr>
+        </thead>
+        <tbody>
             <tr>
-                <td>Sequence length</td>
-                <td>{project.get('seq_length', 'N/A')} bp</td>
+                <td>Minimum reads</td>
+                <td>{min_reads}</td>
             </tr>
             <tr>
-                <td>Fold sampling</td>
-                <td>{project.get('fold_sampling', 'N/A')}×</td>
+                <td>Average reads</td>
+                <td>{avg_reads:.0f}</td>
             </tr>
             <tr>
-                <td>Expected skew</td>
-                <td>{project.get('skew', 'N/A')}× (Q90/Q10)</td>
-            </tr>
-            <tr>
-                <td>Plates sorted</td>
-                <td>{project.get('n_plates', 'N/A')}</td>
+                <td>Maximum reads</td>
+                <td>{max_reads}</td>
             </tr>
             <tr>
                 <td>Total wells</td>
-                <td>{project.get('total_wells', 'N/A'):,}</td>
+                <td>{len(well_data)}</td>
             </tr>
-        </table>
-    </div>
-    
-    <div class="card">
-        <h2>Files Generated</h2>
-        <ul>
-            <li><code>plate_maps.csv</code> - Source and target well assignments</li>
-            <li><code>final_mapping.csv</code> - Final variant → well mapping</li>
-            <li><code>missing_variants.csv</code> - Variants not recovered</li>
-            <li><code>hitlist.csv</code> - Integra ASSIST PLUS input file</li>
-        </ul>
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Generated by <strong>uSort-M</strong> | <a href="https://github.com/FordyceLab/usortm">GitHub</a></p>
     </div>
 </body>
 </html>
 """
-    
-    (output_dir / "summary.html").write_text(html)
+
+    with open(output_file, "w") as f:
+        f.write(html_content)
