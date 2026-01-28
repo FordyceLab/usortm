@@ -267,8 +267,11 @@ def usortm_synthesis_cost(n_seqs,
     """
     Compute synthesis cost (USD) for a pooled oligo library sequences.
 
+    For sequences >350 bp, assumes a substitution library model where
+    30 bp inserts are synthesized and assembled into the full-length gene.
+    Only the 30 bp insert synthesis cost is calculated here.
     """
-    # Check length: Twist for smaller than 300
+    # Check length: Twist/IDT oPools for <=350 bp full gene synthesis
     if seq_length <= 350:
         # Select appropriate tier
         for (low, high), length_dict in library_costs.items():
@@ -281,18 +284,20 @@ def usortm_synthesis_cost(n_seqs,
                 else:
                     return length_dict[nearest_len]
     
-    # If larger than 300, use Instance pricing scheme
+    # For >350 bp: substitution library with 30 bp inserts
     else:
-        total_bp = seq_length*n_seqs
+        insert_length = 30  # Synthesize 30 bp inserts, not full genes
+        total_bp = insert_length * n_seqs
         if n_seqs < 3000:
-            return 0.015*total_bp
-        elif (n_seqs > 3000) and (n_seqs < 30000):
-            if seq_length < 301:
-                return 0.001*total_bp
-            elif (seq_length >= 301) and (seq_length <= 549):
-                return 0.002*total_bp
-            elif (seq_length >= 550) and (seq_length <= 2050):
-                return 0.004*total_bp
+            return 0.015 * total_bp
+        elif (n_seqs >= 3000) and (n_seqs < 30000):
+            # Note: insert_length is always 30 bp, so always uses tier 1 pricing
+            if insert_length < 301:
+                return 0.001 * total_bp
+            elif (insert_length >= 301) and (insert_length <= 549):
+                return 0.002 * total_bp
+            elif (insert_length >= 550) and (insert_length <= 2050):
+                return 0.004 * total_bp
             else:
                 return 0
             
@@ -360,20 +365,25 @@ def usortm_barcoding_cost(n_wells):
     # Assume 8x sorting
     # total_wells = library_size*8
     total_wells = n_wells
-    n_plates = int(n_wells/384) # Get number of 384-well plates
+    n_plates = int(n_wells/384) # Get number of 
+                                # 384-well plates
     return n_plates*97.73 # From cost sheet
 
 def usortm_sequencing_cost(n_wells, seq_length):
     # Base cost of Plasmidsaurus Custom Sequencing
     cost = 500
 
-    # 100 minimum reads per well
+    # Calculate total reads assuming 100 minimum 
+    # reads per well
     total_reads = n_wells*100
 
-    # ASSUMING READ LENGTH IS CDS + 100 BASES FOR BARCODES
+    # Calculate total reads assuming read length 
+    # is CDS + 100 bases for barcodes
     total_bp = total_reads*(seq_length+100)
-    target_Gb = total_bp/1000000000
+    target_Gb = total_bp/1000000000 # Convert to Gb
 
+    # Add cost for >1 Gb, according to 
+    # Plasmidsaurus pricing
     if target_Gb > 1:
         cost+=50
 
