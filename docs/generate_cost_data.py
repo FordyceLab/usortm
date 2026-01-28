@@ -133,8 +133,8 @@ def main():
     output_dir = os.path.join(os.path.dirname(__file__), 'cost_data')
     os.makedirs(output_dir, exist_ok=True)
 
-    # Generate curves for common sequence lengths
-    seq_lengths = [300, 500, 750, 1000]
+    # Generate curves for all sequence lengths from 100-1500 bp in 50 bp steps
+    seq_lengths = list(range(100, 1501, 50))
 
     for seq_len in seq_lengths:
         curve_data = generate_cost_curves(seq_len)
