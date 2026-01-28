@@ -59,7 +59,7 @@
       background: var(--color-code-bg);
       color: var(--color-code-text);
       border-radius: 8px;
-      padding: 0;
+      padding: 1rem 1.25rem;
       font-size: 0.875rem;
       line-height: 1.5;
     }

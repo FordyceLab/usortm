@@ -50,6 +50,28 @@
 
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="images/Thumbnail.png" type="image/png">
+  <!-- Highlight.js for code syntax highlighting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+  <!-- Code copy button functionality -->
+  <script src="code-copy.js"></script>
+  <style>
+    pre code.hljs {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      padding: 0;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    pre {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
 </head>
 <body>
   <div class="layout">
@@ -88,15 +110,251 @@
     </div>
     <main class="main">
       <div class="content">
-        <h1>PCR Barcoding</h1>
-        <p>Documentation coming soon.</p>
-        <p>See the <a href="workflow.html">Workflow Overview</a> for general guidance.</p>
+        <h1>PCR Barcoding Protocol</h1>
+
+        <p>
+          After FACS sorting and overnight outgrowth, colony PCRs with well-specific barcoded primers encode the plate and well position on each amplicon. PCR barcoding
+          This enables multiplexed amplicon sequencing to determine the sequence identity of each well.
+        </p>
+
+        <h2>Overview</h2>
+
+        <p>The barcoding strategy involves:</p>
+        <ol>
+          <li>Well-specific primers containing unique DNA barcodes</li>
+          <li>PCR amplification of the variable region from bacterial lysate</li>
+          <li>Pooling of barcoded amplicons across all plates</li>
+          <li>Sequencing of the pooled library</li>
+          <li>Computational demultiplexing to assign reads to wells</li>
+        </ol>
+
+        <h2>Barcode Design</h2>
+
+        <p>We recommend ordering primers described in <a href="https://doi.org/10.1021/acssynbio.4c00625" target="_blank">Long et al. 2024</a> 
+          which have been optimized for multiplexed, long-read amplicon sequencing. The adaptor region can be designed to target a common 
+          promoter-terminator pair to sequence the entire gene on a single amplicon.</p>
+
+        <h2>Materials</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Supplier</th>
+              <th>Catalog #</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Taq DNA Polymerase</td>
+              <td>NEB</td>
+              <td>M0273S</td>
+            </tr>
+            <tr>
+              <td>Thermopol Buffer</td>
+              <td>NEB</td>
+              <td>B9004S</td>
+            </tr>
+            <tr>
+              <td>Barcoded LevSeq primers (384 wells)</td>
+              <td>IDT</td>
+              <td>Custom order</td>
+            </tr>
+            <tr>
+              <td>96-well PCR plates</td>
+              <td>Bio-Rad</td>
+              <td>HSP9601</td>
+            </tr>
+            <tr>
+              <td>PCR plate seals</td>
+              <td>Bio-Rad</td>
+              <td>MSB1001</td>
+            </tr>
+            <tr>
+              <td>Ampure XP beads</td>
+              <td>Beckman Coulter</td>
+              <td>A63880</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Protocol</h2>
+
+        <h3>1. Prepare Primer Plates</h3>
+        <ol>
+          <li>Order barcoded primers at 100 µM stock concentration</li>
+          <li>Dilute to 10 µM working concentration in nuclease-free water</li>
+          <li>Aliquot into 384-well plates matching your plate layout:
+            <ul>
+              <li>Forward primer plate (contains universal reverse primer in all wells)</li>
+              <li>Reverse primer plate (contains well-specific barcodes)</li>
+            </ul>
+          </li>
+          <li>Store at -20 °C</li>
+        </ol>
+
+        <h3>2. Colony PCR from 384-Well Plates</h3>
+
+        <p><strong>PCR setup (per well):</strong></p>
+        <ul>
+          <li>5 µL KAPA HiFi HotStart ReadyMix (2×)</li>
+          <li>0.25 µL forward primer (10 µM)</li>
+          <li>0.25 µL reverse primer with barcode (10 µM)</li>
+          <li>0.5 µL bacterial culture (direct from 384-well plate)</li>
+          <li>4 µL nuclease-free H₂O</li>
+          <li><strong>Total</strong>: 10 µL</li>
+        </ul>
+
+        <ol>
+          <li>Using a multichannel pipette, transfer 0.5 µL from each well of the 384-well plate to a PCR plate</li>
+          <li>Add master mix + primers to each well (can use liquid handler for automation)</li>
+          <li>Seal plates and centrifuge briefly</li>
+          <li>Run PCR program:
+            <ul>
+              <li>95 °C, 3 min (initial denaturation + cell lysis)</li>
+              <li>25× [98 °C, 20 s; 60 °C, 15 s; 72 °C, 30 s]</li>
+              <li>72 °C, 2 min</li>
+              <li>4 °C, hold</li>
+            </ul>
+          </li>
+        </ol>
+
+        <div class="callout">
+          <strong>⏱️ Time:</strong> Expect ~50 minutes per 384-well plate for setup and PCR (2–3 hours total with cycling).
+          With a liquid handler, you can process 8–10 plates per 8-hour day.
+        </div>
+
+        <h3>3. Verify Amplification</h3>
+        <ol>
+          <li>Run 2 µL from 8–12 random wells on a 1% agarose gel</li>
+          <li>Verify presence of expected band size</li>
+          <li>Check for non-specific amplification</li>
+        </ol>
+
+        <h3>4. Pool Barcoded Amplicons</h3>
+        <ol>
+          <li>Pool 2 µL from each well of all PCR plates into a single tube</li>
+          <li>Mix thoroughly by vortexing and inversion</li>
+          <li>Purify pooled amplicons using DNA Clean & Concentrator:
+            <ul>
+              <li>Follow manufacturer's protocol</li>
+              <li>Elute in 30–50 µL nuclease-free water</li>
+            </ul>
+          </li>
+          <li>Quantify by Qubit or NanoDrop</li>
+          <li>Verify size distribution by TapeStation or Fragment Analyzer</li>
+        </ol>
+
+        <div class="callout">
+          <strong>Target yield:</strong> 5–20 µg total DNA from 2,000–5,000 wells. This is sufficient for most sequencing platforms.
+        </div>
+
+        <h2>File Formats</h2>
+
+        <h3>Barcode CSV</h3>
+        <p>
+          Create a CSV file mapping each well to its barcode sequence. This file is required for demultiplexing:
+        </p>
+
+        <pre><code class="language-csv">plate,well,barcode
+plate_1,A01,ACGTACGTACGT
+plate_1,A02,TGCATGCATGCA
+plate_1,A03,GCTAGCTAGCTA
+plate_1,A04,CGATCGATCGAT
+plate_2,A01,AGTCAGTCAGTC
+plate_2,A02,TCGATCGATCGA</code></pre>
+
+        <p><strong>Column definitions:</strong></p>
+        <ul>
+          <li><code>plate</code>: Unique identifier for each 384-well plate (e.g., plate_1, plate_2)</li>
+          <li><code>well</code>: Well position in standard format (A01–P24 for 384-well)</li>
+          <li><code>barcode</code>: DNA barcode sequence (typically 8–16 bp)</li>
+        </ul>
+
+        <h2>Quality Control</h2>
+
+        <h3>Expected Metrics</h3>
+        <ul>
+          <li><strong>PCR success rate</strong>: 95–98% of wells with growth should amplify</li>
+          <li><strong>Pooled concentration</strong>: 50–200 ng/µL after purification</li>
+          <li><strong>Fragment size</strong>: Insert + ~40 bp (primers + barcodes)</li>
+        </ul>
+
+        <h3>Troubleshooting</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Possible Cause</th>
+              <th>Solution</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>No amplification</td>
+              <td>Insufficient template, primer issue</td>
+              <td>Increase template to 1 µL, check primer concentration</td>
+            </tr>
+            <tr>
+              <td>Multiple bands</td>
+              <td>Non-specific amplification</td>
+              <td>Optimize annealing temperature, redesign primers</td>
+            </tr>
+            <tr>
+              <td>Low yield after pooling</td>
+              <td>Many wells failed PCR</td>
+              <td>Check cell viability before PCR, optimize cycling</td>
+            </tr>
+            <tr>
+              <td>Unequal representation</td>
+              <td>Variable amplification efficiency</td>
+              <td>Normalize input or use fewer PCR cycles</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Sequencing Submission</h2>
+
+        <p>Submit the pooled, purified amplicon library for sequencing:</p>
+
+        <h3>Plasmidsaurus (Recommended)</h3>
+        <pre><code class="language-bash"># Submit purified pool (500 ng - 2 µg in 15 µL)
+# Turnaround: 3-5 business days
+# Cost: ~$15 per sample (volume discounts available)</code></pre>
+
+        <h3>Oxford Nanopore (In-House)</h3>
+        <pre><code class="language-bash"># Use ligation sequencing kit (SQK-LSK109 or newer)
+# Target: 200-500 ng input DNA
+# Run time: 12-48 hours
+# Cost: ~$500-900 per flow cell</code></pre>
+
+        <h3>Illumina MiSeq</h3>
+        <pre><code class="language-bash"># Submit 20-50 ng at 4 nM
+# Requires PhiX spike-in (10%) for low-diversity libraries
+# Run time: 24-56 hours
+# Cost: $600-1500 per run</code></pre>
+
+        <h2>Next Steps</h2>
+        <p>
+          After receiving sequencing data, use the uSort-M CLI to demultiplex and analyze your results:
+        </p>
+
+        <pre><code class="language-bash">usortm demux project/ \
+  --fastq sequencing_data.fastq \
+  --barcodes barcodes.csv \
+  --reference reference.fasta</code></pre>
+
+        <p>See <a href="demultiplexing.html">Demultiplexing</a> for detailed instructions.</p>
+
         <footer class="footer">
           <p>uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.</p>
         </footer>
       </div>
     </main>
   </div>
+
+  <script>hljs.highlightAll();</script>
 
   <!-- Theme toggle script -->
   <script>

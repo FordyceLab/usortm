@@ -55,12 +55,14 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+  <!-- Code copy button functionality -->
+  <script src="code-copy.js"></script>
   <style>
     pre code.hljs {
       background: var(--color-code-bg);
       color: var(--color-code-text);
       border-radius: 8px;
-      padding: 1rem 1.25rem;
+      padding: 0;
       font-size: 0.875rem;
       line-height: 1.5;
     }
@@ -231,12 +233,12 @@
         
         <h3>Example with custom parameters</h3>
         <pre><code class="language-bash">usortm estimate \
-    --library-size 1500 \
-    --seq-length 450 \
-    --fold-sampling 10 \
-    --skew 6 \
-    --machine-rate 50 \
-    --operator-rate 40</code></pre>
+  --library-size 1500 \
+  --seq-length 450 \
+  --fold-sampling 10 \
+  --skew 6 \
+  --machine-rate 50 \
+  --operator-rate 40</code></pre>
         
         <h2 id="plan"><code>usortm plan</code></h2>
         <p>Initialize a project from a variant list.</p>

@@ -178,19 +178,11 @@
     }
 
     .cost-label-large {
-      font-size: 0.9rem;
+      font-size: 0.7rem;
       color: var(--color-text-muted);
-      /* text-transform: uppercase; */
+      text-transform: uppercase;
       letter-spacing: 0.05em;
       font-weight: 600;
-    }
-
-    /* Style uSort-M label with blue badge */
-    .cost-item-large:first-child .cost-label-large {
-      background: var(--color-accent-light);
-      color: var(--color-accent);
-      padding: 0.25rem 0.75rem;
-      border-radius: 4px;
     }
 
     .cost-divider {
@@ -202,21 +194,17 @@
 
     .savings-badge {
       display: inline-block;
-      background: var(--color-success);
-      color: white;
-      padding: 0.5rem 1.25rem;
+      background: var(--color-success-light);
+      color: var(--color-success-dark);
+      padding: 0.375rem 0.875rem;
       border-radius: 999px;
-      font-size: 1rem;
-      font-weight: 800;
-      box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
-      border: 2px solid var(--color-success-dark);
+      font-size: 0.8rem;
+      font-weight: 700;
     }
 
     [data-theme="dark"] .savings-badge {
-      background: var(--color-success);
-      color: var(--color-success-dark);
-      box-shadow: 0 2px 4px rgba(52, 211, 153, 0.3);
-      border: 2px solid var(--color-success-light);
+      background: var(--color-success-dark);
+      color: var(--color-success-light);
     }
 
     /* Library design context */
@@ -489,7 +477,6 @@
             <div style="margin-top: 1rem;">
               <a href="getting-started.html" class="btn btn-primary">Get Started</a>
               <a href="https://github.com/FordyceLab/usortm" class="btn btn-secondary" target="_blank">View on GitHub</a>
-              <a href="https://doi.org/10.64898/2026.01.12.699065" class="btn btn-secondary" target="_blank">Read Preprint</a>
             </div>
           </div>
         </section>
@@ -509,9 +496,9 @@
 
         <!-- Cost Calculator Section -->
         <section>
-          <h2 style="text-align: center; margin-top: 4rem;">Cost Comparison</h2>
-
-          <p class="input-sentence" style="text-align: center;">
+          <h2>Cost Comparison</h2>
+          
+          <p class="input-sentence">
             My gene is 
             <span class="inline-input">
               <input type="number" id="seq-length" value="300" min="100" max="1500" step="50">
@@ -521,15 +508,6 @@
               <input type="number" id="library-size" value="500" min="50" max="5000" step="50">
             </span>
             variants.
-          </p>
-
-          <!-- Synthesis Strategy Assumptions -->
-          <p class="synthesis-footnote" style="margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: transparent; border-left: 2px solid var(--color-border); font-size: 0.75rem; line-height: 1.5; color: var(--color-text-light); opacity: 0.85;">
-            <strong style="font-size: 0.8rem;">Synthesis Strategy Assumptions:</strong>
-            <span style="display: block; margin-top: 0.25rem;">
-              <strong>uSort-M:</strong> <span id="usortm-assumption">0-300 bp uses IDT oPools or Twist Oligo Pools; &gt;300 bp uses 30 bp substitution library cloned into full-length gene</span>.<br>
-              <strong>Traditional:</strong> <span id="traditional-assumption">Direct gene fragment synthesis (Twist Gene Fragments, IDT eBlocks)</span>.
-            </span>
           </p>
 
           <!-- Two-column layout: plot left, timeline right -->
@@ -594,7 +572,7 @@
 
               <!-- Quick stats - 2 boxes in 1 row -->
               <div class="quick-stats">
-                <div class="stat-box primary">
+                <div class="stat-box">
                   <div class="label">Total Days</div>
                   <div class="value accent" id="total-days">6</div>
                 </div>
@@ -734,15 +712,15 @@ async function updatePlot(seqLen, currentLib) {
     },
     x: {
       label: "Library Size (variants)",
-      labelOffset: 50,
-      labelFontSize: 18,
+      labelOffset: 42,
+      labelFontSize: 15,
       tickFormat: d => d >= 1000 ? `${d/1000}k` : d,
       domain: [0, maxLib]
     },
     y: {
       label: "Total Cost (USD)",
-      labelOffset: 65,
-      labelFontSize: 18,
+      labelOffset: 55,
+      labelFontSize: 15,
       tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
       grid: true
     },
@@ -837,6 +815,7 @@ async function updateUI() {
   const foldSampling = 4;
   const wells = libSize * foldSampling;
   const plates = Math.max(1, Math.ceil(wells / 384));
+  document.getElementById("n-plates").textContent = plates;
 
   // Calculate and update total days from timeline
   const totalDays = updateTimeline(plates, libSize, seqLen);
@@ -844,7 +823,6 @@ async function updateUI() {
 
   // Update synthesis method recommendation
   updateSynthesisMethod(seqLen);
-  updateFootnoteAssumptions(seqLen);
 
   resizeInputs();
 }
@@ -880,32 +858,11 @@ function updateSynthesisMethod(seqLen) {
   fullGeneDesc.innerHTML = `Synthesizing complete <span id="length-display">${seqLen}</span> bp sequences`;
 }
 
-function updateFootnoteAssumptions(seqLen) {
-  const usortmAssumption = document.getElementById("usortm-assumption");
-  const traditionalAssumption = document.getElementById("traditional-assumption");
-
-  // Update uSort-M assumption based on length
-  if (seqLen <= 300) {
-    usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from commercial vendor (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>)`;
-  } else if (seqLen <= 500) {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>) assembled into ${seqLen} bp gene to generate substitution library`;
-  } else {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts (e.g. <a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a>, <a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a>) assembled into ${seqLen} bp gene to generate substitution library`;
-  }
-
-  // Update traditional assumption based on length
-  if (seqLen <= 500) {
-    traditionalAssumption.innerHTML = `Direct gene fragment synthesis (<a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a>, <a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/gblocks-gene-fragments" target="_blank">IDT gBlocks</a>, <a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/eblocks-gene-fragments" target="_blank">IDT eBlocks</a>)`;
-  } else {
-    traditionalAssumption.innerHTML = `Direct gene fragment synthesis (<a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a>, Instance Bio or custom synthesis)`;
-  }
-}
-
 function updateTimeline(plates, libSize, seqLen) {
   // Calculate timing
   const foldSampling = 4;
   const wells = libSize * foldSampling;
-  const sortMins = plates * 8 + 30;  // 8 min/plate + 30 min setup (per protocol)
+  const sortMins = plates * 30 + 60;
   const sortHours = sortMins / 60;
   const barcodeHours = plates * 50 / 60;
   const seqGb = Math.ceil(wells * (seqLen + 100) * 100 / 1e9);
@@ -995,7 +952,6 @@ document.querySelectorAll('input[name="library-type"]').forEach(radio => {
   radio.addEventListener("change", () => {
     const seqLen = parseInt(document.getElementById("seq-length").value) || 300;
     updateSynthesisMethod(seqLen);
-    updateFootnoteAssumptions(seqLen);
   });
 });
 

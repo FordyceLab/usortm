@@ -50,6 +50,28 @@
 
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="images/Thumbnail.png" type="image/png">
+  <!-- Highlight.js for code syntax highlighting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+  <!-- Code copy button functionality -->
+  <script src="code-copy.js"></script>
+  <style>
+    pre code.hljs {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      padding: 0;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    pre {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
 </head>
 <body>
   <div class="layout">
@@ -88,15 +110,284 @@
     </div>
     <main class="main">
       <div class="content">
-        <h1>Demultiplexing</h1>
-        <p>Documentation coming soon.</p>
-        <p>See the <a href="workflow.html">Workflow Overview</a> for general guidance.</p>
+        <h1>Demultiplexing & Analysis</h1>
+
+        <p>
+          After sequencing your pooled, barcoded library, the uSort-M CLI assigns reads to specific wells,
+          performs variant calling, and generates reports for quality control and clone selection.
+        </p>
+
+        <h2>Overview</h2>
+
+        <p>The demultiplexing workflow consists of three main steps:</p>
+        <ol>
+          <li><strong>Demultiplexing</strong>: Assign sequencing reads to wells based on DNA barcodes</li>
+          <li><strong>Variant calling</strong>: Identify sequences and mutations in each well</li>
+          <li><strong>Reporting & picking</strong>: Generate QC reports and create pick lists for hits</li>
+        </ol>
+
+        <h2>Input Files</h2>
+
+        <p>Before running the CLI, ensure you have:</p>
+
+        <h3>1. Sequencing Data (FASTQ)</h3>
+        <p>Raw sequencing reads in FASTQ format from Plasmidsaurus, ONT, or Illumina:</p>
+        <pre><code class="language-bash"># Example FASTQ file
+reads.fastq
+# or gzipped
+reads.fastq.gz</code></pre>
+
+        <h3>2. Barcode CSV</h3>
+        <p>Mapping of barcodes to plate positions (see <a href="barcoding.html">Barcoding</a> for format):</p>
+        <pre><code class="language-csv">plate,well,barcode
+plate_1,A01,ACGTACGTACGT
+plate_1,A02,TGCATGCATGCA
+plate_1,A03,GCTAGCTAGCTA</code></pre>
+
+        <h3>3. Reference Sequence (FASTA)</h3>
+        <p>Expected wild-type sequence for variant calling:</p>
+        <pre><code class="language-fasta">&gt;gene_of_interest
+ATGGCTAAAGGTGAAGAACTGTTTACCGGTGTTGTGCCGATTCTGGTGGAACTGGATGGT
+GATGTGAACGGTCACAAATTCTCTGTGCGTGGTGAAGGTGAAGGTGATGCTACCTACGGT</code></pre>
+
+        <h3>4. Project Directory (Optional)</h3>
+        <p>If you created a project with <code>usortm plan</code>, the project directory contains metadata:</p>
+        <pre><code class="language-bash">my_project/
+├── project_state.json    # Library parameters
+├── plate_layouts/        # Plate maps
+└── barcodes.csv         # Barcode assignments</code></pre>
+
+        <h2>Running Demultiplexing</h2>
+
+        <h3>Basic Usage</h3>
+        <pre><code class="language-bash"># Demultiplex with default settings
+usortm demux my_project/ --fastq reads.fastq</code></pre>
+
+        <p>If you don't have a project directory, provide files directly:</p>
+        <pre><code class="language-bash">usortm demux output_dir/ \
+  --fastq reads.fastq \
+  --barcodes barcodes.csv \
+  --reference reference.fasta</code></pre>
+
+        <h3>Advanced Options</h3>
+        <pre><code class="language-bash"># Custom barcode error tolerance
+usortm demux my_project/ \
+  --fastq reads.fastq \
+  --max-barcode-errors 2
+
+# Filter by minimum quality score
+usortm demux my_project/ \
+  --fastq reads.fastq \
+  --min-quality 10
+
+# Only process specific plates
+usortm demux my_project/ \
+  --fastq reads.fastq \
+  --plates plate_1,plate_2
+
+# Use multiple CPU cores for faster processing
+usortm demux my_project/ \
+  --fastq reads.fastq \
+  --threads 8</code></pre>
+
+        <h2>Output Files</h2>
+
+        <p>The demux command generates several output files in your project directory:</p>
+
+        <h3>1. Well Assignments (assignments.csv)</h3>
+        <pre><code class="language-csv">read_id,plate,well,barcode,num_errors
+read_001,plate_1,A01,ACGTACGTACGT,0
+read_002,plate_1,A01,ACGTACGTACGT,0
+read_003,plate_1,B05,TGCATGCATGCA,1</code></pre>
+
+        <h3>2. Variant Calls (variants.csv)</h3>
+        <pre><code class="language-csv">plate,well,variant,sequence,quality,num_reads,consensus
+plate_1,A01,Y66H,ATGGCTAAAGGTGAAGAACTG...,35.2,45,true
+plate_1,A02,F64L,ATGGCTAGAGGTGAAGAACTG...,38.7,52,true
+plate_1,A03,WT,ATGGCTAAAGGTGAAGAACTG...,32.1,38,true</code></pre>
+
+        <h3>3. Quality Metrics (metrics.json)</h3>
+        <pre><code class="language-json">{
+  "total_reads": 125000,
+  "assigned_reads": 118500,
+  "assignment_rate": 0.948,
+  "wells_with_data": 1842,
+  "wells_with_consensus": 1756,
+  "mean_reads_per_well": 64.3,
+  "mean_quality_score": 34.8
+}</code></pre>
+
+        <h3>4. Plate Heatmaps (plate_*.png)</h3>
+        <p>Visual representations of read counts, quality scores, and variant distribution across each plate.</p>
+
+        <h2>Generating Reports</h2>
+
+        <p>Create an HTML report with interactive visualizations:</p>
+        <pre><code class="language-bash">usortm report my_project/</code></pre>
+
+        <p>The report includes:</p>
+        <ul>
+          <li>Summary statistics (coverage, read depth, quality)</li>
+          <li>Interactive plate heatmaps</li>
+          <li>Variant distribution plots</li>
+          <li>Quality score distributions</li>
+          <li>Per-well read count histograms</li>
+          <li>Barcode assignment statistics</li>
+        </ul>
+
+        <h2>Generating Pick Lists</h2>
+
+        <p>Create a cherry-picking list for sequence-verified clones:</p>
+        <pre><code class="language-bash"># Generate pick list for all high-quality variants
+usortm pick my_project/
+
+# Filter by minimum quality score
+usortm pick my_project/ --min-quality 30
+
+# Select one representative per variant
+usortm pick my_project/ --unique-variants
+
+# Export for specific liquid handler
+usortm pick my_project/ --format integra</code></pre>
+
+        <p><strong>Output format (Integra ASSIST PLUS compatible):</strong></p>
+        <pre><code class="language-csv">source_plate,source_well,dest_plate,dest_well,variant,quality
+plate_1,A01,output_1,A01,Y66H,35.2
+plate_1,B03,output_1,A02,F64L,38.7
+plate_2,C05,output_1,A03,T203Y,36.1</code></pre>
+
+        <h2>Quality Control</h2>
+
+        <h3>Expected Metrics</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Good</th>
+              <th>Acceptable</th>
+              <th>Poor</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Barcode assignment rate</td>
+              <td>&gt;95%</td>
+              <td>85-95%</td>
+              <td>&lt;85%</td>
+            </tr>
+            <tr>
+              <td>Wells with data</td>
+              <td>&gt;70%</td>
+              <td>50-70%</td>
+              <td>&lt;50%</td>
+            </tr>
+            <tr>
+              <td>Mean reads per well</td>
+              <td>&gt;50</td>
+              <td>20-50</td>
+              <td>&lt;20</td>
+            </tr>
+            <tr>
+              <td>Consensus quality (Q-score)</td>
+              <td>&gt;30</td>
+              <td>20-30</td>
+              <td>&lt;20</td>
+            </tr>
+            <tr>
+              <td>Variant recovery</td>
+              <td>&gt;90%</td>
+              <td>75-90%</td>
+              <td>&lt;75%</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Troubleshooting</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Possible Cause</th>
+              <th>Solution</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Low assignment rate (&lt;80%)</td>
+              <td>Barcode errors, wrong barcode file</td>
+              <td>Increase --max-barcode-errors, verify barcode CSV</td>
+            </tr>
+            <tr>
+              <td>Few wells with data</td>
+              <td>Low sequencing depth, PCR failures</td>
+              <td>Check sequencing QC, re-run with more cycles</td>
+            </tr>
+            <tr>
+              <td>Uneven read distribution</td>
+              <td>Pooling bias, amplification artifacts</td>
+              <td>Normalize inputs before pooling, reduce PCR cycles</td>
+            </tr>
+            <tr>
+              <td>Low quality scores</td>
+              <td>Sequencing errors, PCR errors</td>
+              <td>Use higher fidelity polymerase, check read quality</td>
+            </tr>
+            <tr>
+              <td>Multiple variants per well</td>
+              <td>Contamination, poor FACS gating</td>
+              <td>Check single-cell mode, use purity gating</td>
+            </tr>
+            <tr>
+              <td>Low variant recovery</td>
+              <td>Library skew, insufficient oversampling</td>
+              <td>Increase fold sampling, check transformation scale</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Complete Workflow Example</h2>
+
+        <pre><code class="language-bash"># 1. Plan experiment
+usortm plan my_experiment/ \
+  --library-size 500 \
+  --seq-length 300 \
+  --fold-sampling 4 \
+  --vector pET28a
+
+# 2. Perform wet lab steps (assembly, sorting, barcoding, sequencing)
+# ...
+
+# 3. Demultiplex sequencing data
+usortm demux my_experiment/ \
+  --fastq sequencing_data.fastq.gz \
+  --threads 8
+
+# 4. Generate comprehensive report
+usortm report my_experiment/
+
+# 5. Create pick list for high-quality clones
+usortm pick my_experiment/ \
+  --min-quality 30 \
+  --unique-variants \
+  --format integra
+
+# 6. Review report and execute cherry-picking
+open my_experiment/report.html</code></pre>
+
+        <h2>Python API</h2>
+
+        <p>For programmatic access and custom analysis pipelines, see the <a href="api.html">Python API documentation</a>.</p>
+
         <footer class="footer">
           <p>uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.</p>
         </footer>
       </div>
     </main>
   </div>
+
+  <script>hljs.highlightAll();</script>
 
   <!-- Theme toggle script -->
   <script>

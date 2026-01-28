@@ -60,7 +60,7 @@
       background: var(--color-code-bg);
       color: var(--color-code-text);
       border-radius: 8px;
-      padding: 0;
+      padding: 1rem 1.25rem;
       font-size: 0.875rem;
       line-height: 1.5;
     }
@@ -258,7 +258,9 @@
         <p>Pool barcoded amplicons and submit for sequencing.</p>
         <p><strong>Recommended platforms:</strong></p>
         <ul>
-          <li><strong>Commercial Long-read Sequencing</strong> - Plasmidsaurus <a href="https://plasmidsaurus.com/custom/">Custom Sequencing</a> offers affordable multi-Gb library sequencing with fast turnaround</li>
+          <li><strong>Plasmidsaurus</strong> - Fast turnaround, affordable</li>
+          <li><strong>Oxford Nanopore</strong> - Run in-house with MinION</li>
+          <li><strong>Illumina MiSeq</strong> - Higher accuracy, longer turnaround</li>
         </ul>
         
         <h3>6. Demultiplexing & Analysis</h3>
