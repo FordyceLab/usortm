@@ -1,4 +1,8 @@
-"""Demultiplex sequencing data for a uSort-M project."""
+"""Demultiplex sequencing data for a uSort-M project.
+
+Orchestrates the LevSeq demultiplexing pipeline: Dorado barcode demux,
+reference alignment, consensus generation, and variant calling.
+"""
 
 from typing import Optional
 from pathlib import Path
@@ -12,6 +16,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
+
+from usortm.demux.deps import check_all_dependencies
 
 console = Console()
 
@@ -38,7 +44,15 @@ def demux(
     reference: Optional[Path] = typer.Option(
         None,
         "--reference", "-r",
-        help="Reference FASTA for alignment (optional, improves variant calling).",
+        help="Reference FASTA for alignment (improves variant calling).",
+    ),
+    library_csv: Optional[Path] = typer.Option(
+        None,
+        "--library-csv", "-l",
+        help=(
+            "Library CSV with Name,Sequence columns. "
+            "Auto-converted to reference FASTA (uppercase variable region)."
+        ),
     ),
     min_reads: int = typer.Option(
         100,
@@ -58,99 +72,121 @@ def demux(
 ):
     """
     Demultiplex sequencing data for a [blue]uSort-M[/blue] project.
-    
-    Takes raw FASTQ data and barcode mappings to assign reads to wells,
-    then calls consensus sequences to identify variants.
-    
+
+    Runs the full LevSeq pipeline: barcode demux with Dorado, reference
+    alignment with minimap2, per-well consensus, and variant calling.
+
     [bold]Input requirements:[/bold]
-    
-    • Project directory from 'usortm plan'
-    • FASTQ file from sequencing
-    • Barcode CSV with columns: plate, well, barcode_seq (or fwd_barcode, rev_barcode)
-    
+
+    \u2022 Project directory from 'usortm plan'
+    \u2022 FASTQ file from nanopore sequencing
+    \u2022 Reference FASTA for variant calling (recommended)
+
     [bold]Example:[/bold]
-    
-        usortm demux my_project/ --fastq sequencing_data.fastq
+
+        usortm demux my_project/ --fastq reads.fastq --reference ref.fasta
     """
     # Load project state
     state_file = project_dir / PROJECT_STATE_FILE
     if not state_file.exists():
-        console.print(f"[red]Error:[/red] Not a valid uSort-M project (missing {PROJECT_STATE_FILE})")
-        console.print(f"Run 'usortm plan' first to create a project.")
+        console.print(
+            f"[red]Error:[/red] Not a valid uSort-M project "
+            f"(missing {PROJECT_STATE_FILE})"
+        )
+        console.print("Run 'usortm plan' first to create a project.")
         raise typer.Exit(1)
-    
+
     with open(state_file) as f:
         project = json.load(f)
-    
+
     console.print()
     console.print(Panel.fit(
         "[bold blue]uSort-M[/bold blue] Demultiplexing",
         border_style="blue",
     ))
     console.print()
-    
-    # Load barcode mapping
-    barcode_file = barcodes
-    if barcode_file is None:
-        # Look for barcode file in project
-        barcode_dir = project_dir / "barcodes"
-        for candidate in ["custom_barcodes.csv", "levseq_barcodes.csv", "evseq_barcodes.csv"]:
-            if (barcode_dir / candidate).exists():
-                barcode_file = barcode_dir / candidate
-                break
-    
-    if barcode_file is None or not barcode_file.exists():
-        console.print("[red]Error:[/red] No barcode mapping found.")
-        console.print("Provide --barcodes option or add barcodes to project/barcodes/")
+
+    # Convert library CSV to reference FASTA if provided
+    if library_csv is not None:
+        if reference is not None:
+            console.print(
+                "[yellow]Warning:[/yellow] Both --reference and --library-csv "
+                "provided. Using --library-csv (overrides --reference)."
+            )
+        from usortm.demux.utils import csv_to_reference_fasta
+        ref_fasta_path = project_dir / "demux_output" / "library_reference.fasta"
+        ref_fasta_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_to_reference_fasta(
+            csv_path=str(library_csv),
+            fasta_path=str(ref_fasta_path),
+            strip_flanking=True,
+        )
+        reference = ref_fasta_path
+        console.print(
+            f"[green]\u2713[/green] Converted library CSV to reference FASTA "
+            f"({ref_fasta_path})"
+        )
+
+    # Check external tool dependencies before starting
+    try:
+        tools = check_all_dependencies()
+        for name, path in tools.items():
+            console.print(f"[green]\u2713[/green] Found {name}: {path}")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("Install missing tools or add them to your PATH.")
         raise typer.Exit(1)
-    
-    barcode_map = _load_barcode_map(barcode_file)
-    console.print(f"[green]✓[/green] Loaded {len(barcode_map)} barcode mappings from {barcode_file.name}")
-    
+
+    console.print()
+
     # Create output directory
     demux_output = project_dir / "demux_output"
     demux_output.mkdir(exist_ok=True)
-    
-    # Run demultiplexing
-    console.print()
+
+    # Run the pipeline with progress updates
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("Demultiplexing reads...", total=None)
-        
-        # Call the actual demux function
+        task = progress.add_task("Starting pipeline...", total=None)
+
+        def on_progress(msg: str):
+            """Update the spinner text as the pipeline progresses."""
+            progress.update(task, description=msg)
+
         results = _run_demux(
             fastq=fastq,
-            barcode_map=barcode_map,
             output_dir=demux_output,
             reference=reference,
             min_reads=min_reads,
             min_fraction=min_fraction,
             threads=threads,
             project_params=project,
+            progress_callback=on_progress,
         )
-        
-        progress.update(task, completed=True)
-    
+
+        progress.update(task, description="Done!", completed=True)
+
     # Save results
     _save_demux_results(results, demux_output)
-    
+
     # Update project state
     project["workflow_steps"]["demux"] = {
         "completed": True,
         "timestamp": datetime.now().isoformat(),
         "fastq": str(fastq.absolute()),
-        "total_reads": results["total_reads"],
+        "input_reads": results.get("input_reads", 0),
+        "aligned_reads": results.get("aligned_reads", 0),
+        "demuxed_reads": results.get("demuxed_reads", 0),
         "assigned_reads": results["assigned_reads"],
         "wells_with_data": results["wells_with_data"],
     }
-    
+
     with open(state_file, "w") as f:
         json.dump(project, f, indent=2)
-    
-    # Display summary
+
+    # Display summary table
     console.print()
     summary_table = Table(
         title="Demultiplexing Summary",
@@ -160,41 +196,122 @@ def demux(
     )
     summary_table.add_column("Metric", style="dim")
     summary_table.add_column("Value", justify="right")
-    
-    summary_table.add_row("Total reads", f"{results['total_reads']:,}")
-    if results['total_reads'] > 0:
-        pct = results['assigned_reads']/results['total_reads']*100
-        summary_table.add_row("Assigned to wells", f"{results['assigned_reads']:,} ({pct:.1f}%)")
-    else:
-        summary_table.add_row("Assigned to wells", f"{results['assigned_reads']:,}")
-    summary_table.add_row("Unassigned", f"{results['total_reads'] - results['assigned_reads']:,}")
-    summary_table.add_row("Wells with data", f"{results['wells_with_data']:,}")
-    summary_table.add_row(f"Wells ≥{min_reads} reads", f"{results['wells_passing']:,}")
-    
+
+    input_reads = results.get("input_reads", 0)
+    aligned_reads = results.get("aligned_reads", 0)
+    demuxed_reads = results.get("demuxed_reads", 0)
+    assigned_reads = results.get("assigned_reads", 0)
+
+    def _pct(n: int, total: int) -> str:
+        if total > 0:
+            return f"{n:,} ({n / total * 100:.1f}%)"
+        return f"{n:,}"
+
+    summary_table.add_row("Input reads", f"{input_reads:,}")
+    if aligned_reads or input_reads:
+        summary_table.add_row("Aligned", _pct(aligned_reads, input_reads))
+    summary_table.add_row("Demuxed (FBC+RBC)", _pct(demuxed_reads, input_reads))
+    summary_table.add_row("Assigned to wells", _pct(assigned_reads, input_reads))
+    summary_table.add_row(
+        "Wells with data", f"{results['wells_with_data']:,}"
+    )
+    summary_table.add_row(
+        f"Wells \u2265{min_reads} reads", f"{results['wells_passing']:,}"
+    )
+
     console.print(summary_table)
     console.print()
-    
-    console.print("[green]✓[/green] Demultiplexing complete!")
+
+    console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
     console.print()
     console.print("[bold]Next step:[/bold]")
-    console.print(f"  [cyan]usortm pick {project_dir}/[/cyan]  → Generate hit-picking list")
+    console.print(
+        f"  [cyan]usortm pick {project_dir}/[/cyan]  "
+        "\u2192 Generate hit-picking list"
+    )
     console.print()
 
 
+def _run_demux(
+    fastq: Path,
+    output_dir: Path,
+    reference: Optional[Path],
+    min_reads: int,
+    min_fraction: float,
+    threads: int,
+    project_params: dict = None,
+    progress_callback=None,
+) -> dict:
+    """Run the demultiplexing pipeline based on the project's barcode kit.
+
+    Currently supports the LevSeq barcode kit. Delegates to the pipeline
+    module which handles Dorado demux, alignment, and variant calling.
+
+    Args:
+        fastq: Path to input FASTQ file.
+        output_dir: Output directory for results.
+        reference: Optional reference FASTA for variant calling.
+        min_reads: Minimum reads per well.
+        min_fraction: Minimum consensus fraction.
+        threads: Number of alignment threads.
+        project_params: Project state dict (from usortm_project.json).
+        progress_callback: Optional progress update function.
+
+    Returns:
+        Results dict with total_reads, assigned_reads, wells_with_data,
+        wells_passing, and well_assignments.
+    """
+    # Extract project parameters
+    barcode_kit = "levseq"
+    n_plates = 1
+    if project_params:
+        barcode_kit = project_params.get("barcode_kit", "levseq")
+        n_plates = project_params.get("n_plates", 1)
+
+    if barcode_kit.lower() == "levseq":
+        from usortm.demux.pipeline import run_levseq_pipeline
+        return run_levseq_pipeline(
+            fastq=fastq,
+            output_dir=output_dir,
+            reference=reference,
+            n_plates=n_plates,
+            min_reads=min_reads,
+            min_fraction=min_fraction,
+            threads=threads,
+            progress_callback=progress_callback,
+        )
+    else:
+        raise NotImplementedError(
+            f"Barcode kit '{barcode_kit}' is not yet supported for "
+            "automated demux. Use 'levseq' or run Dorado manually."
+        )
+
+
 def _load_barcode_map(barcode_file: Path) -> dict:
-    """Load barcode to well mapping from CSV."""
+    """Load barcode-to-well mapping from a CSV file.
+
+    Supports three barcode CSV formats:
+        - Single barcode: column 'barcode_seq'
+        - Dual barcodes: columns 'fwd_barcode' and 'rev_barcode'
+        - Barcode IDs: column 'barcode_id'
+
+    Args:
+        barcode_file: Path to the barcode CSV file.
+
+    Returns:
+        Dict mapping barcode key to {plate, well} info.
+    """
     barcode_map = {}
-    
+
     with open(barcode_file, newline="") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames or []
-        
+
         for row in reader:
             plate = row.get("plate", "1")
             well = row.get("well", "")
-            
-            # Handle different barcode formats
+
             if "barcode_seq" in headers and row.get("barcode_seq"):
                 barcode = row["barcode_seq"]
                 barcode_map[barcode] = {"plate": plate, "well": well}
@@ -202,125 +319,46 @@ def _load_barcode_map(barcode_file: Path) -> dict:
                 fwd = row.get("fwd_barcode", "")
                 rev = row.get("rev_barcode", "")
                 if fwd and rev:
-                    barcode_map[f"{fwd}_{rev}"] = {"plate": plate, "well": well}
+                    barcode_map[f"{fwd}_{rev}"] = {
+                        "plate": plate, "well": well
+                    }
             elif "barcode_id" in headers:
                 barcode_id = row.get("barcode_id", "")
                 barcode_map[barcode_id] = {"plate": plate, "well": well}
-    
+
     return barcode_map
 
 
-def _run_demux(
-    fastq: Path,
-    barcode_map: dict,
-    output_dir: Path,
-    reference: Optional[Path],
-    min_reads: int,
-    min_fraction: float,
-    threads: int,
-    project_params: dict = None,
-) -> dict:
-    """
-    Run demultiplexing pipeline.
-
-    This is a simplified implementation. For production use, this would
-    integrate with minimap2/dorado for proper alignment-based demultiplexing.
-    """
-    # For now, return mock results
-    # In production, this would:
-    # 1. Parse FASTQ
-    # 2. Extract barcodes from reads
-    # 3. Match to barcode_map
-    # 4. Build consensus per well
-    # 5. Call variants
-
-    total_wells = len(barcode_map)
-
-    # Simulate realistic results
-    results = {
-        "total_reads": 0,
-        "assigned_reads": 0,
-        "wells_with_data": 0,
-        "wells_passing": 0,
-        "well_assignments": {},
-    }
-
-    # Try to count actual reads if we can
-    try:
-        # Count lines in FASTQ (4 lines per read)
-        with open(fastq) as f:
-            line_count = sum(1 for _ in f)
-        results["total_reads"] = max(1, line_count // 4)
-    except:
-        # Estimate from file size - ensure minimum of 1 read
-        file_size = fastq.stat().st_size
-        results["total_reads"] = max(1, file_size // 500)
-
-    # Use simulation to predict growth rate if project params available
-    if project_params:
-        import numpy as np
-        from usortm.simulate.sortm import sortm
-
-        library_size = project_params.get("library_size", 1000)
-        fold_sampling = project_params.get("fold_sampling", 8.0)
-        skew = project_params.get("skew", 4.0)
-        p_grow = 0.67  # Typical sorting efficiency
-
-        # Run simulation to predict wells with growth
-        predicted_variants = sortm(
-            n_sims=50,
-            lib_size=library_size,
-            fold_sampling=fold_sampling,
-            skew=skew,
-            p_grow=p_grow,
-            return_correct=True,
-            seed=42,
-        )
-
-        # Calculate expected fraction of wells with growth based on simulation
-        expected_wells_with_data = int(np.mean(predicted_variants))
-        growth_fraction = expected_wells_with_data / library_size if library_size > 0 else p_grow
-
-        # Use simulation-based predictions
-        results["assigned_reads"] = int(results["total_reads"] * 0.65)  # Barcode assignment rate
-        results["wells_with_data"] = min(int(total_wells * growth_fraction), total_wells)
-        results["wells_passing"] = int(results["wells_with_data"] * 0.85)
-    else:
-        # Fallback to default values if no project params
-        results["assigned_reads"] = int(results["total_reads"] * 0.65)
-        results["wells_with_data"] = min(int(total_wells * 0.67), total_wells)
-        results["wells_passing"] = int(results["wells_with_data"] * 0.85)
-    
-    # Create placeholder well assignments
-    for i, (barcode, info) in enumerate(barcode_map.items()):
-        if i < results["wells_with_data"]:
-            results["well_assignments"][f"{info['plate']}_{info['well']}"] = {
-                "plate": info["plate"],
-                "well": info["well"],
-                "reads": max(50, results["total_reads"] // results["wells_with_data"]),
-                "variant": f"variant_{i+1}",  # Placeholder
-                "consensus_fraction": 0.95,
-            }
-    
-    return results
-
-
 def _save_demux_results(results: dict, output_dir: Path):
-    """Save demultiplexing results to files."""
+    """Save demultiplexing results to JSON summary and CSV well assignments.
+
+    Output files:
+        - demux_summary.json: aggregate statistics
+        - well_assignments.csv: per-well data (plate, well, reads, variant,
+          consensus_fraction)
+
+    Args:
+        results: Results dict from the pipeline.
+        output_dir: Output directory.
+    """
     # Save summary JSON
     with open(output_dir / "demux_summary.json", "w") as f:
         json.dump({
-            "total_reads": results["total_reads"],
+            "input_reads": results.get("input_reads", 0),
+            "aligned_reads": results.get("aligned_reads", 0),
+            "demuxed_reads": results.get("demuxed_reads", 0),
             "assigned_reads": results["assigned_reads"],
             "wells_with_data": results["wells_with_data"],
             "wells_passing": results["wells_passing"],
         }, f, indent=2)
-    
+
     # Save well assignments CSV
     with open(output_dir / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["plate", "well", "reads", "variant", "consensus_fraction"])
-        
+        writer.writerow([
+            "plate", "well", "reads", "variant", "consensus_fraction"
+        ])
+
         for well_id, data in results["well_assignments"].items():
             writer.writerow([
                 data["plate"],

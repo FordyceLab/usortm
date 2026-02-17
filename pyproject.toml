@@ -39,6 +39,7 @@ demux = [
     "biopython>=1.80",
     "bionumpy>=1.0",
     "pysam>=0.20",
+    "tqdm>=4.60",
 ]
 all = [
     "usortm[dev,viz,demux]",
