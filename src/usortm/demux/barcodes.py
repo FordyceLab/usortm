@@ -235,12 +235,33 @@ def get_rbc_count_for_plates(n_plates: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Default mask (flanking) sequences — cutinase plasmid backbone
+# ---------------------------------------------------------------------------
+
+DEFAULT_MASKS: dict = {
+    "fbc": {
+        "mask1_front": "AATATAAATT",
+        "mask1_rear": "CTGAGATACCTACAGCGTGAGC",
+        "mask2_front": "CAAGTGAGAAATCACCATGAGTGACG",
+        "mask2_rear": "ATAATTTATA",
+    },
+    "rbc": {
+        "mask1_front": "TATAAATTAT",
+        "mask1_rear": "CGTCACTCATGGTGATTTCTCACTTG",
+        "mask2_front": "GCTCACGCTGTAGGTATCTCAG",
+        "mask2_rear": "AATTTATATT",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Dorado TOML / FASTA config generation
 # ---------------------------------------------------------------------------
 
 def write_levseq_fbc_toml(
     output_dir: Path,
     kit_name: str = "levSeq_bcs_map",
+    masks: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for forward barcodes.
 
@@ -251,6 +272,8 @@ def write_levseq_fbc_toml(
     Args:
         output_dir: Directory to write the TOML file.
         kit_name: Kit name identifier for Dorado.
+        masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
+            ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
 
     Returns:
         Path to the generated TOML file.
@@ -258,18 +281,20 @@ def write_levseq_fbc_toml(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    m = {**DEFAULT_MASKS["fbc"], **(masks or {})}
+
     toml_path = output_dir / "levseq_fbc.toml"
     content = f"""[arrangement]
 name = "{kit_name}"
 kit = "Jewett_levSeq"
 
 # Forward masks (flanking sequences around forward barcodes)
-mask1_front = "AATATAAATT"
-mask1_rear  = "CTGAGATACCTACAGCGTGAGC"
+mask1_front = "{m['mask1_front']}"
+mask1_rear  = "{m['mask1_rear']}"
 
 # Reverse masks (context for double-end scoring)
-mask2_front = "CAAGTGAGAAATCACCATGAGTGACG"
-mask2_rear  = "ATAATTTATA"
+mask2_front = "{m['mask2_front']}"
+mask2_rear  = "{m['mask2_rear']}"
 
 # Barcode patterns (both set to same FBC pattern)
 barcode1_pattern = "LevSeq-fbc-%02i"
@@ -294,6 +319,7 @@ def write_levseq_rbc_toml(
     output_dir: Path,
     n_barcodes: int = 4,
     kit_name: str = "levSeq_bcs_map",
+    masks: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for reverse barcodes.
 
@@ -306,12 +332,16 @@ def write_levseq_rbc_toml(
         output_dir: Directory to write the TOML file.
         n_barcodes: Number of reverse barcodes to include (default 4 = 1 plate).
         kit_name: Kit name identifier for Dorado.
+        masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
+            ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
 
     Returns:
         Path to the generated TOML file.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    m = {**DEFAULT_MASKS["rbc"], **(masks or {})}
 
     last_index = min(n_barcodes, 96)
     toml_path = output_dir / "levseq_rbc.toml"
@@ -320,12 +350,12 @@ name = "{kit_name}"
 kit = "Jewett_levSeq"
 
 # Forward masks (RC of FBC reverse masks — context for double-end scoring)
-mask1_front = "TATAAATTAT"
-mask1_rear  = "CGTCACTCATGGTGATTTCTCACTTG"
+mask1_front = "{m['mask1_front']}"
+mask1_rear  = "{m['mask1_rear']}"
 
 # Reverse masks (flanking sequences around reverse barcodes)
-mask2_front = "GCTCACGCTGTAGGTATCTCAG"
-mask2_rear  = "AATTTATATT"
+mask2_front = "{m['mask2_front']}"
+mask2_rear  = "{m['mask2_rear']}"
 
 # Barcode patterns (both set to same RBC pattern)
 barcode1_pattern = "LevSeq-rbc-%02i"

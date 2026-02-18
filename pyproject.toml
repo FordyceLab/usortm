@@ -40,6 +40,7 @@ demux = [
     "bionumpy>=1.0",
     "pysam>=0.20",
     "tqdm>=4.60",
+    "tomli>=1.0; python_version < '3.11'",
 ]
 all = [
     "usortm[dev,viz,demux]",

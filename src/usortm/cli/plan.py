@@ -172,6 +172,9 @@ def plan(
     
     # Generate barcode assignments
     barcode_assignments = _generate_barcode_assignments(n_plates, barcode_kit, output_dir)
+
+    # Write default mask config for user to customize
+    _write_default_mask_config(output_dir)
     
     # Save project state
     project_state = {
@@ -220,6 +223,7 @@ def plan(
     console.print(f"  • {output_dir}/variants.csv (variant list)")
     console.print(f"  • {output_dir}/sorting_instructions.md (sorting guide)")
     console.print(f"  • {output_dir}/barcodes/ (barcode assignments)")
+    console.print(f"  • {output_dir}/mask_config.toml (barcode flanking sequences)")
     console.print()
     
     # Display timeline
@@ -472,3 +476,38 @@ usortm demux {output_dir.name}/ --fastq <your_data.fastq>
 """
     
     (output_dir / "sorting_instructions.md").write_text(content)
+
+
+def _write_default_mask_config(output_dir: Path):
+    """Write a default mask_config.toml with cutinase backbone sequences.
+
+    Users can edit this file to match their plasmid backbone before
+    running ``usortm demux``.  The demux command auto-detects this
+    file in the project directory.
+    """
+    from usortm.demux.barcodes import DEFAULT_MASKS
+
+    fbc = DEFAULT_MASKS["fbc"]
+    rbc = DEFAULT_MASKS["rbc"]
+
+    content = f"""# Barcode mask (flanking) sequences for Dorado demultiplexing.
+#
+# These sequences flank the barcode cassettes in the plasmid backbone
+# and help Dorado locate barcodes in each read.  Edit these to match
+# YOUR plasmid backbone before running `usortm demux`.
+#
+# The defaults below are for the cutinase expression vector.
+
+[fbc]
+mask1_front = "{fbc['mask1_front']}"
+mask1_rear  = "{fbc['mask1_rear']}"
+mask2_front = "{fbc['mask2_front']}"
+mask2_rear  = "{fbc['mask2_rear']}"
+
+[rbc]
+mask1_front = "{rbc['mask1_front']}"
+mask1_rear  = "{rbc['mask1_rear']}"
+mask2_front = "{rbc['mask2_front']}"
+mask2_rear  = "{rbc['mask2_rear']}"
+"""
+    (output_dir / "mask_config.toml").write_text(content)

@@ -53,6 +53,7 @@ def run_levseq_pipeline(
     min_fraction: float = 0.8,
     threads: int = 4,
     progress_callback: Optional[Callable[[str], None]] = None,
+    mask_config: Optional[dict] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -78,6 +79,9 @@ def run_levseq_pipeline(
         min_fraction: Minimum consensus fraction to pass QC.
         threads: Number of threads for alignment.
         progress_callback: Optional function called with stage descriptions.
+        mask_config: Optional dict with ``fbc`` and ``rbc`` sub-dicts
+            containing mask sequences for Dorado barcode TOML files.
+            Falls back to DEFAULT_MASKS if not provided.
 
     Returns:
         Dict with keys: input_reads, aligned_reads, demuxed_reads,
@@ -102,8 +106,10 @@ def run_levseq_pipeline(
     config_dir = output_dir / "dorado_config"
     n_rbc = get_rbc_count_for_plates(n_plates)
 
-    fbc_toml = write_levseq_fbc_toml(config_dir)
-    rbc_toml = write_levseq_rbc_toml(config_dir, n_barcodes=n_rbc)
+    fbc_masks = mask_config.get("fbc") if mask_config else None
+    rbc_masks = mask_config.get("rbc") if mask_config else None
+    fbc_toml = write_levseq_fbc_toml(config_dir, masks=fbc_masks)
+    rbc_toml = write_levseq_rbc_toml(config_dir, n_barcodes=n_rbc, masks=rbc_masks)
     fbc_fasta = write_levseq_fbc_fasta(config_dir)
     rbc_fasta = write_levseq_rbc_fasta(config_dir, n_barcodes=n_rbc)
 

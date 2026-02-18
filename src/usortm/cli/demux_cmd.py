@@ -69,6 +69,15 @@ def demux(
         "--threads", "-t",
         help="Number of threads for alignment.",
     ),
+    mask_config_file: Optional[Path] = typer.Option(
+        None,
+        "--mask-config",
+        help=(
+            "TOML file with custom barcode mask (flanking) sequences. "
+            "Sections [fbc] and [rbc] with keys mask1_front, mask1_rear, "
+            "mask2_front, mask2_rear. Defaults to cutinase backbone masks."
+        ),
+    ),
 ):
     """
     Demultiplex sequencing data for a [blue]uSort-M[/blue] project.
@@ -139,6 +148,18 @@ def demux(
 
     console.print()
 
+    # Parse mask config if provided
+    mask_config = None
+    if mask_config_file is not None:
+        mask_config = _load_mask_config(mask_config_file)
+        console.print(f"[green]\u2713[/green] Loaded mask config from {mask_config_file}")
+    else:
+        # Check for default mask config in project directory
+        default_mask = project_dir / "mask_config.toml"
+        if default_mask.exists():
+            mask_config = _load_mask_config(default_mask)
+            console.print(f"[green]\u2713[/green] Using project mask config ({default_mask})")
+
     # Create output directory
     demux_output = project_dir / "demux_output"
     demux_output.mkdir(exist_ok=True)
@@ -164,6 +185,7 @@ def demux(
             threads=threads,
             project_params=project,
             progress_callback=on_progress,
+            mask_config=mask_config,
         )
 
         progress.update(task, description="Done!", completed=True)
@@ -233,6 +255,35 @@ def demux(
     console.print()
 
 
+def _load_mask_config(mask_file: Path) -> dict:
+    """Load barcode mask sequences from a TOML file.
+
+    Expected format::
+
+        [fbc]
+        mask1_front = "..."
+        mask1_rear  = "..."
+        mask2_front = "..."
+        mask2_rear  = "..."
+
+        [rbc]
+        mask1_front = "..."
+        mask1_rear  = "..."
+        mask2_front = "..."
+        mask2_rear  = "..."
+
+    Returns:
+        Dict with ``fbc`` and ``rbc`` sub-dicts.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    with open(mask_file, "rb") as f:
+        return tomllib.load(f)
+
+
 def _run_demux(
     fastq: Path,
     output_dir: Path,
@@ -242,6 +293,7 @@ def _run_demux(
     threads: int,
     project_params: dict = None,
     progress_callback=None,
+    mask_config: dict = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -257,10 +309,12 @@ def _run_demux(
         threads: Number of alignment threads.
         project_params: Project state dict (from usortm_project.json).
         progress_callback: Optional progress update function.
+        mask_config: Optional dict with ``fbc`` and ``rbc`` mask sequences.
 
     Returns:
-        Results dict with total_reads, assigned_reads, wells_with_data,
-        wells_passing, and well_assignments.
+        Results dict with input_reads, aligned_reads, demuxed_reads,
+        assigned_reads, wells_with_data, wells_passing, and
+        well_assignments.
     """
     # Extract project parameters
     barcode_kit = "levseq"
@@ -280,6 +334,7 @@ def _run_demux(
             min_fraction=min_fraction,
             threads=threads,
             progress_callback=progress_callback,
+            mask_config=mask_config,
         )
     else:
         raise NotImplementedError(

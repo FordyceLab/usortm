@@ -141,14 +141,14 @@ def report(
     stats_table.add_column("Value", justify="right")
 
     stats_table.add_row("Library size", f"{project.get('library_size', 'N/A')}")
-    stats_table.add_row("Total reads", f"{demux_summary.get('total_reads', 0):,}")
+    stats_table.add_row("Input reads", f"{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}")
     stats_table.add_row("Wells with data", f"{demux_summary.get('wells_with_data', 0):,}")
 
     unique_variants = len(set(w["variant"] for w in well_data))
     stats_table.add_row("Unique variants", f"{unique_variants}")
 
-    library_size = project.get("library_size", 1)
-    if library_size > 0:
+    library_size = project.get("library_size", 0)
+    if library_size and library_size > 0:
         coverage_pct = (unique_variants / library_size) * 100
         stats_table.add_row("Library coverage", f"{coverage_pct:.1f}%")
 
@@ -221,7 +221,7 @@ def _save_missing_variants(project: dict, well_data: list, output_file: Path):
     """Save list of variants not recovered."""
     # Get expected variants from project
     expected_variants = set()
-    library_file = project.get("library_file")
+    library_file = project.get("library_file") or project.get("variants_file")
 
     if library_file:
         library_path = Path(library_file)
@@ -230,7 +230,9 @@ def _save_missing_variants(project: dict, well_data: list, output_file: Path):
                 with open(library_path, newline="") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if "name" in row:
+                        if "Name" in row:
+                            expected_variants.add(row["Name"])
+                        elif "name" in row:
                             expected_variants.add(row["name"])
                         elif "variant" in row:
                             expected_variants.add(row["variant"])
@@ -278,9 +280,11 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
             "variants_with_multiple_wells": sum(1 for count in variant_counts.values() if count > 1),
         },
         "coverage": {
-            "library_size": project.get("library_size", 1),
+            "library_size": project.get("library_size", 0),
             "recovered": unique_variants,
-            "percent": round((unique_variants / project.get("library_size", 1)) * 100, 1),
+            "percent": round(
+                (unique_variants / project["library_size"]) * 100, 1
+            ) if project.get("library_size") else None,
         }
     }
 
@@ -299,8 +303,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list, outpu
     max_reads = max(read_counts) if read_counts else 0
     min_reads = min(read_counts) if read_counts else 0
 
-    library_size = project.get("library_size", 1)
-    coverage_pct = (unique_variants / library_size) * 100 if library_size > 0 else 0
+    library_size = project.get("library_size", 0)
+    coverage_pct = (unique_variants / library_size) * 100 if library_size else 0
 
     # Generate HTML
     html_content = f"""<!DOCTYPE html>
