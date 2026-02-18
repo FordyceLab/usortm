@@ -230,12 +230,10 @@
         <p>This command calculates projected costs for synthesis, cloning, sorting, barcoding, sequencing, and hit-picking. It also estimates the timeline and effort required for your experiment.</p>
 
         <p><strong>Create an experiment plan:</strong></p>
-        <pre><code class="language-bash">usortm plan my_project/ \
-  --library-size 500 \
+        <pre><code class="language-bash">usortm plan variants.csv --output my_project/ \
   --seq-length 300 \
-  --fold-sampling 4 \
-  --vector pET28a</code></pre>
-        <p>The <code>plan</code> command creates a project directory with a detailed experimental plan, including plate layouts, reagent lists, and predicted coverage statistics.</p>
+  --fold-sampling 4</code></pre>
+        <p>The <code>plan</code> command reads your variant CSV, calculates the number of plates needed, generates barcode assignments, and creates a project directory with a detailed experimental plan.</p>
 
         <p><a href="library-design.html">Learn more about library design &rarr;</a></p>
         
@@ -279,23 +277,20 @@
         <p>Use the uSort-M CLI to process sequencing data:</p>
 
         <p><strong>Demultiplex sequencing reads:</strong></p>
-        <pre><code class="language-bash"># Basic demultiplexing
-usortm demux project/ --fastq data.fastq
+        <pre><code class="language-bash"># Using library CSV (recommended — auto-generates reference FASTA)
+usortm demux project/ --fastq data.fastq --library-csv variants.csv
 
-# With custom barcode CSV
-usortm demux project/ --fastq data.fastq --barcodes barcodes.csv
-
-# Specify reference sequence
+# Or with a pre-built reference FASTA
 usortm demux project/ --fastq data.fastq --reference reference.fasta</code></pre>
-        <p>The <code>demux</code> command assigns sequencing reads to specific wells based on DNA barcodes, performs variant calling, and generates quality metrics for each clone.</p>
+        <p>The <code>demux</code> command runs the LevSeq barcode pipeline: reference alignment with minimap2, strand splitting, barcode demux with Dorado, per-well consensus generation, and variant calling.</p>
 
         <p><strong>Generate pick list:</strong></p>
         <pre><code class="language-bash">usortm pick project/</code></pre>
-        <p>Creates an Integra ASSIST PLUS-compatible CSV file for automated cherry-picking of sequence-verified clones.</p>
+        <p>Creates an Integra ASSIST PLUS-compatible CSV file for automated cherry-picking of sequence-verified clones, ordered to match your input library.</p>
 
         <p><strong>Generate analysis report:</strong></p>
         <pre><code class="language-bash">usortm report project/</code></pre>
-        <p>Produces a comprehensive HTML report with coverage statistics, variant quality scores, and plate heatmaps.</p>
+        <p>Produces reports (HTML, CSV, JSON) with coverage statistics, plate maps, and variant recovery metrics.</p>
 
         <p><a href="demultiplexing.html">Demultiplexing details &rarr;</a></p>
         

@@ -410,8 +410,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list, outpu
     <h2>Demultiplexing Results</h2>
     <div class="stat-grid">
         <div class="stat-box">
-            <div class="stat-label">Total Reads</div>
-            <div class="stat-value">{demux_summary.get('total_reads', 0):,}</div>
+            <div class="stat-label">Input Reads</div>
+            <div class="stat-value">{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Assigned Reads</div>
