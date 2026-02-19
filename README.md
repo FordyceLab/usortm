@@ -27,6 +27,18 @@ pip install -e .
 pip install -e ".[all]"
 ```
 
+### External Tools (for demultiplexing)
+
+The `usortm demux` command requires these tools to be installed separately:
+
+| Tool | Min Version | Purpose | Install |
+|------|-------------|---------|---------|
+| [dorado](https://github.com/nanoporetech/dorado) | 1.3+ | Barcode demultiplexing | [GitHub releases](https://github.com/nanoporetech/dorado/releases) |
+| [minimap2](https://github.com/lh3/minimap2) | 2.20+ | Reference alignment | `brew install minimap2` or `conda install minimap2` |
+| [samtools](https://github.com/samtools/samtools) | 1.16+ | BAM processing & consensus | `brew install samtools` or `conda install samtools` |
+
+`usortm` auto-discovers dorado in common locations (`~/Downloads/dorado-*/bin/`, `~/.dorado/bin/`). You can also set `DORADO_PATH`, `MINIMAP2_PATH`, or `SAMTOOLS_PATH` environment variables.
+
 ## Quick Start
 
 ### Estimate costs
@@ -43,8 +55,8 @@ usortm plan variants.csv --output my_project/
 
 # 2. [Perform wet lab: assembly, sorting, barcoding, sequencing]
 
-# 3. Process sequencing data
-usortm demux my_project/ --fastq sequencing-data.fastq
+# 3. Process sequencing data (with library CSV for variant calling)
+usortm demux my_project/ --fastq sequencing-data.fastq --library-csv variants.csv
 
 # 4. Generate hit-picking list
 usortm pick my_project/
@@ -59,9 +71,9 @@ usortm report my_project/
 |---------|-------------|
 | `estimate` | Quick cost and effort estimation |
 | `plan` | Initialize project from variant list |
-| `demux` | Demultiplex sequencing data |
-| `pick` | Generate Integra ASSIST hit-picking list |
-| `report` | Generate final plate maps and summary |
+| `demux` | Demultiplex sequencing data (LevSeq barcodes via dorado, reference alignment, consensus, variant calling) |
+| `pick` | Generate Integra ASSIST hit-picking list (ordered by input library) |
+| `report` | Generate final plate maps, coverage stats, and HTML summary |
 | `integra` | Standalone hit-list generation (without project) |
 
 ### Example: Cost Estimate

@@ -159,15 +159,15 @@
             </tr>
             <tr>
               <td><code>demux</code></td>
-              <td>Demultiplex sequencing data</td>
+              <td>Demultiplex sequencing data (LevSeq barcodes via Dorado, reference alignment, consensus, variant calling)</td>
             </tr>
             <tr>
               <td><code>pick</code></td>
-              <td>Generate Integra ASSIST hit-picking list</td>
+              <td>Generate Integra ASSIST hit-picking list (ordered by input library)</td>
             </tr>
             <tr>
               <td><code>report</code></td>
-              <td>Generate final plate maps and summary</td>
+              <td>Generate final plate maps, coverage stats, and HTML summary</td>
             </tr>
           </tbody>
         </table>
@@ -333,10 +333,10 @@
         </ul>
         
         <h2 id="demux"><code>usortm demux</code></h2>
-        <p>Demultiplex sequencing data for a project.</p>
-        
-        <pre><code class="language-bash">usortm demux my_project/ --fastq data.fastq</code></pre>
-        
+        <p>Demultiplex sequencing data using the LevSeq barcode pipeline. Runs Dorado for barcode demux, minimap2 for reference alignment, and samtools for per-well consensus generation.</p>
+
+        <pre><code class="language-bash">usortm demux my_project/ --fastq data.fastq --library-csv variants.csv</code></pre>
+
         <h3>Options</h3>
         <table>
           <thead>
@@ -355,27 +355,39 @@
               <td><em>required</em></td>
             </tr>
             <tr>
-              <td><code>--barcodes</code></td>
-              <td><code>-b</code></td>
-              <td>Override barcode mapping</td>
-              <td>project default</td>
+              <td><code>--library-csv</code></td>
+              <td><code>-l</code></td>
+              <td>Library CSV (Name,Sequence columns) &mdash; auto-converted to reference FASTA</td>
+              <td>None</td>
             </tr>
             <tr>
               <td><code>--reference</code></td>
               <td><code>-r</code></td>
-              <td>Reference FASTA</td>
+              <td>Reference FASTA for alignment (alternative to --library-csv)</td>
               <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--barcodes</code></td>
+              <td><code>-b</code></td>
+              <td>Override barcode mapping CSV</td>
+              <td>project default</td>
+            </tr>
+            <tr>
+              <td><code>--mask-config</code></td>
+              <td></td>
+              <td>TOML file with custom barcode flanking sequences</td>
+              <td>project mask_config.toml or cutinase defaults</td>
             </tr>
             <tr>
               <td><code>--min-reads</code></td>
               <td></td>
-              <td>Minimum reads per well</td>
+              <td>Minimum reads per well to call a variant</td>
               <td>100</td>
             </tr>
             <tr>
               <td><code>--min-fraction</code></td>
               <td></td>
-              <td>Minimum consensus fraction</td>
+              <td>Minimum fraction of reads supporting consensus</td>
               <td>0.8</td>
             </tr>
             <tr>
@@ -388,7 +400,7 @@
         </table>
         
         <h2 id="pick"><code>usortm pick</code></h2>
-        <p>Generate hit-picking list from demultiplexing results. Output is formatted for Integra ASSIST PLUS liquid handling robots.</p>
+        <p>Generate hit-picking list from demultiplexing results. Output is formatted for Integra ASSIST PLUS liquid handling robots. The pick list is ordered to match the input library CSV, so variants appear in the same order they were defined.</p>
         
         <pre><code class="language-bash">usortm pick my_project/</code></pre>
         

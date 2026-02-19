@@ -229,16 +229,13 @@ usortm estimate \
         </p>
 
         <pre><code class="language-bash"># Create a project directory with experiment plan
-usortm plan my_experiment/ \
-  --library-size 500 \
+usortm plan variants.csv --output my_experiment/ \
   --seq-length 300 \
   --fold-sampling 4 \
-  --vector pET28a \
   --skew 4
 
 # Plan with custom parameters
-usortm plan large_lib/ \
-  --library-size 2000 \
+usortm plan variants.csv --output large_lib/ \
   --seq-length 500 \
   --fold-sampling 8 \
   --target-coverage 0.95</code></pre>

@@ -172,6 +172,9 @@ def plan(
     
     # Generate barcode assignments
     barcode_assignments = _generate_barcode_assignments(n_plates, barcode_kit, output_dir)
+
+    # Write default mask config for user to customize
+    _write_default_mask_config(output_dir)
     
     # Save project state
     project_state = {
@@ -220,6 +223,7 @@ def plan(
     console.print(f"  • {output_dir}/variants.csv (variant list)")
     console.print(f"  • {output_dir}/sorting_instructions.md (sorting guide)")
     console.print(f"  • {output_dir}/barcodes/ (barcode assignments)")
+    console.print(f"  • {output_dir}/mask_config.toml (barcode flanking sequences)")
     console.print()
     
     # Display timeline
@@ -274,48 +278,70 @@ def _generate_barcode_assignments(n_plates: int, barcode_kit: str, output_dir: P
 
 
 def _generate_levseq_barcodes(n_plates: int, barcode_dir: Path) -> dict:
-    """Generate LevSeq barcode assignments (Arnold lab ONT-optimized)."""
-    # LevSeq uses 96 unique barcodes per plate, no plate-level indexing needed
-    # for smaller experiments. For larger ones, use different barcode plates.
-    
-    # Write template for user to fill in or verify
-    template_path = barcode_dir / "levseq_template.csv"
-    
-    with open(template_path, "w", newline="") as f:
+    """Generate LevSeq barcode assignments with actual sequences.
+
+    Uses the standard LevSeq NB/RB barcode set (96 forward, 96 reverse).
+    Each 384-well plate uses 96 FBCs and 4 RBCs (one per quadrant).
+    Also writes Dorado-ready TOML and FASTA config files.
+    """
+    from usortm.demux.barcodes import (
+        LEVSEQ_FBC,
+        LEVSEQ_RBC,
+        get_rbc_count_for_plates,
+        write_levseq_fbc_fasta,
+        write_levseq_fbc_toml,
+        write_levseq_rbc_fasta,
+        write_levseq_rbc_toml,
+    )
+    from usortm.demux.utils import barcode_to_well
+
+    n_rbc = get_rbc_count_for_plates(n_plates)
+
+    # Write barcode CSV with actual sequences
+    barcode_path = barcode_dir / "levseq_barcodes.csv"
+
+    with open(barcode_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["plate", "well", "barcode_id", "barcode_seq"])
-        
-        for plate in range(1, n_plates + 1):
-            for row_idx, row in enumerate("ABCDEFGHIJKLMNOP"):
-                for col in range(1, 25):
-                    well = f"{row}{col}"
-                    well_num = row_idx * 24 + col
-                    # LevSeq barcode IDs follow their naming convention
-                    barcode_id = f"BC{well_num:03d}"
-                    writer.writerow([plate, well, barcode_id, ""])
-    
-    # Write info file
-    info_path = barcode_dir / "README.md"
-    info_path.write_text("""# LevSeq Barcode Setup
+        writer.writerow([
+            "plate", "well", "fbc_id", "rbc_id", "fbc_seq", "rbc_seq",
+        ])
 
-LevSeq barcodes are optimized for Oxford Nanopore sequencing and provide
-excellent demultiplexing accuracy for amplicon sequencing.
+        for rbc_idx in range(n_rbc):
+            for fbc_idx in range(96):
+                fbc_name = f"FB{fbc_idx + 1:02d}"
+                rbc_name = f"RB{rbc_idx + 1:02d}"
 
-## Setup
+                well_pos = barcode_to_well(fbc_name, rbc_name)
+                if well_pos is None:
+                    continue
 
-1. Order LevSeq barcode primers from the Arnold lab protocol
-2. Fill in the barcode sequences in `levseq_template.csv`
-3. Or download the complete barcode set from:
-   https://github.com/fhalab/LevSeq
+                # Parse the well position (e.g. "1A1" -> plate=1, well="A1")
+                import re
+                m = re.match(r"(\d+)([A-P])(\d+)", well_pos)
+                if not m:
+                    continue
+                plate = m.group(1)
+                well = f"{m.group(2)}{m.group(3)}"
 
-## References
+                writer.writerow([
+                    plate,
+                    well,
+                    fbc_name,
+                    rbc_name,
+                    LEVSEQ_FBC[fbc_idx],
+                    LEVSEQ_RBC[rbc_idx],
+                ])
 
-- Wittmann BJ, et al. "LevSeq: A scalable method for sequencing-based 
-  library QC" ACS Synth Biol. 2022.
-""")
-    
-    console.print(f"[green]✓[/green] Generated LevSeq barcode template: {template_path}")
-    return {"kit": "levseq", "template": str(template_path)}
+    # Also write Dorado-ready config files
+    write_levseq_fbc_toml(barcode_dir)
+    write_levseq_rbc_toml(barcode_dir, n_barcodes=n_rbc)
+    write_levseq_fbc_fasta(barcode_dir)
+    write_levseq_rbc_fasta(barcode_dir, n_barcodes=n_rbc)
+
+    console.print(
+        f"[green]\u2713[/green] Generated LevSeq barcodes: {barcode_path}"
+    )
+    return {"kit": "levseq", "file": str(barcode_path)}
 
 
 def _generate_evseq_barcodes(n_plates: int, barcode_dir: Path) -> dict:
@@ -450,3 +476,38 @@ usortm demux {output_dir.name}/ --fastq <your_data.fastq>
 """
     
     (output_dir / "sorting_instructions.md").write_text(content)
+
+
+def _write_default_mask_config(output_dir: Path):
+    """Write a default mask_config.toml with cutinase backbone sequences.
+
+    Users can edit this file to match their plasmid backbone before
+    running ``usortm demux``.  The demux command auto-detects this
+    file in the project directory.
+    """
+    from usortm.demux.barcodes import DEFAULT_MASKS
+
+    fbc = DEFAULT_MASKS["fbc"]
+    rbc = DEFAULT_MASKS["rbc"]
+
+    content = f"""# Barcode mask (flanking) sequences for Dorado demultiplexing.
+#
+# These sequences flank the barcode cassettes in the plasmid backbone
+# and help Dorado locate barcodes in each read.  Edit these to match
+# YOUR plasmid backbone before running `usortm demux`.
+#
+# The defaults below are for the cutinase expression vector.
+
+[fbc]
+mask1_front = "{fbc['mask1_front']}"
+mask1_rear  = "{fbc['mask1_rear']}"
+mask2_front = "{fbc['mask2_front']}"
+mask2_rear  = "{fbc['mask2_rear']}"
+
+[rbc]
+mask1_front = "{rbc['mask1_front']}"
+mask1_rear  = "{rbc['mask1_rear']}"
+mask2_front = "{rbc['mask2_front']}"
+mask2_rear  = "{rbc['mask2_rear']}"
+"""
+    (output_dir / "mask_config.toml").write_text(content)

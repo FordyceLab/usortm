@@ -351,13 +351,13 @@ plate_2,A02,TCGATCGATCGA</code></pre>
 
         <h2>Next Steps</h2>
         <p>
-          After receiving sequencing data, use the uSort-M CLI to demultiplex and analyze your results:
+          After receiving sequencing data, use the uSort-M CLI to demultiplex and analyze your results.
+          LevSeq barcodes are built into the pipeline &mdash; no separate barcode CSV is needed.
         </p>
 
         <pre><code class="language-bash">usortm demux project/ \
   --fastq sequencing_data.fastq \
-  --barcodes barcodes.csv \
-  --reference reference.fasta</code></pre>
+  --library-csv variants.csv</code></pre>
 
         <p>See <a href="demultiplexing.html">Demultiplexing</a> for detailed instructions.</p>
 

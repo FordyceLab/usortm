@@ -103,6 +103,9 @@ def pick(
         target_variants = _load_targets(targets)
         console.print(f"[green]✓[/green] Loaded {len(target_variants)} target variants")
 
+    # Load library ordering from variants file (if available)
+    library_order = _load_library_order(project)
+
     # Generate pick list
     pick_list = _generate_pick_list(
         well_data=well_data,
@@ -110,6 +113,7 @@ def pick(
         unique_only=unique_only,
         target_format=target_format,
         fill_order=fill_order,
+        library_order=library_order,
     )
 
     if len(pick_list) == 0:
@@ -172,6 +176,34 @@ def _load_well_assignments(assignments_file: Path) -> list:
     return well_data
 
 
+def _load_library_order(project: dict) -> Optional[dict]:
+    """Load variant ordering from the library/variants CSV.
+
+    Returns a dict mapping variant name to its row index (0-based) in the
+    original CSV, or None if the file isn't available.
+    """
+    variants_path = project.get("library_file") or project.get("variants_file")
+    if not variants_path:
+        return None
+
+    variants_path = Path(variants_path)
+    if not variants_path.exists():
+        return None
+
+    order = {}
+    try:
+        with open(variants_path, newline="") as f:
+            reader = csv.DictReader(f)
+            for idx, row in enumerate(reader):
+                name = row.get("Name") or row.get("name") or row.get("variant")
+                if name:
+                    order[name] = idx
+    except Exception:
+        return None
+
+    return order if order else None
+
+
 def _load_targets(targets_file: Path) -> set:
     """Load target variants from CSV."""
     targets = set()
@@ -191,8 +223,15 @@ def _generate_pick_list(
     unique_only: bool,
     target_format: int,
     fill_order: str,
+    library_order: Optional[dict] = None,
 ) -> list:
-    """Generate pick list from well data."""
+    """Generate pick list from well data.
+
+    When *library_order* is provided, the final pick list is sorted to
+    match the input library CSV ordering.  The highest-read-count well
+    is still chosen for each variant (when unique_only=True), but the
+    output order reflects the library rather than read depth.
+    """
     pick_list = []
     seen_variants = set()
 
@@ -219,6 +258,14 @@ def _generate_pick_list(
         })
 
         seen_variants.add(variant)
+
+    # Re-sort by library ordering if available.
+    # Variants not in the library go at the end, sorted alphabetically.
+    if library_order:
+        max_idx = len(library_order)
+        pick_list.sort(
+            key=lambda h: (library_order.get(h["variant"], max_idx), h["variant"])
+        )
 
     # Assign target wells based on fill order
     _assign_target_wells(pick_list, target_format, fill_order)

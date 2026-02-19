@@ -144,7 +144,7 @@ pip install -e ".[all]"</code></pre>
         
         <h3>Optional Dependencies</h3>
         <p>The base installation includes cost estimation and CLI tools. Optional dependencies provide additional functionality:</p>
-        
+
         <pre><code class="language-bash"># Visualization tools (matplotlib, bokeh)
 pip install -e ".[viz]"
 
@@ -156,6 +156,15 @@ pip install -e ".[dev]"
 
 # Everything
 pip install -e ".[all]"</code></pre>
+
+        <h3>External Tools (for demultiplexing)</h3>
+        <p>The <code>usortm demux</code> command requires these tools to be installed separately:</p>
+        <ul>
+          <li><a href="https://github.com/nanoporetech/dorado" target="_blank">dorado</a> (1.3+) &mdash; Barcode demultiplexing (<a href="https://github.com/nanoporetech/dorado/releases" target="_blank">GitHub releases</a>)</li>
+          <li><a href="https://github.com/lh3/minimap2" target="_blank">minimap2</a> (2.20+) &mdash; Reference alignment (<code>brew install minimap2</code> or <code>conda install minimap2</code>)</li>
+          <li><a href="https://github.com/samtools/samtools" target="_blank">samtools</a> (1.16+) &mdash; BAM processing &amp; consensus (<code>brew install samtools</code> or <code>conda install samtools</code>)</li>
+        </ul>
+        <p><code>usortm</code> auto-discovers dorado in common locations. You can also set <code>DORADO_PATH</code>, <code>MINIMAP2_PATH</code>, or <code>SAMTOOLS_PATH</code> environment variables.</p>
         
         <h2>Quick Start</h2>
         
@@ -189,6 +198,7 @@ T46G,ACC->GGC</code></pre>
           <li><code>my_project/usortm_project.json</code> - Project state tracking</li>
           <li><code>my_project/sorting_instructions.md</code> - Wet lab guide</li>
           <li><code>my_project/barcodes/</code> - Barcode assignments</li>
+          <li><code>my_project/mask_config.toml</code> - Barcode flanking sequences (editable)</li>
         </ul>
         
         <h3>3. Follow the Wet Lab Workflow</h3>
@@ -216,8 +226,8 @@ T46G,ACC->GGC</code></pre>
         <h3>4. Process Sequencing Data</h3>
         <p>After receiving sequencing data:</p>
         
-        <pre><code class="language-bash"># Demultiplex reads
-usortm demux my_project/ --fastq data.fastq
+        <pre><code class="language-bash"># Demultiplex reads (using library CSV for variant calling)
+usortm demux my_project/ --fastq data.fastq --library-csv variants.csv
 
 # Generate hit-picking list
 usortm pick my_project/
@@ -242,7 +252,7 @@ usortm plan variants.csv --output acyp_library/ --seq-length 297
 # [Receive sequencing data]
 
 # Process results
-usortm demux acyp_library/ --fastq nanopore_data.fastq
+usortm demux acyp_library/ --fastq nanopore_data.fastq --library-csv variants.csv
 usortm pick acyp_library/
 usortm report acyp_library/
 

@@ -1,13 +1,43 @@
-"""Integration tests for the full CLI workflow."""
+"""Integration tests for the full CLI workflow.
 
-import pytest
-from pathlib import Path
+Tests that require external tools (dorado, minimap2, samtools) are skipped
+when those tools are not available. Mock-based tests verify CLI wiring
+without external dependencies.
+"""
+
+import shutil
+from unittest.mock import patch
 import csv
 import json
+
+import pytest
 from typer.testing import CliRunner
 from usortm.cli import app
+from usortm.demux.deps import DependencyError
 
 runner = CliRunner()
+
+
+def _tool_available(name: str) -> bool:
+    """Check if an external tool is available using the project's finders."""
+    from usortm.demux import deps
+    try:
+        finder = getattr(deps, f"find_{name}", None)
+        if finder:
+            finder()
+            return True
+    except DependencyError:
+        return False
+    return shutil.which(name) is not None
+
+
+# Skip marker for tests needing all demux tools
+requires_demux_tools = pytest.mark.skipif(
+    not _tool_available("dorado")
+    or not _tool_available("minimap2")
+    or not _tool_available("samtools"),
+    reason="dorado, minimap2, or samtools not installed",
+)
 
 
 @pytest.fixture
@@ -18,7 +48,7 @@ def library_csv(tmp_path):
         writer = csv.writer(f)
         writer.writerow(["name", "sequence"])
         for i in range(10):
-            writer.writerow([f"variant_{i+1}", "ATGC" * 75])
+            writer.writerow([f"variant_{i + 1}", "ATGC" * 75])
     return library_file
 
 
@@ -27,7 +57,6 @@ def mock_fastq(tmp_path):
     """Create a mock FASTQ file."""
     fastq_file = tmp_path / "reads.fastq"
     with open(fastq_file, "w") as f:
-        # Write 100 mock reads (4 lines each)
         for i in range(100):
             f.write(f"@read_{i}\n")
             f.write("ATGCATGCATGCATGC\n")
@@ -36,99 +65,179 @@ def mock_fastq(tmp_path):
     return fastq_file
 
 
-def test_full_workflow(tmp_path, library_csv, mock_fastq):
-    """Test complete workflow: plan -> demux -> pick -> report."""
-    project_dir = tmp_path / "my_project"
+@pytest.fixture
+def project_with_demux_results(tmp_path):
+    """Create a project with pre-made demux results for pick/report tests.
 
-    # Step 1: Plan
-    result = runner.invoke(app, [
-        "plan",
-        str(project_dir),
-        "--library-size", "10",
-        "--seq-length", "300",
-        "--fold-sampling", "4",
-        "--vector", "pET28a",
-    ])
+    This avoids needing external tools for testing downstream commands.
+    """
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
 
-    # Should succeed or gracefully handle missing library file
-    # (plan command may require library file - adjust based on implementation)
-    assert result.exit_code in [0, 1]  # Accept either success or expected failure
+    state = {
+        "library_size": 10,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "barcode_kit": "levseq",
+        "n_plates": 1,
+        "workflow_steps": {
+            "plan": {"completed": True},
+            "demux": {
+                "completed": True,
+                "total_reads": 100,
+                "assigned_reads": 65,
+                "wells_with_data": 8,
+            },
+        },
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
 
-    # Create project manually for testing if plan failed
-    if result.exit_code == 1:
-        project_dir.mkdir(parents=True, exist_ok=True)
-        state = {
-            "library_size": 10,
-            "seq_length": 300,
-            "fold_sampling": 4,
-            "vector": "pET28a",
-            "library_file": str(library_csv),
-            "workflow_steps": {}
-        }
-        with open(project_dir / "usortm_project.json", "w") as f:
-            json.dump(state, f)
+    # Create mock demux output
+    demux_output = project_dir / "demux_output"
+    demux_output.mkdir()
 
-    # Step 2: Create mock barcodes for demux
-    barcode_dir = project_dir / "barcodes"
-    barcode_dir.mkdir(exist_ok=True)
-
-    barcode_file = barcode_dir / "custom_barcodes.csv"
-    with open(barcode_file, "w", newline="") as f:
+    with open(demux_output / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["plate", "well", "barcode_seq"])
-        for i in range(40):  # 40 wells
-            plate = "1"
-            row = chr(ord('A') + (i // 24))
-            col = (i % 24) + 1
-            well = f"{row}{col}"
-            barcode = "ACGT" * (i % 4 + 1)
-            writer.writerow([plate, well, barcode])
+        writer.writerow([
+            "plate", "well", "reads", "variant", "consensus_fraction",
+        ])
+        for i in range(8):
+            writer.writerow([
+                "1", f"A{i + 1}", 50 + i * 10, f"variant_{i + 1}", 0.95,
+            ])
 
-    # Step 3: Demux
-    result = runner.invoke(app, [
-        "demux",
-        str(project_dir),
-        "--fastq", str(mock_fastq),
-    ])
+    with open(demux_output / "demux_summary.json", "w") as f:
+        json.dump({
+            "total_reads": 100,
+            "assigned_reads": 65,
+            "wells_with_data": 8,
+            "wells_passing": 6,
+        }, f)
+
+    return project_dir
+
+
+# ===================================================================
+# Mock-based demux CLI test
+# ===================================================================
+
+def test_demux_with_mock_pipeline(tmp_path, mock_fastq):
+    """Test demux CLI with a mocked pipeline (no external tools needed)."""
+    project_dir = tmp_path / "mock_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 10,
+        "barcode_kit": "levseq",
+        "n_plates": 1,
+        "workflow_steps": {},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    mock_results = {
+        "input_reads": 500,
+        "aligned_reads": 200,
+        "demuxed_reads": 100,
+        "total_reads": 500,
+        "assigned_reads": 65,
+        "wells_with_data": 8,
+        "wells_passing": 6,
+        "well_assignments": {
+            "1_A1": {
+                "plate": "1",
+                "well": "A1",
+                "reads": 80,
+                "variant": "GFP_test",
+                "consensus_fraction": 0.95,
+            },
+        },
+    }
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        return_value=mock_results,
+    ), patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={
+            "dorado": "/usr/bin/dorado",
+            "minimap2": "/usr/bin/minimap2",
+            "samtools": "/usr/bin/samtools",
+        },
+    ):
+        result = runner.invoke(app, [
+            "demux",
+            str(project_dir),
+            "--fastq", str(mock_fastq),
+        ])
 
     assert result.exit_code == 0
     assert "Demultiplexing" in result.stdout
     assert (project_dir / "demux_output").exists()
     assert (project_dir / "demux_output" / "well_assignments.csv").exists()
 
-    # Step 4: Pick
+
+# ===================================================================
+# Pick and report tests (using pre-made demux results)
+# ===================================================================
+
+def test_pick_command(project_with_demux_results):
+    """Test pick command with pre-existing demux results."""
     result = runner.invoke(app, [
         "pick",
-        str(project_dir),
+        str(project_with_demux_results),
         "--unique-only",
     ])
 
     assert result.exit_code == 0
     assert "Hit Picking" in result.stdout
-    assert (project_dir / "hitlist.csv").exists()
+    assert (project_with_demux_results / "hitlist.csv").exists()
 
-    # Verify pick list format
-    with open(project_dir / "hitlist.csv", newline="") as f:
+    # Verify Integra ASSIST format
+    with open(project_with_demux_results / "hitlist.csv", newline="") as f:
         reader = csv.reader(f, delimiter=";")
         header = next(reader)
-        assert header == ["SampleID", "SourcePlateID", "SourceWell", "TargetPlateID", "TargetWell", "TransferVolume"]
+        assert header == [
+            "SampleID", "SourcePlateID", "SourceWell",
+            "TargetPlateID", "TargetWell", "TransferVolume",
+        ]
 
-    # Step 5: Report
+
+def test_pick_with_volume_option(project_with_demux_results):
+    """Test pick command with custom volume."""
     result = runner.invoke(app, [
-        "report",
-        str(project_dir),
-        "--format", "all",
+        "pick",
+        str(project_with_demux_results),
+        "--volume", "10.0",
+        "--fill-order", "row",
     ])
-
     assert result.exit_code == 0
-    assert "Reporting" in result.stdout
-    assert (project_dir / "report" / "summary.html").exists()
-    assert (project_dir / "report" / "plate_maps.csv").exists()
-    assert (project_dir / "report" / "final_mapping.csv").exists()
-    assert (project_dir / "report" / "report.json").exists()
+
+    hitlist = project_with_demux_results / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        first_hit = next(reader)
+        assert first_hit[5] == "10.0"
 
 
-def test_estimate_command(tmp_path):
+def test_report_formats(project_with_demux_results):
+    """Test report command with each output format."""
+    for fmt in ["csv", "html", "json"]:
+        result = runner.invoke(app, [
+            "report",
+            str(project_with_demux_results),
+            "--format", fmt,
+        ])
+        assert result.exit_code == 0
+
+
+# ===================================================================
+# Estimate command
+# ===================================================================
+
+def test_estimate_command():
     """Test estimate command works."""
     result = runner.invoke(app, [
         "estimate",
@@ -136,16 +245,49 @@ def test_estimate_command(tmp_path):
         "--seq-length", "300",
         "--fold-sampling", "4",
     ])
-
     assert result.exit_code == 0
-    # Should show cost estimates
     assert "$" in result.stdout or "cost" in result.stdout.lower()
 
+
+# ===================================================================
+# Error handling
+# ===================================================================
+
+def test_pick_without_demux(tmp_path):
+    """Pick should fail when demux hasn't been run."""
+    project_dir = tmp_path / "error_test"
+    project_dir.mkdir()
+
+    state = {"library_size": 10, "workflow_steps": {}}
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    result = runner.invoke(app, ["pick", str(project_dir)])
+    assert result.exit_code == 1
+    assert "No demultiplexing results" in result.stdout
+
+
+def test_report_without_demux(tmp_path):
+    """Report should fail when demux hasn't been run."""
+    project_dir = tmp_path / "error_test"
+    project_dir.mkdir()
+
+    state = {"library_size": 10, "workflow_steps": {}}
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    result = runner.invoke(app, ["report", str(project_dir)])
+    assert result.exit_code == 1
+    assert "No demultiplexing results" in result.stdout
+
+
+# ===================================================================
+# Help and registration
+# ===================================================================
 
 def test_help_commands():
     """Test that all commands have help text."""
     commands = ["estimate", "plan", "demux", "pick", "report"]
-
     for cmd in commands:
         result = runner.invoke(app, [cmd, "--help"])
         assert result.exit_code == 0
@@ -153,138 +295,14 @@ def test_help_commands():
 
 
 def test_command_registration():
-    """Test that all 5 commands are registered."""
+    """Test that all commands are registered."""
     result = runner.invoke(app, ["--help"])
-
     assert result.exit_code == 0
-    # Check that all commands appear in help
     assert "estimate" in result.stdout
     assert "plan" in result.stdout
     assert "demux" in result.stdout
     assert "pick" in result.stdout
     assert "report" in result.stdout
-
-
-def test_pick_after_demux_workflow(tmp_path, mock_fastq):
-    """Test pick works correctly after demux."""
-    project_dir = tmp_path / "pick_test"
-    project_dir.mkdir()
-
-    # Create project state
-    state = {
-        "library_size": 10,
-        "seq_length": 300,
-        "fold_sampling": 4,
-        "workflow_steps": {}
-    }
-    with open(project_dir / "usortm_project.json", "w") as f:
-        json.dump(state, f)
-
-    # Create barcodes
-    barcode_dir = project_dir / "barcodes"
-    barcode_dir.mkdir()
-
-    barcode_file = barcode_dir / "custom_barcodes.csv"
-    with open(barcode_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["plate", "well", "barcode_seq"])
-        writer.writerow(["1", "A1", "ACGT"])
-        writer.writerow(["1", "A2", "TGCA"])
-
-    # Run demux
-    result = runner.invoke(app, [
-        "demux",
-        str(project_dir),
-        "--fastq", str(mock_fastq),
-    ])
-    assert result.exit_code == 0
-
-    # Run pick with different options
-    result = runner.invoke(app, [
-        "pick",
-        str(project_dir),
-        "--volume", "10.0",
-        "--fill-order", "row",
-    ])
-
-    assert result.exit_code == 0
-
-    # Verify hitlist
-    hitlist = project_dir / "hitlist.csv"
-    assert hitlist.exists()
-
-    with open(hitlist, newline="") as f:
-        reader = csv.reader(f, delimiter=";")
-        next(reader)  # Skip header
-        first_hit = next(reader)
-        # Volume should be 10.0
-        assert first_hit[5] == "10.0"
-
-
-def test_report_after_pick_workflow(tmp_path, mock_fastq):
-    """Test report works correctly after pick."""
-    project_dir = tmp_path / "report_test"
-    project_dir.mkdir()
-
-    # Create project state
-    state = {
-        "library_size": 5,
-        "seq_length": 300,
-        "fold_sampling": 4,
-        "workflow_steps": {}
-    }
-    with open(project_dir / "usortm_project.json", "w") as f:
-        json.dump(state, f)
-
-    # Create barcodes
-    barcode_dir = project_dir / "barcodes"
-    barcode_dir.mkdir()
-
-    barcode_file = barcode_dir / "custom_barcodes.csv"
-    with open(barcode_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["plate", "well", "barcode_seq"])
-        for i in range(20):
-            writer.writerow(["1", f"A{i+1}", f"BARCODE{i}"])
-
-    # Run demux
-    runner.invoke(app, ["demux", str(project_dir), "--fastq", str(mock_fastq)])
-
-    # Run pick
-    runner.invoke(app, ["pick", str(project_dir)])
-
-    # Run report with each format
-    for fmt in ["csv", "html", "json"]:
-        result = runner.invoke(app, [
-            "report",
-            str(project_dir),
-            "--format", fmt,
-        ])
-        assert result.exit_code == 0
-
-
-def test_error_handling_workflow(tmp_path):
-    """Test error handling across workflow steps."""
-    # Try to run pick without demux
-    project_dir = tmp_path / "error_test"
-    project_dir.mkdir()
-
-    state = {
-        "library_size": 10,
-        "workflow_steps": {}
-    }
-    with open(project_dir / "usortm_project.json", "w") as f:
-        json.dump(state, f)
-
-    # Pick should fail
-    result = runner.invoke(app, ["pick", str(project_dir)])
-    assert result.exit_code == 1
-    assert "No demultiplexing results" in result.stdout
-
-    # Report should also fail
-    result = runner.invoke(app, ["report", str(project_dir)])
-    assert result.exit_code == 1
-    assert "No demultiplexing results" in result.stdout
 
 
 def test_cli_output_formatting():
@@ -294,8 +312,45 @@ def test_cli_output_formatting():
         "--library-size", "100",
         "--seq-length", "300",
     ])
-
     assert result.exit_code == 0
-    # Rich formatting should produce readable output
     lines = result.stdout.split('\n')
-    assert len(lines) > 5  # Should have multiple lines of output
+    assert len(lines) > 5
+
+
+# ===================================================================
+# Full workflow (requires external tools)
+# ===================================================================
+
+@requires_demux_tools
+def test_full_workflow_with_tools(tmp_path, library_csv, mock_fastq):
+    """Test complete workflow with real demux tools installed."""
+    project_dir = tmp_path / "full_test"
+
+    # Plan
+    result = runner.invoke(app, [
+        "plan",
+        str(library_csv),
+        "--output", str(project_dir),
+        "--seq-length", "300",
+        "--fold-sampling", "4",
+    ])
+    assert result.exit_code == 0
+
+    # Demux
+    result = runner.invoke(app, [
+        "demux",
+        str(project_dir),
+        "--fastq", str(mock_fastq),
+    ])
+    assert result.exit_code == 0
+    assert (project_dir / "demux_output" / "well_assignments.csv").exists()
+
+    # Pick
+    result = runner.invoke(app, ["pick", str(project_dir)])
+    assert result.exit_code == 0
+
+    # Report
+    result = runner.invoke(app, [
+        "report", str(project_dir), "--format", "all",
+    ])
+    assert result.exit_code == 0
