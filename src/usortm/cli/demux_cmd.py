@@ -193,6 +193,28 @@ def demux(
     # Save results
     _save_demux_results(results, demux_output)
 
+    # Generate interactive plate map (Bokeh is an optional dependency)
+    try:
+        import pandas as pd
+        from usortm.demux.viz import save_plate_map_html
+
+        read_df_path = demux_output / "read_df.csv"
+        if read_df_path.exists():
+            read_df = pd.read_csv(read_df_path)
+            plate_map_path = demux_output / "plate_map.html"
+            save_plate_map_html(
+                read_df, str(plate_map_path),
+                title="Demux Plate Map",
+                min_reads=min_reads,
+            )
+            console.print(
+                f"[green]\u2713[/green] Plate map saved to {plate_map_path}"
+            )
+    except ImportError:
+        pass  # Bokeh not installed — skip plate map
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Could not generate plate map: {e}")
+
     # Update project state
     project["workflow_steps"]["demux"] = {
         "completed": True,

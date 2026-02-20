@@ -486,7 +486,7 @@ def _write_default_mask_config(output_dir: Path):
     running ``usortm demux``.  The demux command auto-detects this
     file in the project directory.
     """
-    from usortm.demux.barcodes import DEFAULT_MASKS
+    from usortm.demux.barcodes import DEFAULT_MASKS, DEFAULT_SCORING
 
     fbc = DEFAULT_MASKS["fbc"]
     rbc = DEFAULT_MASKS["rbc"]
@@ -510,5 +510,18 @@ mask1_front = "{rbc['mask1_front']}"
 mask1_rear  = "{rbc['mask1_rear']}"
 mask2_front = "{rbc['mask2_front']}"
 mask2_rear  = "{rbc['mask2_rear']}"
+
+# Uncomment and edit to override Dorado barcode scoring parameters.
+# These rarely need tuning — adjust only if you see low barcode
+# classification rates.
+#
+# [scoring]
+# max_barcode_penalty = {DEFAULT_SCORING['max_barcode_penalty']}
+# min_barcode_penalty_dist = {DEFAULT_SCORING['min_barcode_penalty_dist']}
+# flank_right_pad = {DEFAULT_SCORING['flank_right_pad']}
+# flank_left_pad = {DEFAULT_SCORING['flank_left_pad']}
+# min_separation_only_dist = {DEFAULT_SCORING['min_separation_only_dist']}
+# min_flank_score = {DEFAULT_SCORING['min_flank_score']}
+# barcode_end_proximity = {DEFAULT_SCORING['barcode_end_proximity']}
 """
     (output_dir / "mask_config.toml").write_text(content)

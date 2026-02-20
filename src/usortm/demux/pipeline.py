@@ -108,8 +108,9 @@ def run_levseq_pipeline(
 
     fbc_masks = mask_config.get("fbc") if mask_config else None
     rbc_masks = mask_config.get("rbc") if mask_config else None
-    fbc_toml = write_levseq_fbc_toml(config_dir, masks=fbc_masks)
-    rbc_toml = write_levseq_rbc_toml(config_dir, n_barcodes=n_rbc, masks=rbc_masks)
+    scoring = mask_config.get("scoring") if mask_config else None
+    fbc_toml = write_levseq_fbc_toml(config_dir, masks=fbc_masks, scoring=scoring)
+    rbc_toml = write_levseq_rbc_toml(config_dir, n_barcodes=n_rbc, masks=rbc_masks, scoring=scoring)
     fbc_fasta = write_levseq_fbc_fasta(config_dir)
     rbc_fasta = write_levseq_rbc_fasta(config_dir, n_barcodes=n_rbc)
 

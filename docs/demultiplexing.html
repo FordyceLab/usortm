@@ -121,8 +121,10 @@
     </nav>
     <!-- Theme toggle -->
     <div class="theme-toggle" onclick="toggleTheme()">
-      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
-      <span id="theme-label">Dark mode</span>
+      <span class="theme-toggle-icon" id="theme-icon">
+        <svg class="theme-svg" id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="theme-svg" id="icon-sun" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </span>
     </div>
     <main class="main">
       <div class="content">
@@ -242,8 +244,8 @@ usortm demux my_project/ \
           The barcode mask (flanking) sequences anchor Dorado's barcode search to a defined location in the read. It
           accepts two sets of masks corresponding to the forward and reverse barcodes, as shown in the read diagram below.
         </p>
-        <div style="text-align: center; margin: 2rem 0;">
-          <img src="images/Read-diagram-Dorado-masks/Read-diagram-Dorado-masks.png" alt="Read diagram showing Dorado mask locations" style="max-width: 80%; height: auto;">
+        <div class="method-figure">
+          <img src="images/Read-diagram-Dorado-masks/Read-diagram-Dorado-masks.png" alt="Read diagram showing Dorado mask locations" style="width: 100%; max-width: none;">
         </div>
         <p>
           To provide mask sequences for your vector,
@@ -262,20 +264,61 @@ mask2_rear  = "ATAATTTATA"
 mask1_front = "TATAAATTAT"
 mask1_rear  = "CGTCACTCATGGTGATTTCTCACTTG"
 mask2_front = "GCTCACGCTGTAGGTATCTCAG"
-mask2_rear  = "AATTTATATT"</code></pre>
+mask2_rear  = "AATTTATATT"
+
+# Optional: override Dorado scoring parameters (rarely needed)
+# [scoring]
+# max_barcode_penalty = 12
+# min_barcode_penalty_dist = 3
+# min_flank_score = 0.9</code></pre>
+
+        <h3>Scoring Parameters</h3>
+        <p>
+          The <code>[scoring]</code> section in <code>mask_config.toml</code> controls Dorado's barcode
+          classification thresholds. The defaults work well for most experiments. Adjust these only if
+          you observe low barcode classification rates&mdash;for example, lowering <code>min_flank_score</code>
+          may help with noisy reads, while increasing <code>max_barcode_penalty</code> allows more mismatches.
+        </p>
 
         <h2>Output Files</h2>
 
-        <p>The demux command generates output files in <code>project/demux_output/</code>:</p>
+        <p>The demux command generates output in <code>project/demux_output/</code>:</p>
 
-        <h3>1. Well Assignments (well_assignments.csv)</h3>
-        <pre><code class="language-csv">plate,well,reads,variant,consensus_fraction
-1,A1,487,K44A,0.95
-1,A2,312,G45A,0.88
-1,B1,156,WT,0.92</code></pre>
+        <pre><code class="language-bash">demux_output/
+├── demux_summary.json     # Per-stage read count funnel
+├── well_assignments.csv   # Per-well variant calls
+├── read_df.csv            # Per-read barcode + reference assignments
+├── well_df.csv            # Per-well summary with consensus & variants
+├── dorado_config/         # Generated Dorado TOML + FASTA configs
+│   ├── levseq_fbc.toml
+│   ├── levseq_fbc.fasta
+│   ├── levseq_rbc.toml
+│   └── levseq_rbc.fasta
+├── alignment/             # minimap2 alignment + strand-split FASTQs
+├── fbc/                   # Dorado forward barcode demux output
+├── rbc/                   # Dorado reverse barcode demux output
+└── reference_fasta/       # Per-variant reference FASTAs for consensus</code></pre>
 
-        <h3>2. Demux Summary (demux_summary.json)</h3>
-        <p>Per-stage read counts showing the demultiplexing funnel:</p>
+        <h3>CLI Summary Table</h3>
+        <p>
+          After demultiplexing completes, the CLI displays a per-stage funnel showing how reads progress through
+          the pipeline. Each stage reports both the absolute count and the percentage of input reads:
+        </p>
+        <pre><code class="language-plaintext">┌───────────────────────────────────────────┐
+│       Demultiplexing Summary              │
+├────────────────────┬──────────────────────┤
+│ Metric             │                Value │
+├────────────────────┼──────────────────────┤
+│ Input reads        │            2,400,000 │
+│ Aligned            │  2,100,000 (87.5%)   │
+│ Demuxed (FBC+RBC)  │  1,850,000 (77.1%)   │
+│ Assigned to wells  │  1,650,000 (68.8%)   │
+│ Wells with data    │                  725 │
+│ Wells ≥100 reads   │                  680 │
+└────────────────────┴──────────────────────┘</code></pre>
+
+        <h3>Demux Summary (demux_summary.json)</h3>
+        <p>Machine-readable per-stage read counts matching the CLI funnel:</p>
         <pre><code class="language-json">{
   "input_reads": 2400000,
   "aligned_reads": 2100000,
@@ -285,23 +328,60 @@ mask2_rear  = "AATTTATATT"</code></pre>
   "wells_passing": 680
 }</code></pre>
 
-        <h3>3. Per-Read Table (read_df.csv)</h3>
-        <p>Detailed per-read assignments with barcode and reference information.</p>
+        <h3>Well Assignments (well_assignments.csv)</h3>
+        <p>Per-well variant calls with read depth and consensus quality:</p>
+        <pre><code class="language-csv">plate,well,reads,variant,consensus_fraction
+1,A1,487,K44A,0.95
+1,A2,312,G45A,0.88
+1,B1,156,WT,0.92</code></pre>
 
-        <h3>4. Per-Well Summary (well_df.csv)</h3>
-        <p>Aggregated well-level statistics including read depth and dominant variant.</p>
+        <h3>Per-Read Table (read_df.csv)</h3>
+        <p>
+          Detailed per-read assignments including forward barcode (FBC), reverse barcode (RBC),
+          reference name, and mapped well position. Useful for debugging classification rates or
+          building custom analyses.
+        </p>
+
+        <h3>Per-Well Summary (well_df.csv)</h3>
+        <p>
+          Aggregated well-level statistics including read depth, dominant reference, consensus
+          fraction, CIGAR-based variant calls, and consensus check status.
+        </p>
 
         <h2>Generating Reports</h2>
 
         <p>Create summary reports from demux results:</p>
-        <pre><code class="language-bash">usortm report my_project/</code></pre>
+        <pre><code class="language-bash">usortm report my_project/
 
-        <p>Output formats (use <code>--format</code> to select):</p>
-        <ul>
-          <li><strong>HTML</strong> &mdash; Interactive summary with coverage statistics and read depth</li>
-          <li><strong>CSV</strong> &mdash; Plate maps, final variant-to-well mapping, missing variants list</li>
-          <li><strong>JSON</strong> &mdash; Machine-readable report with all metrics</li>
-        </ul>
+# Select specific format
+usortm report my_project/ --format html
+usortm report my_project/ --format csv
+usortm report my_project/ --format json</code></pre>
+
+        <p>Output files are saved to <code>project/report/</code>:</p>
+
+        <table>
+          <thead>
+            <tr><th>Format</th><th>Files</th><th>Contents</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>HTML</td>
+              <td><code>summary.html</code></td>
+              <td>Interactive dashboard with project overview, demux funnel, variant recovery, and read depth statistics</td>
+            </tr>
+            <tr>
+              <td>CSV</td>
+              <td><code>plate_maps.csv</code><br><code>final_mapping.csv</code><br><code>missing_variants.csv</code></td>
+              <td>Plate maps with well&ndash;variant assignments, best-well-per-variant mapping, and list of unrecovered variants</td>
+            </tr>
+            <tr>
+              <td>JSON</td>
+              <td><code>report.json</code></td>
+              <td>Machine-readable report with project parameters, demux summary, variant statistics, and library coverage</td>
+            </tr>
+          </tbody>
+        </table>
 
         <h2>Generating Pick Lists</h2>
 
@@ -471,15 +551,15 @@ open my_experiment/report/summary.html</code></pre>
     }
 
     function updateThemeUI(theme) {
-      const icon = document.getElementById('theme-icon');
-      const label = document.getElementById('theme-label');
+      const moon = document.getElementById('icon-moon');
+      const sun = document.getElementById('icon-sun');
 
       if (theme === 'dark') {
-        icon.textContent = '☀️';
-        label.textContent = 'Light mode';
+        moon.style.display = 'none';
+        sun.style.display = 'block';
       } else {
-        icon.textContent = '🌙';
-        label.textContent = 'Dark mode';
+        moon.style.display = 'block';
+        sun.style.display = 'none';
       }
     }
 

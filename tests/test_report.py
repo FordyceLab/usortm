@@ -223,7 +223,7 @@ def test_report_html_content(mock_project_with_library):
         # Check for key elements
         assert "uSort-M Workflow Report" in html_content
         assert "Library Size" in html_content
-        assert "Total Reads" in html_content
+        assert "Input Reads" in html_content
         assert "Unique Variants" in html_content
         assert "Library Coverage" in html_content
         assert "80.0%" in html_content  # 4/5 coverage

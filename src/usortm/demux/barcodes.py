@@ -234,6 +234,20 @@ def get_rbc_count_for_plates(n_plates: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Default scoring parameters for Dorado barcode classification
+# ---------------------------------------------------------------------------
+
+DEFAULT_SCORING: dict = {
+    "max_barcode_penalty": 12,
+    "min_barcode_penalty_dist": 3,
+    "flank_right_pad": 5,
+    "flank_left_pad": 5,
+    "min_separation_only_dist": 6,
+    "min_flank_score": 0.9,
+    "barcode_end_proximity": 150,
+}
+
+# ---------------------------------------------------------------------------
 # Default mask (flanking) sequences — cutinase plasmid backbone
 # ---------------------------------------------------------------------------
 
@@ -261,6 +275,7 @@ def write_levseq_fbc_toml(
     output_dir: Path,
     kit_name: str = "levSeq_bcs_map",
     masks: dict = None,
+    scoring: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for forward barcodes.
 
@@ -273,6 +288,7 @@ def write_levseq_fbc_toml(
         kit_name: Kit name identifier for Dorado.
         masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
             ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
+        scoring: Optional dict overriding DEFAULT_SCORING parameters.
 
     Returns:
         Path to the generated TOML file.
@@ -281,6 +297,7 @@ def write_levseq_fbc_toml(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     m = {**DEFAULT_MASKS["fbc"], **(masks or {})}
+    s = {**DEFAULT_SCORING, **(scoring or {})}
 
     toml_path = output_dir / "levseq_fbc.toml"
     content = f"""[arrangement]
@@ -302,13 +319,13 @@ first_index = 1
 last_index = 96
 
 [scoring]
-max_barcode_penalty = 12
-min_barcode_penalty_dist = 3
-flank_right_pad = 5
-flank_left_pad = 5
-min_separation_only_dist = 6
-min_flank_score = 0.9
-barcode_end_proximity = 150
+max_barcode_penalty = {s['max_barcode_penalty']}
+min_barcode_penalty_dist = {s['min_barcode_penalty_dist']}
+flank_right_pad = {s['flank_right_pad']}
+flank_left_pad = {s['flank_left_pad']}
+min_separation_only_dist = {s['min_separation_only_dist']}
+min_flank_score = {s['min_flank_score']}
+barcode_end_proximity = {s['barcode_end_proximity']}
 """
     toml_path.write_text(content)
     return toml_path
@@ -319,6 +336,7 @@ def write_levseq_rbc_toml(
     n_barcodes: int = 4,
     kit_name: str = "levSeq_bcs_map",
     masks: dict = None,
+    scoring: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for reverse barcodes.
 
@@ -333,6 +351,7 @@ def write_levseq_rbc_toml(
         kit_name: Kit name identifier for Dorado.
         masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
             ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
+        scoring: Optional dict overriding DEFAULT_SCORING parameters.
 
     Returns:
         Path to the generated TOML file.
@@ -341,6 +360,7 @@ def write_levseq_rbc_toml(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     m = {**DEFAULT_MASKS["rbc"], **(masks or {})}
+    s = {**DEFAULT_SCORING, **(scoring or {})}
 
     last_index = min(n_barcodes, 96)
     toml_path = output_dir / "levseq_rbc.toml"
@@ -363,13 +383,13 @@ first_index = 1
 last_index = {last_index}
 
 [scoring]
-max_barcode_penalty = 12
-min_barcode_penalty_dist = 3
-flank_right_pad = 5
-flank_left_pad = 5
-min_separation_only_dist = 6
-min_flank_score = 0.9
-barcode_end_proximity = 150
+max_barcode_penalty = {s['max_barcode_penalty']}
+min_barcode_penalty_dist = {s['min_barcode_penalty_dist']}
+flank_right_pad = {s['flank_right_pad']}
+flank_left_pad = {s['flank_left_pad']}
+min_separation_only_dist = {s['min_separation_only_dist']}
+min_flank_score = {s['min_flank_score']}
+barcode_end_proximity = {s['barcode_end_proximity']}
 """
     toml_path.write_text(content)
     return toml_path

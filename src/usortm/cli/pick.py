@@ -130,6 +130,35 @@ def pick(
     # Save pick list in Integra ASSIST PLUS format
     _save_pick_list(pick_list, output_file, volume)
 
+    # Generate interactive pick plate map (Bokeh is optional)
+    try:
+        from usortm.demux.viz import save_pick_plate_map_html
+
+        pick_map_path = project_dir / "pick_plate_map.html"
+        save_pick_plate_map_html(
+            pick_list, str(pick_map_path),
+            title="Pick Plate Map",
+            target_format=target_format,
+        )
+        console.print(
+            f"[green]\u2713[/green] Pick plate map saved to {pick_map_path}"
+        )
+    except ImportError:
+        pass  # Bokeh not installed — skip
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Could not generate pick plate map: {e}")
+
+    # Save pick workflow state
+    project["workflow_steps"]["pick"] = {
+        "completed": True,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+        "total_hits": len(pick_list),
+        "unique_variants": len(set(h["variant"] for h in pick_list)),
+        "target_format": target_format,
+    }
+    with open(state_file, "w") as f:
+        json.dump(project, f, indent=2)
+
     # Display summary
     console.print()
     summary_table = Table(

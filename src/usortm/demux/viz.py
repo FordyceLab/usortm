@@ -5,13 +5,14 @@ import bionumpy as bnp
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from bokeh.plotting import figure, show
+from bokeh.plotting import figure
 from bokeh.models import (
     ColumnDataSource, HoverTool, Slider, CustomJS,
     LinearColorMapper, ColorBar, CustomJSTickFormatter
 )
 from bokeh.layouts import column
-from bokeh.io import output_notebook
+from bokeh.embed import file_html
+from bokeh.resources import INLINE
 
 def plot_length_hist(fastq, ax=None):
     """
@@ -208,5 +209,198 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     """))
 
     layout = column(slider, fig)
-    show(layout)
     return layout
+
+
+def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
+    """Generate an interactive plate map and save as standalone HTML.
+
+    Wraps :func:`make_plate_map_bokeh_reads` and writes a self-contained
+    HTML file using Bokeh's inline resources.
+
+    Args:
+        df: DataFrame with ``well_pos`` and ``ref_name`` columns.
+        output_path: Path to write the HTML file.
+        title: HTML page title.
+        **kwargs: Forwarded to :func:`make_plate_map_bokeh_reads`.
+    """
+    from pathlib import Path
+
+    layout = make_plate_map_bokeh_reads(df, **kwargs)
+    html = file_html(layout, INLINE, title)
+    Path(output_path).write_text(html)
+
+
+def make_pick_plate_map_bokeh(pick_list, target_format=384,
+                               well_size=26, plot_width=800):
+    """Create an interactive Bokeh plate map for a cherry-pick list.
+
+    Each well shows the picked variant with hover details including source
+    plate/well, read count, and consensus fraction.
+
+    Args:
+        pick_list: List of dicts from ``pick.py._generate_pick_list()``.
+            Each dict has keys: variant, source_plate, source_well,
+            target_plate, target_well, reads, consensus_fraction.
+        target_format: Target plate format (96 or 384).
+        well_size: Size of well markers in pixels.
+        plot_width: Width of the Bokeh figure.
+
+    Returns:
+        Bokeh layout (column with optional plate slider).
+    """
+    if target_format == 96:
+        n_rows, n_cols = 8, 12
+        ROWS = list(string.ascii_uppercase[:8])
+    else:
+        n_rows, n_cols = 16, 24
+        ROWS = list(string.ascii_uppercase[:16])
+
+    # Parse target wells and group by plate
+    for hit in pick_list:
+        m = re.match(r"([A-P])(\d+)", hit["target_well"])
+        if m:
+            hit["_row"] = m.group(1)
+            hit["_col"] = int(m.group(2))
+        hit["_plate"] = int(hit.get("target_plate", 0))
+
+    # Build full layout for each plate
+    full_layout = pd.DataFrame(
+        [(r, c) for r in ROWS for c in range(1, n_cols + 1)],
+        columns=["row", "col"],
+    )
+    full_layout["RowCat"] = pd.Categorical(
+        full_layout["row"], categories=ROWS[::-1], ordered=True
+    )
+    full_layout["well"] = full_layout.apply(
+        lambda r: f"{r['row']}{int(r['col'])}", axis=1
+    )
+
+    plates = sorted(set(h["_plate"] for h in pick_list))
+    if not plates:
+        plates = [0]
+
+    max_reads = max((h["reads"] for h in pick_list), default=100)
+
+    def fill_plate(p):
+        merged = full_layout.copy()
+        sub = pd.DataFrame([
+            {
+                "row": h["_row"],
+                "col": h["_col"],
+                "variant": h["variant"],
+                "source": f"{h['source_plate']}:{h['source_well']}",
+                "reads": h["reads"],
+                "cons_frac": h["consensus_fraction"],
+                "tooltip": (
+                    f"<b>{h['target_well']}</b><br/>"
+                    f"{h['variant']}<br/>"
+                    f"Source: {h['source_plate']}:{h['source_well']}<br/>"
+                    f"Reads: {h['reads']:,}<br/>"
+                    f"Consensus: {h['consensus_fraction']:.0%}"
+                ),
+            }
+            for h in pick_list if h["_plate"] == p
+        ])
+        if len(sub) > 0:
+            merged = merged.merge(
+                sub[["row", "col", "variant", "source", "reads", "cons_frac", "tooltip"]],
+                on=["row", "col"], how="left",
+            )
+        else:
+            merged["variant"] = ""
+            merged["source"] = ""
+            merged["reads"] = 0
+            merged["cons_frac"] = 0.0
+            merged["tooltip"] = "empty"
+        merged["plate"] = p
+        merged["variant"] = merged["variant"].fillna("")
+        merged["source"] = merged["source"].fillna("")
+        merged["reads"] = merged["reads"].fillna(0)
+        merged["cons_frac"] = merged["cons_frac"].fillna(0)
+        merged["tooltip"] = merged["tooltip"].fillna("empty")
+        return merged
+
+    plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
+
+    # Gradient white → green for pick maps
+    def make_gradient(hex1, hex2, n=256):
+        cmap = mcolors.LinearSegmentedColormap.from_list("", [hex1, hex2])
+        return [mcolors.rgb2hex(cmap(i / n)[:3]) for i in range(n)]
+
+    palette = make_gradient("#FFFFFF", "#059669", 256)
+    mapper = LinearColorMapper(palette=palette, low=0, high=max_reads)
+
+    TOOLTIPS = """
+    <div style="line-height:1.4">
+      <div>@tooltip{safe}</div>
+    </div>
+    """
+
+    start_plate = plates[0]
+    src = ColumnDataSource(plate_dict[str(start_plate)])
+
+    fig_obj = figure(
+        x_range=(0.5, n_cols + 0.5), y_range=ROWS[::-1],
+        width=plot_width, height=500 if target_format == 384 else 300,
+        tools="reset",
+        title=f"Pick Plate {start_plate}",
+    )
+    fig_obj.scatter(
+        "col", "RowCat", size=well_size, source=src, marker="square",
+        fill_color={"field": "reads", "transform": mapper},
+        line_color="darkgray", line_width=1.2,
+    )
+    fig_obj.add_tools(HoverTool(tooltips=TOOLTIPS))
+    fig_obj.xaxis.ticker = list(range(1, n_cols + 1))
+    fig_obj.grid.grid_line_color = None
+
+    color_bar = ColorBar(
+        color_mapper=mapper,
+        label_standoff=8, width=12, location=(0, 0),
+        title="Read Count", title_text_font_size="14pt",
+        bar_line_color="black", major_tick_line_color="black",
+        major_label_text_font_size="12pt", major_tick_line_width=2,
+    )
+    fig_obj.add_layout(color_bar, "right")
+
+    if len(plates) > 1:
+        slider = Slider(
+            start=min(plates), end=max(plates), step=1,
+            value=start_plate, title="Target Plate",
+        )
+        slider.js_on_change("value", CustomJS(
+            args=dict(src=src, figs=fig_obj, data=plate_dict),
+            code="""
+            const p = cb_obj.value.toString();
+            const new_data = {};
+            for (let k in data[p]) {
+                new_data[k] = data[p][k].slice();
+            }
+            src.data = new_data;
+            figs.title.text = "Pick Plate " + p;
+            src.change.emit();
+            """,
+        ))
+        layout = column(slider, fig_obj)
+    else:
+        layout = column(fig_obj)
+
+    return layout
+
+
+def save_pick_plate_map_html(pick_list, output_path, title="Pick Plate Map",
+                              **kwargs):
+    """Generate a pick plate map and save as standalone HTML.
+
+    Args:
+        pick_list: Pick list from ``pick.py._generate_pick_list()``.
+        output_path: Path to write the HTML file.
+        title: HTML page title.
+        **kwargs: Forwarded to :func:`make_pick_plate_map_bokeh`.
+    """
+    from pathlib import Path
+
+    layout = make_pick_plate_map_bokeh(pick_list, **kwargs)
+    html = file_html(layout, INLINE, title)
+    Path(output_path).write_text(html)
