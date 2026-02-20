@@ -11,15 +11,15 @@ import json
 from datetime import datetime
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
 
 from usortm.demux.deps import check_all_dependencies
+from usortm.cli.theme import get_console, BORDER_STYLE
 
-console = Console()
+console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
 
@@ -80,7 +80,7 @@ def demux(
     ),
 ):
     """
-    Demultiplex sequencing data for a [blue]uSort-M[/blue] project.
+    Demultiplex sequencing data for a [#4096E3]uSort-M[/#4096E3] project.
 
     Runs the full LevSeq pipeline: barcode demux with Dorado, reference
     alignment with minimap2, per-well consensus, and variant calling.
@@ -110,8 +110,8 @@ def demux(
 
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Demultiplexing",
-        border_style="blue",
+        "[brand]uSort-M[/brand] Demultiplexing",
+        border_style=BORDER_STYLE,
     ))
     console.print()
 
@@ -216,7 +216,7 @@ def demux(
         show_header=True,
         header_style="bold cyan",
     )
-    summary_table.add_column("Metric", style="dim")
+    summary_table.add_column("Metric", style="muted")
     summary_table.add_column("Value", justify="right")
 
     input_reads = results.get("input_reads", 0)

@@ -7,12 +7,13 @@ import json
 from datetime import datetime
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 # Project state file structure
 PROJECT_STATE_FILE = "usortm_project.json"
@@ -56,7 +57,7 @@ def plan(
     ),
 ):
     """
-    Plan a [blue]uSort-M[/blue] experiment from a variant list.
+    Plan a [#4096E3]uSort-M[/#4096E3] experiment from a variant list.
     
     Creates a project directory with:
     
@@ -67,7 +68,7 @@ def plan(
     [bold]Workflow:[/bold]
     
     1. [cyan]usortm plan[/cyan] variants.csv → Create project, get sorting plan
-    2. [dim]Wet lab: synthesize, clone, sort, barcode, sequence[/dim]
+    2. [muted]Wet lab: synthesize, clone, sort, barcode, sequence[/muted]
     3. [cyan]usortm demux[/cyan] project/ --fastq data.fastq → Demultiplex reads
     4. [cyan]usortm pick[/cyan] project/ → Generate hit-picking list
     5. [cyan]usortm report[/cyan] project/ → Final plate maps
@@ -80,8 +81,8 @@ def plan(
     
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Experiment Planner",
-        border_style="blue",
+        "[brand]uSort-M[/brand] Experiment Planner",
+        border_style=BORDER_STYLE,
     ))
     console.print()
     
@@ -110,7 +111,7 @@ def plan(
     import numpy as np
     from usortm.simulate.sortm import sortm
 
-    console.print("[dim]Running coverage simulation...[/dim]")
+    console.print("[muted]Running coverage simulation...[/muted]")
     predicted_variants = sortm(
         n_sims=100,
         lib_size=library_size,
@@ -140,9 +141,9 @@ def plan(
         show_header=True,
         header_style="bold cyan",
     )
-    summary_table.add_column("Parameter", style="dim")
+    summary_table.add_column("Parameter", style="muted")
     summary_table.add_column("Value", justify="right")
-    summary_table.add_column("Parameter", style="dim")
+    summary_table.add_column("Parameter", style="muted")
     summary_table.add_column("Value", justify="right")
     
     summary_table.add_row(

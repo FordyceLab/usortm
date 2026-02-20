@@ -1,25 +1,25 @@
 """Main CLI entry point for uSort-M."""
 
 import typer
-from rich.console import Console
 
 from usortm import __version__
+from usortm.cli.theme import get_console, BORDER_STYLE
 
 # Create the main app
 app = typer.Typer(
     name="usortm",
-    help="[blue]uSort-M[/blue]: Rapid and low-cost parsed variant library generation.",
+    help="[#4096E3]uSort-M[/#4096E3]: Rapid and low-cost parsed variant library generation.",
     add_completion=False,
     rich_markup_mode="rich",
 )
 
-console = Console()
+console = get_console()
 
 
 def version_callback(value: bool):
     """Print version and exit."""
     if value:
-        console.print(f"[bold blue]uSort-M[/bold blue] version {__version__}")
+        console.print(f"[brand]uSort-M[/brand] version {__version__}")
         raise typer.Exit()
 
 
@@ -35,17 +35,17 @@ def main(
     ),
 ):
     """
-    [bold blue]uSort-M[/bold blue]: Rapid and low-cost parsed variant library generation.
-    
+    [bold #4096E3]uSort-M[/bold #4096E3]: Rapid and low-cost parsed variant library generation.
+
     [bold]Workflow commands:[/bold]
-    
+
         [cyan]plan[/cyan]      Initialize project from variant list
-        [cyan]demux[/cyan]     Demultiplex sequencing data  
+        [cyan]demux[/cyan]     Demultiplex sequencing data
         [cyan]pick[/cyan]      Generate hit-picking list
         [cyan]report[/cyan]    Generate final plate maps
-    
+
     [bold]Utility commands:[/bold]
-    
+
         [cyan]estimate[/cyan]  Quick cost/effort estimation
         [cyan]integra[/cyan]   Generate Integra ASSIST file (standalone)
     """

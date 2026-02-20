@@ -6,12 +6,13 @@ import csv
 import json
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
 
@@ -81,8 +82,8 @@ def pick(
 
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Hit Picking",
-        border_style="blue",
+        "[brand]uSort-M[/brand] Hit Picking",
+        border_style=BORDER_STYLE,
     ))
     console.print()
 
@@ -137,7 +138,7 @@ def pick(
         show_header=True,
         header_style="bold cyan",
     )
-    summary_table.add_column("Metric", style="dim")
+    summary_table.add_column("Metric", style="muted")
     summary_table.add_column("Value", justify="right")
 
     unique_variants = len(set(hit["variant"] for hit in pick_list))

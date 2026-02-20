@@ -8,12 +8,13 @@ from datetime import datetime
 from collections import Counter
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
 
@@ -67,8 +68,8 @@ def report(
 
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Reporting",
-        border_style="blue",
+        "[brand]uSort-M[/brand] Reporting",
+        border_style=BORDER_STYLE,
     ))
     console.print()
 
@@ -137,7 +138,7 @@ def report(
         show_header=True,
         header_style="bold cyan",
     )
-    stats_table.add_column("Metric", style="dim")
+    stats_table.add_column("Metric", style="muted")
     stats_table.add_column("Value", justify="right")
 
     stats_table.add_row("Library size", f"{project.get('library_size', 'N/A')}")
