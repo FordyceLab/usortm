@@ -1,4 +1,5 @@
 """Plan and orchestrate a uSort-M experiment workflow."""
+from __future__ import annotations
 
 from typing import Optional
 from pathlib import Path
@@ -30,10 +31,10 @@ def plan(
         "--output", "-o",
         help="Output directory for project files.",
     ),
-    seq_length: int = typer.Option(
-        300,
+    seq_length: Optional[int] = typer.Option(
+        None,
         "--seq-length", "-l",
-        help="Length of the variable region in base pairs.",
+        help="Length of the variable region in base pairs (auto-detected from sequences if omitted).",
     ),
     fold_sampling: float = typer.Option(
         8.0,
@@ -89,7 +90,15 @@ def plan(
     # Read variants
     variants = _read_variants(variants_file)
     library_size = len(variants)
-    
+
+    # Validate variant names for problematic characters
+    _validate_variant_names(variants)
+
+    # Auto-detect sequence length if not provided
+    if seq_length is None:
+        seq_length = _infer_seq_length(variants)
+        console.print(f"[green]✓[/green] Auto-detected sequence length: [cyan]{seq_length} bp[/cyan]")
+
     console.print(f"[green]✓[/green] Loaded [cyan]{library_size}[/cyan] variants from {variants_file.name}")
     
     # Calculate sorting requirements
@@ -260,6 +269,78 @@ def _save_variants(variants: list[dict], output_path: Path):
         writer = csv.DictWriter(f, fieldnames=variants[0].keys())
         writer.writeheader()
         writer.writerows(variants)
+
+
+def _infer_seq_length(variants: list[dict]) -> int:
+    """Infer sequence length from variant sequences.
+
+    Looks for a ``Sequence`` or ``sequence`` column, computes the median
+    length of uppercase-only characters (matching
+    ``csv_to_reference_fasta(strip_flanking=True)`` behavior).  Falls back
+    to 300 bp if no sequence column is found.
+    """
+    import statistics
+
+    seq_col = None
+    for col_name in ("Sequence", "sequence"):
+        if variants and col_name in variants[0]:
+            seq_col = col_name
+            break
+
+    if seq_col is None:
+        return 300
+
+    lengths = []
+    for v in variants:
+        seq = v.get(seq_col, "")
+        upper_only = "".join(c for c in seq if c.isupper())
+        if upper_only:
+            lengths.append(len(upper_only))
+
+    if not lengths:
+        return 300
+
+    return int(statistics.median(lengths))
+
+
+def _validate_variant_names(variants: list[dict]) -> None:
+    """Check variant names for characters that break downstream processing.
+
+    Protected characters: ``/`` (file paths), ``|`` (FASTA/cons_check
+    delimiter), ``>`` (FASTA header), and whitespace.  Aborts with an
+    error message showing up to 10 offending names.
+    """
+    import re as _re
+
+    name_col = None
+    for col_name in ("Name", "name", "variant"):
+        if variants and col_name in variants[0]:
+            name_col = col_name
+            break
+
+    if name_col is None:
+        return
+
+    bad_pattern = _re.compile(r'[/|>\s]')
+    offenders: list[tuple[int, str]] = []
+
+    for idx, v in enumerate(variants, start=2):  # row 2 = first data row (1-indexed + header)
+        name = v.get(name_col, "")
+        if bad_pattern.search(name):
+            offenders.append((idx, name))
+
+    if offenders:
+        console.print()
+        console.print("[red]Error:[/red] Variant names contain characters that break downstream processing.")
+        console.print("Protected characters: [cyan]/[/cyan]  [cyan]|[/cyan]  [cyan]>[/cyan]  whitespace")
+        console.print()
+        for row_num, name in offenders[:10]:
+            console.print(f"  Row {row_num}: [yellow]{name!r}[/yellow]")
+        if len(offenders) > 10:
+            console.print(f"  ... and {len(offenders) - 10} more")
+        console.print()
+        console.print("Please fix the variant names and re-run.")
+        raise typer.Exit(1)
 
 
 def _generate_barcode_assignments(n_plates: int, barcode_kit: str, output_dir: Path) -> dict:

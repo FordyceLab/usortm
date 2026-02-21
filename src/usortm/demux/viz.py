@@ -105,8 +105,17 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     
     ROWS = list(string.ascii_uppercase[:16])  # A–P
 
+    # Merge fwd/rev orientations so both strands count as the same species
+    df = df.copy()
+    df[ref_col] = df[ref_col].str.replace(r'^(fwd|rev):', '', regex=True)
+
     # --- aggregate ---
     g = df.groupby([well_col, ref_col]).size().reset_index(name="n")
+    if g.empty:
+        raise ValueError(
+            f"No reads have both '{well_col}' and '{ref_col}' assigned — "
+            "plate map cannot be generated."
+        )
     g["plate"], g["row"], g["col"] = zip(*g[well_col].map(_parse_well))
     g = g.dropna(subset=["plate"])
     g["frac"] = g.groupby(well_col)["n"].transform(lambda x: x/x.sum())
@@ -148,13 +157,15 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     plates = sorted(dom["plate"].unique())
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
 
-    # gradient white → blue
-    def make_gradient(hex1, hex2, n=256):
-        cmap = mcolors.LinearSegmentedColormap.from_list("", [hex1, hex2])
-        return [mcolors.rgb2hex(cmap(i/n)[:3]) for i in range(n)]
+    # cool-warm diverging colormap: blue → white → red, centered at min_reads
+    def make_diverging_gradient(hex_low, hex_mid, hex_high, n=256):
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            "", [hex_low, hex_mid, hex_high]
+        )
+        return [mcolors.rgb2hex(cmap(i / n)[:3]) for i in range(n)]
 
-    palette = make_gradient("#FFFFFF", "#005DCE", 256)
-    mapper = LinearColorMapper(palette=palette, low=0, high=min_reads)
+    palette = make_diverging_gradient("#4575B4", "#FFFFFF", "#D73027", 256)
+    mapper = LinearColorMapper(palette=palette, low=0, high=min_reads * 2)
 
     TOOLTIPS = """
     <div style="line-height:1.2">
@@ -187,7 +198,9 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
                          major_label_text_font_size="12pt", major_tick_line_width=2)
     color_bar.formatter = CustomJSTickFormatter(code=f"""
         if (tick == {min_reads}) {{
-            return ">{min_reads}";
+            return "{min_reads} (threshold)";
+        }} else if (tick == {min_reads * 2}) {{
+            return "\u2265{min_reads * 2}";
         }} else {{
             return tick.toString();
         }}

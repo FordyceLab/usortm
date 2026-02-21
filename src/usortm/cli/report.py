@@ -1,4 +1,5 @@
 """Generate final reports and plate maps from demultiplexing results."""
+from __future__ import annotations
 
 from typing import Optional
 from pathlib import Path
@@ -17,6 +18,11 @@ from usortm.cli.theme import get_console, BORDER_STYLE
 console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
+
+
+def _count_unique_variants(well_data: list) -> int:
+    """Count unique variants, stripping ``|cons_check`` suffixes first."""
+    return len(set(w["variant"].split("|")[0] for w in well_data))
 
 
 def report(
@@ -145,12 +151,12 @@ def report(
     stats_table.add_row("Input reads", f"{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}")
     stats_table.add_row("Wells with data", f"{demux_summary.get('wells_with_data', 0):,}")
 
-    unique_variants = len(set(w["variant"] for w in well_data))
+    unique_variants = _count_unique_variants(well_data)
     stats_table.add_row("Unique variants", f"{unique_variants}")
 
     library_size = project.get("library_size", 0)
     if library_size and library_size > 0:
-        coverage_pct = (unique_variants / library_size) * 100
+        coverage_pct = min((unique_variants / library_size) * 100, 100.0)
         stats_table.add_row("Library coverage", f"{coverage_pct:.1f}%")
 
     console.print(stats_table)
@@ -259,17 +265,23 @@ def _save_missing_variants(project: dict, well_data: list, output_file: Path):
 
 def _save_json_report(project: dict, demux_summary: dict, well_data: list, output_file: Path):
     """Save comprehensive JSON report."""
-    # Calculate statistics
-    unique_variants = len(set(w["variant"] for w in well_data))
-    variant_counts = Counter(w["variant"] for w in well_data)
+    # Calculate statistics — strip |cons_check suffix before counting
+    unique_variants = _count_unique_variants(well_data)
+    stripped = [w["variant"].split("|")[0] for w in well_data]
+    variant_counts = Counter(stripped)
 
     read_counts = [w["reads"] for w in well_data]
     avg_reads = sum(read_counts) / len(read_counts) if read_counts else 0
 
+    library_size = project.get("library_size", 0)
+    coverage_pct = round(
+        min((unique_variants / library_size) * 100, 100.0), 1
+    ) if library_size else None
+
     report = {
         "generated": datetime.now().isoformat(),
         "project": {
-            "library_size": project.get("library_size"),
+            "library_size": library_size,
             "seq_length": project.get("seq_length"),
             "fold_sampling": project.get("fold_sampling"),
         },
@@ -281,11 +293,9 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
             "variants_with_multiple_wells": sum(1 for count in variant_counts.values() if count > 1),
         },
         "coverage": {
-            "library_size": project.get("library_size", 0),
+            "library_size": library_size,
             "recovered": unique_variants,
-            "percent": round(
-                (unique_variants / project["library_size"]) * 100, 1
-            ) if project.get("library_size") else None,
+            "percent": coverage_pct,
         }
     }
 
@@ -293,20 +303,60 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
         json.dump(report, f, indent=2)
 
 
+def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
+    """Generate an inline SVG horizontal bar chart for per-plate read counts."""
+    if not plate_reads:
+        return ""
+
+    max_reads = max(plate_reads.values()) or 1
+    bar_height = 28
+    label_width = 80
+    chart_width = 500
+    padding = 4
+    svg_height = len(plate_reads) * (bar_height + padding) + 10
+
+    bars = []
+    for i, (plate, reads) in enumerate(sorted(plate_reads.items(), key=lambda x: int(x[0]))):
+        y = i * (bar_height + padding)
+        bar_w = max(int((reads / max_reads) * chart_width), 2)
+        bars.append(
+            f'<text x="{label_width - 8}" y="{y + bar_height * 0.7}" '
+            f'text-anchor="end" font-size="13" fill="#374151">Plate {plate}</text>'
+            f'<rect x="{label_width}" y="{y}" width="{bar_w}" height="{bar_height}" '
+            f'rx="4" fill="#2563eb" opacity="0.85"/>'
+            f'<text x="{label_width + bar_w + 6}" y="{y + bar_height * 0.7}" '
+            f'font-size="12" fill="#6b7280">{reads:,}</text>'
+        )
+
+    return (
+        f'<svg width="{label_width + chart_width + 80}" height="{svg_height}" '
+        f'xmlns="http://www.w3.org/2000/svg" style="font-family:sans-serif;">'
+        + "\n".join(bars)
+        + "</svg>"
+    )
+
+
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                       output_file: Path, project_dir: Path = None):
     """Save interactive HTML summary report with embedded plate maps."""
-    # Calculate statistics
-    unique_variants = len(set(w["variant"] for w in well_data))
-    variant_counts = Counter(w["variant"] for w in well_data)
+    # Calculate statistics — strip |cons_check suffix before counting
+    unique_variants = _count_unique_variants(well_data)
+    stripped = [w["variant"].split("|")[0] for w in well_data]
+    variant_counts = Counter(stripped)
 
     read_counts = [w["reads"] for w in well_data]
     avg_reads = sum(read_counts) / len(read_counts) if read_counts else 0
     max_reads = max(read_counts) if read_counts else 0
-    min_reads = min(read_counts) if read_counts else 0
 
     library_size = project.get("library_size", 0)
-    coverage_pct = (unique_variants / library_size) * 100 if library_size else 0
+    coverage_pct = min((unique_variants / library_size) * 100, 100.0) if library_size else 0
+
+    # Per-plate read totals for bar chart
+    plate_reads: dict[str, int] = {}
+    for w in well_data:
+        p = w["plate"]
+        plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
+    plate_bar_svg = _generate_plate_bar_svg(plate_reads)
 
     # Check for plate map files relative to project_dir
     plate_map_section = ""
@@ -500,10 +550,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         </thead>
         <tbody>
             <tr>
-                <td>Minimum reads</td>
-                <td>{min_reads}</td>
-            </tr>
-            <tr>
                 <td>Average reads</td>
                 <td>{avg_reads:.0f}</td>
             </tr>
@@ -517,6 +563,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             </tr>
         </tbody>
     </table>
+    <h3>Reads per Plate</h3>
+    {plate_bar_svg}
 {plate_map_section}{pick_summary_section}{pick_map_section}
     <div class="footer">
         <p>Generated by <strong>uSort-M</strong> | <a href="https://github.com/FordyceLab/usortm">GitHub</a></p>

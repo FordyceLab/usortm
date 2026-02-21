@@ -44,6 +44,23 @@ def _count_fastq_reads(fastq_path: str) -> int:
     return n_lines // 4
 
 
+def _extract_reads_gzip_aware(
+    input_fastq: str,
+    output_fastq: str,
+    num_reads: int,
+) -> None:
+    """Extract the first *num_reads* from a FASTQ file (plain or gzipped)."""
+    open_fn = gzip.open if input_fastq.endswith(".gz") else open
+    reads_written = 0
+    with open_fn(input_fastq, "rt") as fh_in, open(output_fastq, "w") as fh_out:
+        while reads_written < num_reads:
+            lines = [fh_in.readline() for _ in range(4)]
+            if not lines[0]:
+                break
+            fh_out.writelines(lines)
+            reads_written += 1
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -54,6 +71,7 @@ def run_levseq_pipeline(
     threads: int = 4,
     progress_callback: Optional[Callable[[str], None]] = None,
     mask_config: Optional[dict] = None,
+    subsample: Optional[int] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -82,6 +100,7 @@ def run_levseq_pipeline(
         mask_config: Optional dict with ``fbc`` and ``rbc`` sub-dicts
             containing mask sequences for Dorado barcode TOML files.
             Falls back to DEFAULT_MASKS if not provided.
+        subsample: Optional number of reads to subsample before processing.
 
     Returns:
         Dict with keys: input_reads, aligned_reads, demuxed_reads,
@@ -121,6 +140,14 @@ def run_levseq_pipeline(
 
     # Pipeline stats accumulator
     pipeline_stats = {"input_reads": input_reads}
+
+    # --- Subsample if requested ---
+    if subsample is not None and subsample < input_reads:
+        _progress(f"Subsampling to {subsample:,} reads...")
+        sub_path = output_dir / "subsampled.fastq"
+        _extract_reads_gzip_aware(str(fastq), str(sub_path), subsample)
+        fastq = sub_path
+        logger.info("Subsampled %d reads to %s", subsample, sub_path)
 
     # --- Stage 3: Multi-ref alignment + strand split ---
     # This must happen BEFORE barcode demux because NB13-NB96 and

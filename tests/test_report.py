@@ -309,6 +309,71 @@ def test_report_no_library_file(tmp_path):
         assert "No library file" in rows[0]["status"]
 
 
+def test_report_coverage_strips_cons_check(tmp_path):
+    """Coverage should not exceed 100% due to |cons_check suffixes."""
+    project_dir = tmp_path / "cons_check_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 2,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # var1 appears with two different cons_check values — same underlying variant
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writerow(["1", "A1", "var1|match", 200, 0.95])
+        writer.writerow(["1", "B1", "var1|mismatch", 150, 0.88])
+        writer.writerow(["1", "C1", "var2|match", 180, 0.97])
+
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"input_reads": 600, "assigned_reads": 530, "wells_with_data": 3, "wells_passing": 3}, f)
+
+    result = runner.invoke(app, ["report", str(project_dir), "--format", "json"])
+    assert result.exit_code == 0
+
+    with open(project_dir / "report" / "report.json") as f:
+        report = json.load(f)
+
+    # 2 unique variants after stripping |cons_check, library_size = 2 → 100%
+    assert report["variants"]["unique"] == 2
+    assert report["coverage"]["percent"] == 100.0
+
+
+def test_report_html_has_bar_chart(mock_project_with_library):
+    """HTML report should contain per-plate bar chart SVG."""
+    result = runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
+    assert result.exit_code == 0
+
+    html_file = mock_project_with_library / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    assert "<svg" in html_content
+    assert "Plate 1" in html_content
+    assert "Reads per Plate" in html_content
+
+
+def test_report_html_no_minimum_reads_row(mock_project_with_library):
+    """HTML report should not contain 'Minimum reads' row."""
+    result = runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
+    assert result.exit_code == 0
+
+    html_file = mock_project_with_library / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    assert "Minimum reads" not in html_content
+
+
 def test_report_statistics_accuracy(mock_project_with_library):
     """Test that statistics are calculated correctly."""
     result = runner.invoke(app, ["report", str(mock_project_with_library), "--format", "all"])

@@ -69,6 +69,11 @@ def demux(
         "--threads", "-t",
         help="Number of threads for alignment.",
     ),
+    subsample: Optional[int] = typer.Option(
+        None,
+        "--subsample", "-n",
+        help="Subsample to this many reads before running the pipeline.",
+    ),
     mask_config_file: Optional[Path] = typer.Option(
         None,
         "--mask-config",
@@ -114,6 +119,27 @@ def demux(
         border_style=BORDER_STYLE,
     ))
     console.print()
+
+    # Auto-convert CSV passed as --reference (convenience shortcut)
+    if (
+        reference is not None
+        and library_csv is None
+        and reference.suffix.lower() == ".csv"
+    ):
+        from usortm.demux.utils import csv_to_reference_fasta
+        csv_source = reference
+        ref_fasta_path = project_dir / "demux_output" / "library_reference.fasta"
+        ref_fasta_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_to_reference_fasta(
+            csv_path=str(csv_source),
+            fasta_path=str(ref_fasta_path),
+            strip_flanking=True,
+        )
+        reference = ref_fasta_path
+        console.print(
+            f"[green]\u2713[/green] Auto-converted CSV to reference FASTA "
+            f"({ref_fasta_path})"
+        )
 
     # Convert library CSV to reference FASTA if provided
     if library_csv is not None:
@@ -186,6 +212,7 @@ def demux(
             project_params=project,
             progress_callback=on_progress,
             mask_config=mask_config,
+            subsample=subsample,
         )
 
         progress.update(task, description="Done!", completed=True)
@@ -201,17 +228,27 @@ def demux(
         read_df_path = demux_output / "read_df.csv"
         if read_df_path.exists():
             read_df = pd.read_csv(read_df_path)
-            plate_map_path = demux_output / "plate_map.html"
-            save_plate_map_html(
-                read_df, str(plate_map_path),
-                title="Demux Plate Map",
-                min_reads=min_reads,
-            )
-            console.print(
-                f"[green]\u2713[/green] Plate map saved to {plate_map_path}"
-            )
+            if read_df.empty:
+                console.print(
+                    "[yellow]⚠[/yellow] Plate map skipped: no reads were assigned to wells "
+                    "(no reads had both FBC + RBC barcodes classified AND aligned to the reference). "
+                    "Check demux_output/read_df.csv and consider using a larger subsample or "
+                    "verifying your reference FASTA."
+                )
+            else:
+                plate_map_path = demux_output / "plate_map.html"
+                save_plate_map_html(
+                    read_df, str(plate_map_path),
+                    title="Demux Plate Map",
+                    min_reads=min_reads,
+                )
+                console.print(
+                    f"[green]\u2713[/green] Plate map saved to {plate_map_path}"
+                )
     except ImportError:
         pass  # Bokeh not installed — skip plate map
+    except ValueError as e:
+        console.print(f"[yellow]⚠[/yellow] Plate map skipped: {e}")
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Could not generate plate map: {e}")
 
@@ -316,6 +353,7 @@ def _run_demux(
     project_params: dict = None,
     progress_callback=None,
     mask_config: dict = None,
+    subsample: Optional[int] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -332,6 +370,7 @@ def _run_demux(
         project_params: Project state dict (from usortm_project.json).
         progress_callback: Optional progress update function.
         mask_config: Optional dict with ``fbc`` and ``rbc`` mask sequences.
+        subsample: Optional number of reads to subsample before processing.
 
     Returns:
         Results dict with input_reads, aligned_reads, demuxed_reads,
@@ -357,6 +396,7 @@ def _run_demux(
             threads=threads,
             progress_callback=progress_callback,
             mask_config=mask_config,
+            subsample=subsample,
         )
     else:
         raise NotImplementedError(
