@@ -401,7 +401,7 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
         return ""
 
     max_reads = max(plate_reads.values()) or 1
-    bar_height = 28
+    bar_height = 32
     label_width = 80
     chart_width = 500
     padding = 4
@@ -413,11 +413,11 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
         bar_w = max(int((reads / max_reads) * chart_width), 2)
         bars.append(
             f'<text x="{label_width - 8}" y="{y + bar_height * 0.7}" '
-            f'text-anchor="end" font-size="13" fill="var(--text-color)">Plate {plate}</text>'
+            f'text-anchor="end" font-size="15" fill="var(--text-color)">Plate {plate}</text>'
             f'<rect x="{label_width}" y="{y}" width="{bar_w}" height="{bar_height}" '
             f'rx="4" fill="var(--accent)" opacity="0.85"/>'
             f'<text x="{label_width + bar_w + 6}" y="{y + bar_height * 0.7}" '
-            f'font-size="12" fill="var(--muted)">{reads:,}</text>'
+            f'font-size="14" fill="var(--muted)">{reads:,}</text>'
         )
 
     return (
@@ -664,7 +664,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         .read-depth-row {{
             display: flex;
             gap: 2rem;
-            align-items: flex-start;
+            align-items: center;
             flex-wrap: wrap;
         }}
         .read-depth-row > table {{

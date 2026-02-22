@@ -394,20 +394,24 @@ a:hover {
 
 /* Tables — GitHub-style with cell borders and alternating rows */
 table {
-  width: 100%;
+  width: auto;
+  margin-left: auto;       
+  margin-right: auto;      
   border-collapse: separate;
   border-spacing: 0;
-  margin: 1rem 0;
+  margin-top: 1.5rem;      
+  margin-bottom: 1.5rem;   
   font-size: 0.9375rem;
-  border: 1px solid var(--color-border);
+  border: 0.5px solid #cfd6df;
   border-radius: 6px;
   overflow: hidden;
 }
 
 th, td {
   text-align: left;
-  padding: 0.625rem 1rem;
-  border: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  border: 0.5px solid #cfd6df;
+  white-space: nowrap;
 }
 
 th {

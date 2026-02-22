@@ -148,6 +148,7 @@ def run_levseq_pipeline(
         _extract_reads_gzip_aware(str(fastq), str(sub_path), subsample)
         fastq = sub_path
         logger.info("Subsampled %d reads to %s", subsample, sub_path)
+        pipeline_stats["input_reads"] = subsample
 
     # --- Stage 3: Multi-ref alignment + strand split ---
     # This must happen BEFORE barcode demux because NB13-NB96 and

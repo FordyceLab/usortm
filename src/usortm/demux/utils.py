@@ -842,11 +842,17 @@ def generate_well_df(read_df):
     for index, well in tqdm(enumerate(all_wells), total=len(all_wells)):
         curr = read_df[read_df['well_pos'] == well]
         depth = len(curr)
-        refs = curr['ref_name'].to_list()
+        # Strip fwd:/rev: strand prefixes so reads for the same variant
+        # are counted together (otherwise a well with 100% one variant
+        # but split across strands would show ~50% major_freq).
+        refs = [r.split(":", 1)[-1] if r.startswith(("fwd:", "rev:")) else r
+                for r in curr['ref_name'].to_list()]
         major_ref = max(set(refs), key=refs.count)
         major_freq = refs.count(major_ref)/len(curr)
-        ref_seq = curr[curr['ref_name'] == major_ref]['ref_seq'].iloc[0]
-        ref_len = int(curr[curr['ref_name'] == major_ref]['ref_len'].iloc[0])
+        # Look up ref_seq/ref_len from original column (may still have prefix)
+        ref_match = curr[curr['ref_name'].str.endswith(major_ref)]
+        ref_seq = ref_match['ref_seq'].iloc[0]
+        ref_len = int(ref_match['ref_len'].iloc[0])
 
         parsed_well = _parse_well(well)
         plate_num = parsed_well[0]

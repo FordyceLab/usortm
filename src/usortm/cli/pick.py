@@ -51,14 +51,14 @@ def pick(
         help="Target plate format (96 or 384)",
     ),
     fill_order: str = typer.Option(
-        "column",
+        "row",
         "--fill-order",
-        help="Fill order for target plate (column or row)",
+        help="Fill order for target plate (row or column)",
     ),
     tier: Optional[str] = typer.Option(
-        None,
+        "A",
         "--tier",
-        help="Filter by quality tier: A (>=100 reads), B (>=50), C (>=20). All require >90% consensus.",
+        help="Filter by quality tier: A (>=100 reads), B (>=50), C (>=20). All require >90% consensus. Use --tier '' to disable.",
     ),
     unique_only: bool = typer.Option(
         True,
@@ -107,7 +107,9 @@ def pick(
         console.print(f"[red]Error:[/red] Well assignments not found: {well_assignments_file}")
         raise typer.Exit(1)
 
-    # Validate tier option
+    # Validate tier option (empty string disables filtering)
+    if tier is not None and tier.strip() == "":
+        tier = None
     if tier is not None:
         tier = tier.upper()
         if tier not in TIER_THRESHOLDS:
@@ -179,8 +181,8 @@ def pick(
     pick_state = {
         "completed": True,
         "timestamp": __import__("datetime").datetime.now().isoformat(),
-        "total_hits": len(pick_list),
-        "unique_variants": len(set(h["variant"] for h in pick_list)),
+        "total_hits": len([h for h in pick_list if not h.get("empty")]),
+        "unique_variants": len(set(h["variant"] for h in pick_list if not h.get("empty"))),
         "target_format": target_format,
     }
     if tier:
@@ -200,9 +202,13 @@ def pick(
     summary_table.add_column("Metric", style="muted")
     summary_table.add_column("Value", justify="right")
 
-    unique_variants = len(set(hit["variant"] for hit in pick_list))
-    summary_table.add_row("Total hits", f"{len(pick_list)}")
+    recovered = [h for h in pick_list if not h.get("empty")]
+    empty_count = len(pick_list) - len(recovered)
+    unique_variants = len(set(h["variant"] for h in recovered))
+    summary_table.add_row("Total hits", f"{len(recovered)}")
     summary_table.add_row("Unique variants", f"{unique_variants}")
+    if empty_count > 0:
+        summary_table.add_row("Empty wells (unrecovered)", f"{empty_count}")
     if tier:
         summary_table.add_row("Quality tier", f"Tier {tier}")
     summary_table.add_row("Transfer volume", f"{volume} \u00b5L")
@@ -334,10 +340,23 @@ def _generate_pick_list(
 
         seen_variants.add(variant)
 
-    # Re-sort by library ordering if available.
-    # Variants not in the library go at the end, sorted alphabetically.
+    # Re-sort by library ordering if available, and insert empty
+    # placeholder rows for unrecovered variants.
     if library_order:
         max_idx = len(library_order)
+
+        # Add empty placeholders for library variants not recovered
+        for variant_name, _idx in sorted(library_order.items(), key=lambda x: x[1]):
+            if variant_name not in seen_variants:
+                pick_list.append({
+                    "variant": variant_name,
+                    "source_plate": "",
+                    "source_well": "",
+                    "reads": 0,
+                    "consensus_fraction": 0,
+                    "empty": True,
+                })
+
         pick_list.sort(
             key=lambda h: (library_order.get(h["variant"], max_idx), h["variant"])
         )
@@ -403,11 +422,14 @@ def _save_pick_list(pick_list: list, output_file: Path, volume: float):
         ])
 
         for hit in pick_list:
+            # Empty wells (unrecovered variants) get 0 volume so the
+            # Integra ASSIST PLUS skips them while preserving plate layout.
+            vol = 0.0 if hit.get("empty") else volume
             writer.writerow([
                 hit["variant"],
                 hit["source_plate"],
                 hit["source_well"],
                 hit["target_plate"],
                 hit["target_well"],
-                f"{volume:.1f}",
+                f"{vol:.1f}",
             ])
