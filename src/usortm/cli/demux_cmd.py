@@ -74,13 +74,14 @@ def demux(
         "--subsample", "-n",
         help="Subsample to this many reads before running the pipeline.",
     ),
-    mask_config_file: Optional[Path] = typer.Option(
+    mask_config_file: Optional[str] = typer.Option(
         None,
         "--mask-config",
         help=(
-            "TOML file with custom barcode mask (flanking) sequences. "
-            "Sections [fbc] and [rbc] with keys mask1_front, mask1_rear, "
-            "mask2_front, mask2_rear. Defaults to cutinase backbone masks."
+            "Barcode mask config: a preset name (see 'usortm config list') "
+            "or path to a TOML file with [fbc] mask sequences. "
+            "RBC masks are auto-derived if omitted. "
+            "Defaults to cutinase backbone masks."
         ),
     ),
 ):
@@ -177,14 +178,18 @@ def demux(
     # Parse mask config if provided
     mask_config = None
     if mask_config_file is not None:
-        mask_config = _load_mask_config(mask_config_file)
-        console.print(f"[green]\u2713[/green] Loaded mask config from {mask_config_file}")
+        resolved = _resolve_mask_config(mask_config_file)
+        mask_config = _load_mask_config(resolved)
+        console.print(f"[green]\u2713[/green] Loaded mask config from {resolved}")
     else:
         # Check for default mask config in project directory
         default_mask = project_dir / "mask_config.toml"
         if default_mask.exists():
             mask_config = _load_mask_config(default_mask)
             console.print(f"[green]\u2713[/green] Using project mask config ({default_mask})")
+        else:
+            # Interactive preset selection
+            mask_config = _prompt_preset_selection()
 
     # Create output directory
     demux_output = project_dir / "demux_output"
@@ -317,22 +322,32 @@ def demux(
 def _load_mask_config(mask_file: Path) -> dict:
     """Load barcode mask sequences from a TOML file.
 
-    Expected format::
+    Supports two formats:
+
+    **Full format** (both ``[fbc]`` and ``[rbc]`` sections provided)::
 
         [fbc]
         mask1_front = "..."
-        mask1_rear  = "..."
-        mask2_front = "..."
-        mask2_rear  = "..."
+        ...
 
         [rbc]
         mask1_front = "..."
-        mask1_rear  = "..."
-        mask2_front = "..."
-        mask2_rear  = "..."
+        ...
+
+    **Simplified format** (``[fbc]`` only — RBC auto-derived)::
+
+        [meta]
+        description = "My backbone"
+
+        [fbc]
+        mask1_front = "..."
+        ...
+
+    When ``[rbc]`` is absent, it is automatically derived from ``[fbc]``
+    using the reverse-complement swap pattern.
 
     Returns:
-        Dict with ``fbc`` and ``rbc`` sub-dicts.
+        Dict with ``fbc`` and ``rbc`` sub-dicts (and optional ``meta``).
     """
     try:
         import tomllib
@@ -340,7 +355,68 @@ def _load_mask_config(mask_file: Path) -> dict:
         import tomli as tomllib  # type: ignore[no-redef]
 
     with open(mask_file, "rb") as f:
-        return tomllib.load(f)
+        config = tomllib.load(f)
+
+    if "fbc" in config and "rbc" not in config:
+        from usortm.demux.barcodes import fbc_to_rbc_masks
+        config["rbc"] = fbc_to_rbc_masks(config["fbc"])
+
+    return config
+
+
+def _resolve_mask_config(value: str) -> Path:
+    """Resolve a ``--mask-config`` value to a TOML file path.
+
+    Accepts either a filesystem path or a preset name.
+    """
+    path = Path(value)
+    if path.is_file():
+        return path
+
+    from usortm.demux.presets import get_preset
+    try:
+        return get_preset(value)
+    except FileNotFoundError:
+        console.print(
+            f"[red]Error:[/red] '{value}' is not a file or known preset."
+        )
+        console.print("Run [cyan]usortm config list[/cyan] to see available presets.")
+        raise typer.Exit(1)
+
+
+def _prompt_preset_selection() -> Optional[dict]:
+    """Interactively prompt the user to select a mask preset.
+
+    Returns the loaded mask config dict, or None to use defaults.
+    """
+    from usortm.demux.presets import list_presets
+
+    presets = list_presets()
+    if not presets:
+        return None
+
+    console.print()
+    console.print("[bold]No mask config found.[/bold] Select a preset or use defaults:")
+    console.print()
+    for i, p in enumerate(presets, 1):
+        desc = f" — {p['description']}" if p["description"] else ""
+        console.print(f"  [{i}] {p['name']}{desc}")
+    console.print(f"  [0] None (use built-in defaults)")
+    console.print()
+
+    try:
+        from rich.prompt import Prompt
+        choice = Prompt.ask("Preset", default="0", console=console)
+        idx = int(choice)
+    except (ValueError, KeyboardInterrupt, EOFError):
+        return None
+
+    if idx == 0 or idx > len(presets):
+        return None
+
+    selected = presets[idx - 1]
+    console.print(f"[green]\u2713[/green] Using preset: {selected['name']}")
+    return _load_mask_config(selected["path"])
 
 
 def _run_demux(

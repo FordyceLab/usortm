@@ -218,6 +218,46 @@ LEVSEQ_RBC = [
 ]
 
 
+def reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA sequence.
+
+    Handles both upper- and lower-case nucleotides; non-ATGC characters
+    are passed through unchanged.
+    """
+    complement = {
+        "A": "T", "T": "A", "G": "C", "C": "G",
+        "a": "t", "t": "a", "g": "c", "c": "g",
+    }
+    return "".join(complement.get(base, base) for base in reversed(seq))
+
+
+def fbc_to_rbc_masks(fbc_masks: dict) -> dict:
+    """Derive RBC mask sequences from FBC masks using the swap+RC pattern.
+
+    The reverse-strand barcodes see the backbone in the opposite
+    orientation, so each RBC mask is the reverse complement of the
+    corresponding FBC mask on the other end::
+
+        rbc.mask1_front = RC(fbc.mask2_rear)
+        rbc.mask1_rear  = RC(fbc.mask2_front)
+        rbc.mask2_front = RC(fbc.mask1_rear)
+        rbc.mask2_rear  = RC(fbc.mask1_front)
+
+    Args:
+        fbc_masks: Dict with keys ``mask1_front``, ``mask1_rear``,
+            ``mask2_front``, ``mask2_rear``.
+
+    Returns:
+        Dict with the same four keys, containing derived RBC masks.
+    """
+    return {
+        "mask1_front": reverse_complement(fbc_masks["mask2_rear"]),
+        "mask1_rear": reverse_complement(fbc_masks["mask2_front"]),
+        "mask2_front": reverse_complement(fbc_masks["mask1_rear"]),
+        "mask2_rear": reverse_complement(fbc_masks["mask1_front"]),
+    }
+
+
 def get_rbc_count_for_plates(n_plates: int) -> int:
     """Calculate the number of reverse barcodes needed for a given plate count.
 
@@ -302,7 +342,7 @@ def write_levseq_fbc_toml(
     toml_path = output_dir / "levseq_fbc.toml"
     content = f"""[arrangement]
 name = "{kit_name}"
-kit = "Jewett_levSeq"
+kit = "levSeq"
 
 # Forward masks (flanking sequences around forward barcodes)
 mask1_front = "{m['mask1_front']}"
@@ -366,7 +406,7 @@ def write_levseq_rbc_toml(
     toml_path = output_dir / "levseq_rbc.toml"
     content = f"""[arrangement]
 name = "{kit_name}"
-kit = "Jewett_levSeq"
+kit = "levSeq"
 
 # Forward masks (RC of FBC reverse masks — context for double-end scoring)
 mask1_front = "{m['mask1_front']}"

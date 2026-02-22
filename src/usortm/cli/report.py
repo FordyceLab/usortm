@@ -162,6 +162,38 @@ def report(
     console.print(stats_table)
     console.print()
 
+    # Display Library Recovery tiers
+    if library_size and library_size > 0:
+        bins = _compute_quality_bins(well_data, library_size)
+        tiers = bins["recovery_tiers"]
+
+        tier_table = Table(
+            title="Library Recovery",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        tier_table.add_column("Tier", style="bold")
+        tier_table.add_column("Criteria", style="muted")
+        tier_table.add_column("Count", justify="right")
+        tier_table.add_column("% Library", justify="right")
+
+        tier_table.add_row(
+            "A", "\u226590% cons, \u2265100 reads",
+            str(tiers["A"]["count"]), f"{tiers['A']['pct']:.1f}%"
+        )
+        tier_table.add_row(
+            "B", "\u226590% cons, \u226550 reads",
+            str(tiers["B"]["count"]), f"{tiers['B']['pct']:.1f}%"
+        )
+        tier_table.add_row(
+            "C", "\u226590% cons, \u226520 reads",
+            str(tiers["C"]["count"]), f"{tiers['C']['pct']:.1f}%"
+        )
+
+        console.print(tier_table)
+        console.print()
+
 
 def _load_well_assignments(assignments_file: Path) -> list:
     """Load well assignments from demux output."""
@@ -278,6 +310,9 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
         min((unique_variants / library_size) * 100, 100.0), 1
     ) if library_size else None
 
+    # Compute quality bins / recovery tiers
+    bins_data = _compute_quality_bins(well_data, library_size) if library_size else None
+
     report = {
         "generated": datetime.now().isoformat(),
         "project": {
@@ -296,11 +331,68 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
             "library_size": library_size,
             "recovered": unique_variants,
             "percent": coverage_pct,
-        }
+        },
     }
+
+    if bins_data:
+        report["quality_bins"] = bins_data["quality_bins"]
+        report["recovery_tiers"] = bins_data["recovery_tiers"]
 
     with open(output_file, "w") as f:
         json.dump(report, f, indent=2)
+
+
+def _compute_quality_bins(well_data: list, library_size: int) -> dict:
+    """Classify wells into quality bins and compute recovery tiers.
+
+    Groups wells by base variant (stripping ``|cons_check`` suffix),
+    picks the **best well** per variant (highest reads), then bins:
+
+    - **Bin 1:** consensus > 90% AND reads >= 100
+    - **Bin 2:** consensus > 90% AND reads 50-99
+    - **Bin 3:** consensus > 90% AND reads 20-49
+    - **Unbinned:** consensus <= 90% or reads < 20
+
+    Recovery tiers are cumulative:
+    - **Tier A:** Bin 1
+    - **Tier B:** Bin 1 + Bin 2
+    - **Tier C:** Bin 1 + Bin 2 + Bin 3
+    """
+    # Group wells by base variant, pick best per variant
+    variant_best: dict[str, dict] = {}
+    for w in well_data:
+        base = w["variant"].split("|")[0]
+        if base not in variant_best or w["reads"] > variant_best[base]["reads"]:
+            variant_best[base] = w
+
+    bin1 = bin2 = bin3 = unbinned = 0
+    for w in variant_best.values():
+        cf = w["consensus_fraction"]
+        reads = w["reads"]
+        if cf > 0.9 and reads >= 100:
+            bin1 += 1
+        elif cf > 0.9 and reads >= 50:
+            bin2 += 1
+        elif cf > 0.9 and reads >= 20:
+            bin3 += 1
+        else:
+            unbinned += 1
+
+    tier_a = bin1
+    tier_b = bin1 + bin2
+    tier_c = bin1 + bin2 + bin3
+
+    def _pct(n: int) -> float:
+        return round(n / library_size * 100, 1) if library_size else 0.0
+
+    return {
+        "quality_bins": {"bin1": bin1, "bin2": bin2, "bin3": bin3, "unbinned": unbinned},
+        "recovery_tiers": {
+            "A": {"count": tier_a, "pct": _pct(tier_a)},
+            "B": {"count": tier_b, "pct": _pct(tier_b)},
+            "C": {"count": tier_c, "pct": _pct(tier_c)},
+        },
+    }
 
 
 def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
@@ -321,11 +413,11 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
         bar_w = max(int((reads / max_reads) * chart_width), 2)
         bars.append(
             f'<text x="{label_width - 8}" y="{y + bar_height * 0.7}" '
-            f'text-anchor="end" font-size="13" fill="#374151">Plate {plate}</text>'
+            f'text-anchor="end" font-size="13" fill="var(--text-color)">Plate {plate}</text>'
             f'<rect x="{label_width}" y="{y}" width="{bar_w}" height="{bar_height}" '
-            f'rx="4" fill="#2563eb" opacity="0.85"/>'
+            f'rx="4" fill="var(--accent)" opacity="0.85"/>'
             f'<text x="{label_width + bar_w + 6}" y="{y + bar_height * 0.7}" '
-            f'font-size="12" fill="#6b7280">{reads:,}</text>'
+            f'font-size="12" fill="var(--muted)">{reads:,}</text>'
         )
 
     return (
@@ -339,10 +431,10 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                       output_file: Path, project_dir: Path = None):
     """Save interactive HTML summary report with embedded plate maps."""
+    import html as _html
+
     # Calculate statistics — strip |cons_check suffix before counting
     unique_variants = _count_unique_variants(well_data)
-    stripped = [w["variant"].split("|")[0] for w in well_data]
-    variant_counts = Counter(stripped)
 
     read_counts = [w["reads"] for w in well_data]
     avg_reads = sum(read_counts) / len(read_counts) if read_counts else 0
@@ -351,6 +443,11 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     library_size = project.get("library_size", 0)
     coverage_pct = min((unique_variants / library_size) * 100, 100.0) if library_size else 0
 
+    # Quality bins / recovery tiers
+    bins_data = _compute_quality_bins(well_data, library_size) if library_size else None
+    tiers = bins_data["recovery_tiers"] if bins_data else None
+    qbins = bins_data["quality_bins"] if bins_data else None
+
     # Per-plate read totals for bar chart
     plate_reads: dict[str, int] = {}
     for w in well_data:
@@ -358,7 +455,32 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
     plate_bar_svg = _generate_plate_bar_svg(plate_reads)
 
-    # Check for plate map files relative to project_dir
+    # Library Recovery section
+    recovery_section = ""
+    if tiers:
+        recovery_section = f"""
+    <h2>Library Recovery</h2>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">Tier A (\u2265100 reads)</div>
+            <div class="stat-value success">{tiers['A']['count']}</div>
+            <div class="stat-sub">{tiers['A']['pct']:.1f}% of library</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Tier B (\u226550 reads)</div>
+            <div class="stat-value success">{tiers['B']['count']}</div>
+            <div class="stat-sub">{tiers['B']['pct']:.1f}% of library</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Tier C (\u226520 reads)</div>
+            <div class="stat-value success">{tiers['C']['count']}</div>
+            <div class="stat-sub">{tiers['C']['pct']:.1f}% of library</div>
+        </div>
+    </div>
+    <p class="note">All tiers require &gt;90% consensus. Tiers are cumulative (B includes A, C includes B).</p>
+"""
+
+    # Check for plate map files — embed via srcdoc if available
     plate_map_section = ""
     pick_map_section = ""
     pick_summary_section = ""
@@ -366,24 +488,44 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     if project_dir:
         demux_plate_map = project_dir / "demux_output" / "plate_map.html"
         if demux_plate_map.exists():
-            rel_path = f"../demux_output/plate_map.html"
-            plate_map_section = f"""
+            try:
+                raw_html = demux_plate_map.read_text()
+                escaped = _html.escape(raw_html)
+                plate_map_section = f"""
+    <h2>Demux Plate Map</h2>
+    <p>Interactive plate map showing per-well read depth and variant composition.</p>
+    <iframe srcdoc="{escaped}" width="100%" height="620"
+            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+"""
+            except Exception:
+                rel_path = "../demux_output/plate_map.html"
+                plate_map_section = f"""
     <h2>Demux Plate Map</h2>
     <p>Interactive plate map showing per-well read depth and variant composition.
        <a href="{rel_path}" target="_blank">Open full size</a></p>
     <iframe src="{rel_path}" width="100%" height="620"
-            style="border:1px solid #e5e7eb; border-radius:8px;"></iframe>
+            style="border:1px solid var(--border); border-radius:8px;"></iframe>
 """
 
         pick_plate_map = project_dir / "pick_plate_map.html"
         if pick_plate_map.exists():
-            rel_path = f"../pick_plate_map.html"
-            pick_map_section = f"""
+            try:
+                raw_html = pick_plate_map.read_text()
+                escaped = _html.escape(raw_html)
+                pick_map_section = f"""
+    <h2>Pick Plate Map</h2>
+    <p>Interactive plate map showing cherry-picked wells.</p>
+    <iframe srcdoc="{escaped}" width="100%" height="620"
+            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+"""
+            except Exception:
+                rel_path = "../pick_plate_map.html"
+                pick_map_section = f"""
     <h2>Pick Plate Map</h2>
     <p>Interactive plate map showing cherry-picked wells.
        <a href="{rel_path}" target="_blank">Open full size</a></p>
     <iframe src="{rel_path}" width="100%" height="620"
-            style="border:1px solid #e5e7eb; border-radius:8px;"></iframe>
+            style="border:1px solid var(--border); border-radius:8px;"></iframe>
 """
 
         # Add pick summary if pick step was completed
@@ -415,21 +557,71 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>uSort-M Report</title>
     <style>
+        :root {{
+            --bg: #fafafa;
+            --card-bg: #ffffff;
+            --text-color: #1e293b;
+            --muted: #6b7280;
+            --border: #e5e7eb;
+            --accent: #2563eb;
+            --accent-dark: #1e40af;
+            --success: #059669;
+            --hover-bg: #f9fafb;
+            --th-bg: #2563eb;
+            --th-text: #ffffff;
+        }}
+        [data-theme="dark"] {{
+            --bg: #1a1a2e;
+            --card-bg: #16213e;
+            --text-color: #e0e0e0;
+            --muted: #94a3b8;
+            --border: #334155;
+            --accent: #4cc9f0;
+            --accent-dark: #7dd3fc;
+            --success: #34d399;
+            --hover-bg: #1e293b;
+            --th-bg: #1e3a5f;
+            --th-text: #e0e0e0;
+        }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 1200px;
             margin: 0 auto;
             padding: 2rem;
-            background: #fafafa;
+            background: var(--bg);
+            color: var(--text-color);
+            font-size: 1rem;
         }}
         h1 {{
-            color: #2563eb;
-            border-bottom: 3px solid #2563eb;
+            color: var(--accent);
+            border-bottom: 3px solid var(--accent);
             padding-bottom: 0.5rem;
         }}
         h2 {{
-            color: #1e40af;
+            color: var(--accent-dark);
             margin-top: 2rem;
+        }}
+        h3 {{
+            color: var(--text-color);
+        }}
+        a {{
+            color: var(--accent);
+        }}
+        .theme-toggle {{
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: var(--text-color);
+            z-index: 100;
+        }}
+        .theme-toggle:hover {{
+            background: var(--hover-bg);
         }}
         .stat-grid {{
             display: grid;
@@ -438,57 +630,88 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             margin: 2rem 0;
         }}
         .stat-box {{
-            background: white;
+            background: var(--card-bg);
             padding: 1.5rem;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
         }}
         .stat-label {{
-            font-size: 0.875rem;
-            color: #6b7280;
+            font-size: 0.9rem;
+            color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }}
         .stat-value {{
-            font-size: 2rem;
+            font-size: 2.25rem;
             font-weight: bold;
-            color: #1e293b;
+            color: var(--text-color);
             margin-top: 0.5rem;
         }}
+        .stat-sub {{
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: 0.25rem;
+        }}
         .success {{
-            color: #059669;
+            color: var(--success);
+        }}
+        .note {{
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-top: 0.5rem;
+        }}
+        .read-depth-row {{
+            display: flex;
+            gap: 2rem;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }}
+        .read-depth-row > table {{
+            flex: 0 0 auto;
+            width: auto;
+            min-width: 280px;
+        }}
+        .read-depth-row > .bar-chart {{
+            flex: 1 1 400px;
         }}
         table {{
             width: 100%;
             border-collapse: collapse;
-            background: white;
+            background: var(--card-bg);
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             border-radius: 8px;
             overflow: hidden;
+            border: 1px solid var(--border);
         }}
         th {{
-            background: #2563eb;
-            color: white;
+            background: var(--th-bg);
+            color: var(--th-text);
             text-align: left;
             padding: 1rem;
         }}
         td {{
             padding: 0.75rem 1rem;
-            border-top: 1px solid #e5e7eb;
+            border-top: 1px solid var(--border);
+            color: var(--text-color);
         }}
         tr:hover {{
-            background: #f9fafb;
+            background: var(--hover-bg);
         }}
         .footer {{
             margin-top: 3rem;
             padding-top: 1rem;
-            border-top: 1px solid #e5e7eb;
-            color: #6b7280;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
             font-size: 0.875rem;
         }}
     </style>
 </head>
 <body>
+    <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
+        <span id="themeIcon">\u2600\ufe0f</span>
+    </button>
+
     <h1>uSort-M Workflow Report</h1>
     <p><strong>Generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
 
@@ -504,7 +727,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         </div>
         <div class="stat-box">
             <div class="stat-label">Fold Sampling</div>
-            <div class="stat-value">{project.get('fold_sampling', 'N/A')}×</div>
+            <div class="stat-value">{project.get('fold_sampling', 'N/A')}\u00d7</div>
         </div>
     </div>
 
@@ -523,8 +746,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             <div class="stat-value">{demux_summary.get('wells_with_data', 0):,}</div>
         </div>
     </div>
-
-    <h2>Variant Recovery</h2>
+{recovery_section}
+    <h2>Library Coverage</h2>
     <div class="stat-grid">
         <div class="stat-box">
             <div class="stat-label">Unique Variants</div>
@@ -541,6 +764,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     </div>
 
     <h2>Read Depth Statistics</h2>
+    <div class="read-depth-row">
     <table>
         <thead>
             <tr>
@@ -563,12 +787,39 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             </tr>
         </tbody>
     </table>
-    <h3>Reads per Plate</h3>
-    {plate_bar_svg}
+    <div class="bar-chart">
+        <h3>Reads per Plate</h3>
+        {plate_bar_svg}
+    </div>
+    </div>
 {plate_map_section}{pick_summary_section}{pick_map_section}
     <div class="footer">
         <p>Generated by <strong>uSort-M</strong> | <a href="https://github.com/FordyceLab/usortm">GitHub</a></p>
     </div>
+
+    <script>
+    (function() {{
+        var toggle = document.getElementById('themeToggle');
+        var icon = document.getElementById('themeIcon');
+        var stored = localStorage.getItem('usortm-theme');
+        if (stored === 'dark') {{
+            document.documentElement.setAttribute('data-theme', 'dark');
+            icon.textContent = '\u263e';
+        }}
+        toggle.addEventListener('click', function() {{
+            var current = document.documentElement.getAttribute('data-theme');
+            if (current === 'dark') {{
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('usortm-theme', 'light');
+                icon.textContent = '\u2600\ufe0f';
+            }} else {{
+                document.documentElement.setAttribute('data-theme', 'dark');
+                localStorage.setItem('usortm-theme', 'dark');
+                icon.textContent = '\u263e';
+            }}
+        }});
+    }})();
+    </script>
 </body>
 </html>
 """

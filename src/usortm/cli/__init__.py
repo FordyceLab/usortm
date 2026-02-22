@@ -7,6 +7,7 @@ from .plan import plan
 from .demux_cmd import demux
 from .pick import pick
 from .report import report
+from .config_cmd import config_app
 
 # Create the main Typer app
 app = typer.Typer(
@@ -21,5 +22,6 @@ app.command(name="plan")(plan)
 app.command(name="demux")(demux)
 app.command(name="pick")(pick)
 app.command(name="report")(report)
+app.add_typer(config_app, name="config")
 
 __all__ = ["app", "estimate", "plan", "demux", "pick", "report"]

@@ -394,3 +394,116 @@ def test_report_statistics_accuracy(mock_project_with_library):
 
         # 2 variants with multiple wells (var1 appears twice)
         assert report["variants"]["variants_with_multiple_wells"] == 1
+
+
+def test_report_quality_bins(mock_project_with_library):
+    """Verify bin classification logic with known well data."""
+    from usortm.cli.report import _compute_quality_bins
+
+    well_data = [
+        # Bin 1: >90% consensus, >=100 reads
+        {"variant": "v1", "reads": 200, "consensus_fraction": 0.95},
+        {"variant": "v2", "reads": 100, "consensus_fraction": 0.91},
+        # Bin 2: >90% consensus, 50-99 reads
+        {"variant": "v3", "reads": 75, "consensus_fraction": 0.92},
+        # Bin 3: >90% consensus, 20-49 reads
+        {"variant": "v4", "reads": 30, "consensus_fraction": 0.95},
+        # Unbinned: <=90% consensus
+        {"variant": "v5", "reads": 500, "consensus_fraction": 0.90},
+        # Unbinned: <20 reads
+        {"variant": "v6", "reads": 10, "consensus_fraction": 0.99},
+    ]
+
+    result = _compute_quality_bins(well_data, library_size=10)
+    qb = result["quality_bins"]
+
+    assert qb["bin1"] == 2   # v1, v2
+    assert qb["bin2"] == 1   # v3
+    assert qb["bin3"] == 1   # v4
+    assert qb["unbinned"] == 2  # v5 (<=90%), v6 (<20 reads)
+
+
+def test_report_quality_bins_picks_best_well():
+    """When multiple wells have the same base variant, pick the best."""
+    from usortm.cli.report import _compute_quality_bins
+
+    well_data = [
+        {"variant": "v1|match", "reads": 50, "consensus_fraction": 0.95},
+        {"variant": "v1|mismatch", "reads": 200, "consensus_fraction": 0.98},
+        {"variant": "v2", "reads": 30, "consensus_fraction": 0.92},
+    ]
+
+    result = _compute_quality_bins(well_data, library_size=5)
+    qb = result["quality_bins"]
+
+    # v1 best well is 200 reads -> bin1; v2 is 30 reads -> bin3
+    assert qb["bin1"] == 1
+    assert qb["bin3"] == 1
+
+
+def test_report_recovery_tiers(mock_project_with_library):
+    """Verify tier accumulation: B includes A, C includes B."""
+    from usortm.cli.report import _compute_quality_bins
+
+    well_data = [
+        {"variant": "v1", "reads": 200, "consensus_fraction": 0.95},  # bin1
+        {"variant": "v2", "reads": 60, "consensus_fraction": 0.92},   # bin2
+        {"variant": "v3", "reads": 25, "consensus_fraction": 0.91},   # bin3
+    ]
+
+    result = _compute_quality_bins(well_data, library_size=10)
+    tiers = result["recovery_tiers"]
+
+    assert tiers["A"]["count"] == 1       # bin1 only
+    assert tiers["B"]["count"] == 2       # bin1 + bin2
+    assert tiers["C"]["count"] == 3       # bin1 + bin2 + bin3
+    assert tiers["A"]["pct"] == 10.0      # 1/10 * 100
+    assert tiers["B"]["pct"] == 20.0
+    assert tiers["C"]["pct"] == 30.0
+
+
+def test_report_json_has_tiers(mock_project_with_library):
+    """JSON report should include quality_bins and recovery_tiers."""
+    runner.invoke(app, ["report", str(mock_project_with_library), "--format", "json"])
+
+    with open(mock_project_with_library / "report" / "report.json") as f:
+        report = json.load(f)
+
+    assert "quality_bins" in report
+    assert "recovery_tiers" in report
+    assert "A" in report["recovery_tiers"]
+    assert "count" in report["recovery_tiers"]["A"]
+    assert "pct" in report["recovery_tiers"]["A"]
+
+
+def test_report_dark_mode_toggle(mock_project_with_library):
+    """HTML report should contain dark mode CSS and JS toggle."""
+    runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
+
+    html_file = mock_project_with_library / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    # CSS custom properties
+    assert "--bg:" in html_content
+    assert "--card-bg:" in html_content
+    assert '[data-theme="dark"]' in html_content
+
+    # JS toggle
+    assert "themeToggle" in html_content
+    assert "usortm-theme" in html_content
+    assert "localStorage" in html_content
+
+
+def test_report_html_library_recovery(mock_project_with_library):
+    """HTML report should contain Library Recovery section with tiers."""
+    runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
+
+    html_file = mock_project_with_library / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    assert "Library Recovery" in html_content
+    assert "Tier A" in html_content
+    assert "Tier B" in html_content
+    assert "Tier C" in html_content

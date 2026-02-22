@@ -566,11 +566,13 @@ def _write_default_mask_config(output_dir: Path):
     Users can edit this file to match their plasmid backbone before
     running ``usortm demux``.  The demux command auto-detects this
     file in the project directory.
+
+    Only the ``[fbc]`` section is written; the ``[rbc]`` masks are
+    automatically derived (reverse-complement swap) at load time.
     """
     from usortm.demux.barcodes import DEFAULT_MASKS, DEFAULT_SCORING
 
     fbc = DEFAULT_MASKS["fbc"]
-    rbc = DEFAULT_MASKS["rbc"]
 
     content = f"""# Barcode mask (flanking) sequences for Dorado demultiplexing.
 #
@@ -578,19 +580,20 @@ def _write_default_mask_config(output_dir: Path):
 # and help Dorado locate barcodes in each read.  Edit these to match
 # YOUR plasmid backbone before running `usortm demux`.
 #
+# Only the [fbc] section is needed — the reverse-barcode (RBC) masks
+# are automatically derived as reverse complements at load time.
+#
 # The defaults below are for the cutinase expression vector.
+# You can also use a built-in preset: usortm config list
+
+[meta]
+description = "Cutinase expression vector (T7 backbone)"
 
 [fbc]
 mask1_front = "{fbc['mask1_front']}"
 mask1_rear  = "{fbc['mask1_rear']}"
 mask2_front = "{fbc['mask2_front']}"
 mask2_rear  = "{fbc['mask2_rear']}"
-
-[rbc]
-mask1_front = "{rbc['mask1_front']}"
-mask1_rear  = "{rbc['mask1_rear']}"
-mask2_front = "{rbc['mask2_front']}"
-mask2_rear  = "{rbc['mask2_rear']}"
 
 # Uncomment and edit to override Dorado barcode scoring parameters.
 # These rarely need tuning — adjust only if you see low barcode

@@ -1,0 +1,15 @@
+# Fordyce Lab T7 expression vector — default LevSeq backbone masks.
+#
+# These flanking sequences match the barcode cassette context in the
+# standard cutinase expression plasmid used in the LevSeq protocol.
+#
+# Only [fbc] is needed; RBC masks are auto-derived as reverse complements.
+
+[meta]
+description = "T7 expression vector (Fordyce Lab PurExpress vector)"
+
+[fbc]
+mask1_front = "AATATAAATT"
+mask1_rear  = "CTGAGATACCTACAGCGTGAGC"
+mask2_front = "CAAGTGAGAAATCACCATGAGTGACG"
+mask2_rear  = "ATAATTTATA"

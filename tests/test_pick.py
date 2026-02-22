@@ -252,3 +252,87 @@ def test_pick_invalid_project(tmp_path):
 
     assert result.exit_code == 1
     assert "Not a valid uSort-M project" in result.stdout
+
+
+@pytest.fixture
+def tier_project(tmp_path):
+    """Project with wells spanning different quality tiers."""
+    project_dir = tmp_path / "tier_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 100,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # Wells: var1 (Tier A), var2 (Tier B), var3 (Tier C), var4 (below C)
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "var1", "reads": 200, "consensus_fraction": 0.95},
+        {"plate": "1", "well": "B1", "variant": "var2", "reads": 75, "consensus_fraction": 0.92},
+        {"plate": "1", "well": "C1", "variant": "var3", "reads": 30, "consensus_fraction": 0.91},
+        {"plate": "1", "well": "D1", "variant": "var4", "reads": 10, "consensus_fraction": 0.99},
+        {"plate": "1", "well": "E1", "variant": "var5", "reads": 500, "consensus_fraction": 0.85},
+    ]
+
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"total_reads": 1000, "assigned_reads": 815, "wells_with_data": 5, "wells_passing": 4}, f)
+
+    return project_dir
+
+
+def test_pick_with_tier_A(tier_project):
+    """Tier A: only wells with >=100 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "A"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    assert variants == {"var1"}
+
+
+def test_pick_with_tier_B(tier_project):
+    """Tier B: >=50 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "B"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    assert variants == {"var1", "var2"}
+
+
+def test_pick_with_tier_C(tier_project):
+    """Tier C: >=20 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "C"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    # var4 has 10 reads (<20) so excluded; var5 has 0.85 consensus (<=0.9) so excluded
+    assert variants == {"var1", "var2", "var3"}

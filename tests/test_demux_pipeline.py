@@ -218,7 +218,7 @@ class TestBarcodeConfigGeneration:
         content = toml_path.read_text()
         assert "[arrangement]" in content
         assert 'name = "levSeq_bcs_map"' in content
-        assert 'kit = "Jewett_levSeq"' in content
+        assert 'kit = "levSeq"' in content
         assert 'LevSeq-fbc-%02i' in content
         assert "last_index = 96" in content
         # Masks must be non-empty (dorado requires at least one per end)

@@ -311,6 +311,5 @@ echo "Output: $OUTPUT_DIR"
 
 def _reverse_complement(seq: str) -> str:
     """Return reverse complement of a DNA sequence."""
-    complement = {"A": "T", "T": "A", "G": "C", "C": "G", 
-                  "a": "t", "t": "a", "g": "c", "c": "g"}
-    return "".join(complement.get(base, base) for base in reversed(seq))
+    from usortm.demux.barcodes import reverse_complement
+    return reverse_complement(seq)
