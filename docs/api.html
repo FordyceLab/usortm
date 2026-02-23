@@ -97,8 +97,10 @@
     </nav>
     <!-- Theme toggle -->
     <div class="theme-toggle" onclick="toggleTheme()">
-      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
-      <span id="theme-label">Dark mode</span>
+      <span class="theme-toggle-icon" id="theme-icon">
+        <svg class="theme-svg" id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="theme-svg" id="icon-sun" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </span>
     </div>
     <main class="main">
       <div class="content">
@@ -129,15 +131,15 @@
     }
 
     function updateThemeUI(theme) {
-      const icon = document.getElementById('theme-icon');
-      const label = document.getElementById('theme-label');
+      const moon = document.getElementById('icon-moon');
+      const sun = document.getElementById('icon-sun');
 
       if (theme === 'dark') {
-        icon.textContent = '☀️';
-        label.textContent = 'Light mode';
+        moon.style.display = 'none';
+        sun.style.display = 'block';
       } else {
-        icon.textContent = '🌙';
-        label.textContent = 'Dark mode';
+        moon.style.display = 'block';
+        sun.style.display = 'none';
       }
     }
 

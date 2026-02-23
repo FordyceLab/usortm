@@ -24,6 +24,8 @@
   --content-max-width: 900px;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  --color-table-stripe: #f6f8fa;
+  --color-table-hover: #eef2f7;
   --method-img-filter: none;
 }
 
@@ -46,6 +48,8 @@
   --color-code-bg: #0d1117;
   --color-code-text: #c9d1d9;
   --color-code-border: #30363d;
+  --color-table-stripe: #1c2640;
+  --color-table-hover: #243049;
   --method-img-filter: invert(0.88) hue-rotate(180deg);
 }
 
@@ -179,8 +183,19 @@ html, body {
 }
 
 .theme-toggle-icon {
-  font-size: 1.125rem;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-text-muted);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Hide theme label - icon only */
@@ -284,7 +299,7 @@ a:hover {
 }
 
 .method-figure img {
-  max-width: 68%;
+  max-width: 100%;
   height: auto;
   border: none;
   border-radius: 8px;
@@ -377,18 +392,26 @@ a:hover {
   margin-top: 0.25rem;
 }
 
-/* Tables */
+/* Tables — GitHub-style with cell borders and alternating rows */
 table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
+  width: auto;
+  margin-left: auto;       
+  margin-right: auto;      
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 1.5rem;      
+  margin-bottom: 1.5rem;   
   font-size: 0.9375rem;
+  border: 0.5px solid #cfd6df;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 th, td {
   text-align: left;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem;
+  border: 0.5px solid #cfd6df;
+  white-space: nowrap;
 }
 
 th {
@@ -396,8 +419,12 @@ th {
   background: var(--color-sidebar);
 }
 
+tbody tr:nth-child(even) {
+  background: var(--color-table-stripe);
+}
+
 tr:hover td {
-  background: var(--color-sidebar);
+  background: var(--color-table-hover);
 }
 
 /* Code blocks - darker grey theme */

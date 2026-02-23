@@ -63,7 +63,7 @@ def mock_project_dir(tmp_path):
 
 
 def test_pick_basic(mock_project_dir):
-    """Test basic pick list generation."""
+    """Test basic pick list generation (defaults to Tier A, row-wise fill)."""
     result = runner.invoke(app, ["pick", str(mock_project_dir)])
 
     assert result.exit_code == 0
@@ -80,12 +80,17 @@ def test_pick_basic(mock_project_dir):
         assert header == ["SampleID", "SourcePlateID", "SourceWell", "TargetPlateID", "TargetWell", "TransferVolume"]
 
         rows = list(reader)
-        assert len(rows) > 0  # At least one hit
+        # Default Tier A: >=100 reads and >90% consensus
+        # var2 (200, 0.98), var1/C1 (150, 0.93), var4 (120, 0.96) pass
+        # var3 (80, 0.90) fails reads + consensus
+        assert len(rows) == 3
+        variants = {row[0] for row in rows}
+        assert variants == {"var1", "var2", "var4"}
 
 
 def test_pick_unique_only(mock_project_dir):
     """Test unique-only flag picks one well per variant."""
-    result = runner.invoke(app, ["pick", str(mock_project_dir), "--unique-only"])
+    result = runner.invoke(app, ["pick", str(mock_project_dir), "--unique-only", "--tier", ""])
 
     assert result.exit_code == 0
 
@@ -108,7 +113,7 @@ def test_pick_unique_only(mock_project_dir):
 
 def test_pick_all_hits(mock_project_dir):
     """Test all-hits flag picks all wells."""
-    result = runner.invoke(app, ["pick", str(mock_project_dir), "--all-hits"])
+    result = runner.invoke(app, ["pick", str(mock_project_dir), "--all-hits", "--tier", ""])
 
     assert result.exit_code == 0
 
@@ -129,6 +134,7 @@ def test_pick_custom_output(mock_project_dir):
         "pick",
         str(mock_project_dir),
         "--output", str(output_path),
+        "--tier", "",
     ])
 
     assert result.exit_code == 0
@@ -141,6 +147,7 @@ def test_pick_custom_volume(mock_project_dir):
         "pick",
         str(mock_project_dir),
         "--volume", "10.0",
+        "--tier", "",
     ])
 
     assert result.exit_code == 0
@@ -168,6 +175,7 @@ def test_pick_target_filter(mock_project_dir, tmp_path):
         "pick",
         str(mock_project_dir),
         "--targets", str(targets_file),
+        "--tier", "",
     ])
 
     assert result.exit_code == 0
@@ -190,6 +198,7 @@ def test_pick_fill_order_column(mock_project_dir):
         str(mock_project_dir),
         "--fill-order", "column",
         "--target-format", "96",
+        "--tier", "",
     ])
 
     assert result.exit_code == 0
@@ -212,6 +221,7 @@ def test_pick_fill_order_row(mock_project_dir):
         str(mock_project_dir),
         "--fill-order", "row",
         "--target-format", "96",
+        "--tier", "",
     ])
 
     assert result.exit_code == 0
@@ -252,3 +262,212 @@ def test_pick_invalid_project(tmp_path):
 
     assert result.exit_code == 1
     assert "Not a valid uSort-M project" in result.stdout
+
+
+@pytest.fixture
+def tier_project(tmp_path):
+    """Project with wells spanning different quality tiers."""
+    project_dir = tmp_path / "tier_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 100,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # Wells: var1 (Tier A), var2 (Tier B), var3 (Tier C), var4 (below C)
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "var1", "reads": 200, "consensus_fraction": 0.95},
+        {"plate": "1", "well": "B1", "variant": "var2", "reads": 75, "consensus_fraction": 0.92},
+        {"plate": "1", "well": "C1", "variant": "var3", "reads": 30, "consensus_fraction": 0.91},
+        {"plate": "1", "well": "D1", "variant": "var4", "reads": 10, "consensus_fraction": 0.99},
+        {"plate": "1", "well": "E1", "variant": "var5", "reads": 500, "consensus_fraction": 0.85},
+    ]
+
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"total_reads": 1000, "assigned_reads": 815, "wells_with_data": 5, "wells_passing": 4}, f)
+
+    return project_dir
+
+
+def test_pick_with_tier_A(tier_project):
+    """Tier A: only wells with >=100 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "A"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    assert variants == {"var1"}
+
+
+def test_pick_with_tier_B(tier_project):
+    """Tier B: >=50 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "B"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    assert variants == {"var1", "var2"}
+
+
+def test_pick_with_tier_C(tier_project):
+    """Tier C: >=20 reads and >90% consensus."""
+    result = runner.invoke(app, ["pick", str(tier_project), "--tier", "C"])
+    assert result.exit_code == 0
+
+    hitlist = tier_project / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    variants = {row[0] for row in rows}
+    # var4 has 10 reads (<20) so excluded; var5 has 0.85 consensus (<=0.9) so excluded
+    assert variants == {"var1", "var2", "var3"}
+
+
+def test_pick_empty_wells(tmp_path):
+    """Empty placeholder rows appear for unrecovered library variants."""
+    project_dir = tmp_path / "empty_wells_project"
+    project_dir.mkdir()
+
+    # Library has 5 variants but only 2 are recovered
+    library_file = tmp_path / "library.csv"
+    with open(library_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Name", "Sequence"])
+        writer.writerow(["libA", "ATCG"])
+        writer.writerow(["libB", "GCTA"])
+        writer.writerow(["libC", "TTTT"])
+        writer.writerow(["libD", "AAAA"])
+        writer.writerow(["libE", "CCCC"])
+
+    state = {
+        "library_size": 5,
+        "library_file": str(library_file),
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # Only libA and libC are recovered
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "libA", "reads": 200, "consensus_fraction": 0.95},
+        {"plate": "1", "well": "B1", "variant": "libC", "reads": 150, "consensus_fraction": 0.92},
+    ]
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"total_reads": 500, "assigned_reads": 350, "wells_with_data": 2, "wells_passing": 2}, f)
+
+    result = runner.invoke(app, ["pick", str(project_dir), "--tier", ""])
+    assert result.exit_code == 0
+
+    hitlist = project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)  # skip header
+        rows = list(reader)
+
+    # 5 total rows: 2 recovered + 3 empty placeholders, in library order
+    assert len(rows) == 5
+    assert [row[0] for row in rows] == ["libA", "libB", "libC", "libD", "libE"]
+
+    # Empty wells have 0.0 volume and empty source fields
+    lib_b_row = rows[1]
+    assert lib_b_row[1] == ""  # source plate empty
+    assert lib_b_row[2] == ""  # source well empty
+    assert lib_b_row[5] == "0.0"  # zero volume
+
+    # Recovered wells have real data
+    lib_a_row = rows[0]
+    assert lib_a_row[1] == "1"
+    assert lib_a_row[2] == "A1"
+    assert lib_a_row[5] == "5.0"
+
+
+def test_pick_empty_wells_with_legacy_suffix(tmp_path):
+    """Variants with |cons_check suffix in well_assignments still match library names."""
+    project_dir = tmp_path / "legacy_suffix_project"
+    project_dir.mkdir()
+
+    library_file = tmp_path / "library.csv"
+    with open(library_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Name", "Sequence"])
+        writer.writerow(["libA", "ATCG"])
+        writer.writerow(["libB", "GCTA"])
+        writer.writerow(["libC", "TTTT"])
+
+    state = {
+        "library_size": 3,
+        "library_file": str(library_file),
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # libA recovered with legacy |Perfect Match suffix, libC without suffix
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "libA|Perfect Match", "reads": 200, "consensus_fraction": 0.98},
+        {"plate": "1", "well": "B1", "variant": "libC", "reads": 150, "consensus_fraction": 0.92},
+    ]
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"total_reads": 500, "assigned_reads": 350, "wells_with_data": 2, "wells_passing": 2}, f)
+
+    result = runner.invoke(app, ["pick", str(project_dir), "--tier", ""])
+    assert result.exit_code == 0
+
+    hitlist = project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    # 3 rows: libA (recovered), libB (empty), libC (recovered)
+    assert len(rows) == 3
+    assert [row[0] for row in rows] == ["libA", "libB", "libC"]
+
+    # libA matched despite |Perfect Match suffix — has real source data
+    lib_a_row = rows[0]
+    assert lib_a_row[1] == "1"   # source plate
+    assert lib_a_row[2] == "A1"  # source well
+
+    # libB is empty placeholder
+    lib_b_row = rows[1]
+    assert lib_b_row[1] == ""
+    assert lib_b_row[5] == "0.0"

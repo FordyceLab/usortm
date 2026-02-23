@@ -4,12 +4,13 @@ from typing import Optional
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 
 def estimate(
@@ -161,9 +162,9 @@ def estimate(
     # Rich output
     console.print()
     console.print(Panel.fit(
-        f"[bold blue]uSort-M[/bold blue] Cost Estimate\n"
+        f"[brand]uSort-M[/brand] Cost Estimate\n"
         f"Library: [cyan]{library_size:,}[/cyan] variants × [cyan]{seq_length}[/cyan] bp",
-        border_style="blue",
+        border_style=BORDER_STYLE,
     ))
     console.print()
     
@@ -174,9 +175,9 @@ def estimate(
         show_header=False,
         padding=(0, 2),
     )
-    param_table.add_column("Parameter", style="dim")
+    param_table.add_column("Parameter", style="muted")
     param_table.add_column("Value", justify="right")
-    param_table.add_column("Parameter", style="dim")
+    param_table.add_column("Parameter", style="muted")
     param_table.add_column("Value", justify="right")
     
     param_table.add_row(
@@ -197,8 +198,8 @@ def estimate(
         show_header=True,
         header_style="bold cyan",
     )
-    cost_table.add_column("Step", style="dim")
-    cost_table.add_column("[blue]uSort-M[/blue]", justify="right", style="green")
+    cost_table.add_column("Step", style="muted")
+    cost_table.add_column("[brand.plain]uSort-M[/brand.plain]", justify="right", style="green")
     if compare:
         cost_table.add_column("Traditional", justify="right", style="yellow")
     
@@ -240,7 +241,7 @@ def estimate(
         savings = trad_total / usortm_total
         console.print(
             f"  [bold green]{savings:.1f}-fold savings[/bold green] "
-            f"with [blue]uSort-M[/blue] (${trad_total - usortm_total:,.0f} saved)"
+            f"with [brand.plain]uSort-M[/brand.plain] (${trad_total - usortm_total:,.0f} saved)"
         )
         console.print()
     
@@ -251,7 +252,7 @@ def estimate(
         show_header=True,
         header_style="bold cyan",
     )
-    effort_table.add_column("Metric", style="dim")
+    effort_table.add_column("Metric", style="muted")
     effort_table.add_column("Value", justify="right")
     
     effort_table.add_row("Total wells to sort", f"{total_wells:,}")

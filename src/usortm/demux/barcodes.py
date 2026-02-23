@@ -131,92 +131,131 @@ LEVSEQ_RBC = [
     "AAGCGTTGAAACCTTTGTCCTCTC",  # RB10
     "GTTTCATCTATCGGAGGGAATGGA",  # RB11
     "CAGGTAGAAAGAAGCAGAATCGGA",  # RB12
-    # RB13-RB96 are reverse complements of NB13-NB96
-    "TCACACGAGTATGGAAGTCGTTCT",  # RB13
-    "TCTATGGGTCCCAAGAGACTCGTT",  # RB14
-    "CAGTGGTGTTAGCGAGGTAGACCT",  # RB15
-    "AGTACGAACCACTGTCAGTTGACG",  # RB16
-    "ATCAGAGGTACTTTCCTGGAGGGT",  # RB17
-    "GCCTATCTAGGTTGTTGGGTTTGG",  # RB18
-    "ATCTCTTGACACTGCACGAGGAAC",  # RB19
-    "ATGAGTTCTCGTAACAGGACGCAA",  # RB20
-    "TAGAGAACGGACAATGAGAGGCTC",  # RB21
-    "CGTACTTTGATACATGGCAGTGGT",  # RB22
-    "CGAGGAGGTTCACTGGGTAGTAAG",  # RB23
-    "CTAACCCATCATGCAGAACTATGC",  # RB24
-    "CATTGCGTTGCATACCCAACTTAC",  # RB25
-    "ATGAGAATGCGTAGTCGCTGTATG",  # RB26
-    "TGTAAGAGGTGAATCTAACCGTCG",  # RB27
-    "GATACGGTGCCTTCTTAGGTTTCA",  # RB28
-    "GGTCTGTCAACCCAAGGTGTCTAG",  # RB29
-    "TGGGTCGAAGTAGATCCTCACTGA",  # RB30
-    "CAATGTAACTGATTGCTGTACGCA",  # RB31
-    "ATGACGTTGTCGGACTTCTACTGG",  # RB32
-    "AGTTACCCAACCGTACCAAGTCTG",  # RB33
-    "GCCTTTTGACTTGAGTTCTTCGTCC",  # RB34
-    "GCAGTCCCTCAGCTTCGTAAGTAG",  # RB35
-    "TGTTTCCTCCTCTAACTGGGACAT",  # RB36
-    "TGATACTAGCATCAATCGCAAGC",  # RB37
-    "TTCTCTGTATCGTCCTCCTGTGGT",  # RB38
-    "GAGAGGCTCTAGTTGACACTGTGG",  # RB39
-    "GGCTATCCTTGGTCATCCAAACTA",  # RB40
-    "CGTGTACTTCTCTGGACGAACTCC",  # RB41
-    "CTGGCAGGTATGCCTTACACGTAG",  # RB42
-    "CTACCGTCGAGTCAACAACGAAAG",  # RB43
-    "GAGTGGGAAGGAACCCTTTCTACT",  # RB44
-    "CACTGAAGGCATCTCTGTTGGATC",  # RB45
-    "CAGGAGAATGAAGTGGAACACAGC",  # RB46
-    "GAACTACCTGTGGGAAAGTTGCAC",  # RB47
-    "TACAGGTGTACCACGTTCCAGATG",  # RB48
-    "CTAGATGTTCAAAGCTGCACCAGT",  # RB49
-    "ACGCAGGAAGTTACCAAAGTCCAT",  # RB50
-    "GAGGACCCAGTAGGCTCATTCAAC",  # RB51
-    "GTCCACGAACAATCTTGTCTCTCA",  # RB52
-    "CTTTGCATGAGACGGTCTGAATCT",  # RB53
-    "CATGCTCCTTAGTCAAAGCTCTTG",  # RB54
-    "CGTAGATCAGGGTCTCATCTTCCA",  # RB55
-    "TTCATGCCACCTGTTGAGTAGTGA",  # RB56
-    "ACTTCCGAAGGAGATTGACCTAGC",  # RB57
-    "TCAGACTCACGGAGGAGTAACCTG",  # RB58
-    "ACCTTGCTTTCCCTTCTTGATTGA",  # RB59
-    "CCATAGAAGCCTTGGTTGAACATG",  # RB60
-    "GTGCTGAGGCACATAGTACCCTCT",  # RB61
-    "TACGTCCTGAAGTAAGTGTGGGTG",  # RB62
-    "GTTCAAGACCCAGGAACTTCAGAA",  # RB63
-    "GAAAGTCGATGAACGGTGTCTGTC",  # RB64
-    "CCTTGTCTGGAGGAAGACTGAGAA",  # RB65
-    "GAAGTTACAAGCCACAAGGATCGG",  # RB66
-    "GGTGAGCACACGAGTATGACAAAC",  # RB67
-    "CCACCTTCGTGTTTGCTTAGATTC",  # RB68
-    "AGATCACATGAGGCTCGGACTGTA",  # RB69
-    "ACACTCCATTCGTAGGATCTCGGT",  # RB70
-    "CTGTTACTACCTGATGCTCCCAGG",  # RB71
-    "GTCGGTATGGAAGACAGTCAGCTA",  # RB72
-    "GAGGGTTCTGTCATCCTGTTTCTT",  # RB73
-    "AGTGGAAGTGTTGGGATGCTTGTA",  # RB74
-    "ACAACAGGGTTCATCACAATGGTC",  # RB75
-    "GTCCAGGGTTGATGTAACAAGCAT",  # RB76
-    "GTTGTATCCCTGAGAAACAGGTCG",  # RB77
-    "TTCTGATTCAAAGGTTCGGTTGTT",  # RB78
-    "CAGCAGTGAGAACTATCTCCGAGA",  # RB79
-    "GAATCGCTATCCTATGTTCATCCG",  # RB80
-    "CCGAAACAACTTCACAAGATGAGG",  # RB81
-    "TAGTCCTGGAACTCGACATACCGT",  # RB82
-    "TTCGACCTTAGATCAAGCCA",      # RB83
-    "TGGCACAGGTTCTAGGTCCACTAC",  # RB84
-    "GATCATCCAACTAACTCCTCCGTT",  # RB85
-    "TACTTACGCTTGTTGGGATCACCT",  # RB86
-    "CCTCCCTAACAACAGGAGCATGTA",  # RB87
-    "CTGCTTCGGATCGGTAGTAGAAGA",  # RB88
-    "CAACTAGCCAAACATTGATGCTGT",  # RB89
-    "GCCTCAAACCGTACCCTCTACATC",  # RB90
-    "AGTAGCGTGAGTTCCTATGGAGCC",  # RB91
-    "GGTCCTGTATCTTTCCACTCACAA",  # RB92
-    "CCCAAGTCTGAAGTGATGGAAACT",  # RB93
-    "GTAGGTGGCAGTTTGAGGACAATC",  # RB94
-    "AAGTCCATTCTTCTTCCAGACAGG",  # RB95
-    "ATGGTGGACTCTATGACCGTTCAG",  # RB96
+    "AGAACGACTTCCATACTCGTGTGA",  # RB13
+    "AACGAGTCTCTTGGGACCCATAGA",  # RB14
+    "AGGTCTACCTCGCTAACACCACTG",  # RB15
+    "CGTCAACTGACAGTGGTTCGTACT",  # RB16
+    "ACCCTCCAGGAAAGTACCTCTGAT",  # RB17
+    "CCAAACCCAACAACCTAGATAGGC",  # RB18
+    "GTTCCTCGTGCAGTGTCAAGAGAT",  # RB19
+    "TTGCGTCCTGTTACGAGAACTCAT",  # RB20
+    "GAGCCTCTCATTGTCCGTTCTCTA",  # RB21
+    "ACCACTGCCATGTATCAAAGTACG",  # RB22
+    "CTTACTACCCAGTGAACCTCCTCG",  # RB23
+    "GCATAGTTCTGCATGATGGGTTAG",  # RB24
+    "GTAAGTTGGGTATGCAACGCAATG",  # RB25
+    "CATACAGCGACTACGCATTCTCAT",  # RB26
+    "CGACGGTTAGATTCACCTCTTACA",  # RB27
+    "TGAAACCTAAGAAGGCACCGTATC",  # RB28
+    "CTAGACACCTTGGGTTGACAGACC",  # RB29
+    "TCAGTGAGGATCTACTTCGACCCA",  # RB30
+    "TGCGTACAGCAATCAGTTACATTG",  # RB31
+    "CCAGTAGAAGTCCGACAACGTCAT",  # RB32
+    "CAGACTTGGTACGGTTGGGTAACT",  # RB33
+    "GGACGAAGAACTCAAGTCAAAGGC",  # RB34
+    "CTACTTACGAAGCTGAGGGACTGC",  # RB35
+    "ATGTCCCAGTTAGAGGAGGAAACA",  # RB36
+    "GCTTGCGATTGATGCTTAGTATCA",  # RB37
+    "ACCACAGGAGGACGATACAGAGAA",  # RB38
+    "CCACAGTGTCAACTAGAGCCTCTC",  # RB39
+    "TAGTTTGGATGACCAAGGATAGCC",  # RB40
+    "GGAGTTCGTCCAGAGAAGTACACG",  # RB41
+    "CTACGTGTAAGGCATACCTGCCAG",  # RB42
+    "CTTTCGTTGTTGACTCGACGGTAG",  # RB43
+    "AGTAGAAAGGGTTCCTTCCCACTC",  # RB44
+    "GATCCAACAGAGATGCCTTCAGTG",  # RB45
+    "GCTGTGTTCCACTTCATTCTCCTG",  # RB46
+    "GTGCAACTTTCCCACAGGTAGTTC",  # RB47
+    "CATCTGGAACGTGGTACACCTGTA",  # RB48
+    "ACTGGTGCAGCTTTGAACATCTAG",  # RB49
+    "ATGGACTTTGGTAACTTCCTGCGT",  # RB50
+    "GTTGAATGAGCCTACTGGGTCCTC",  # RB51
+    "TGAGAGACAAGATTGTTCGTGGAC",  # RB52
+    "AGATTCAGACCGTCTCATGCAAAG",  # RB53
+    "CAAGAGCTTTGACTAAGGAGCATG",  # RB54
+    "TGGAAGATGAGACCCTGATCTACG",  # RB55
+    "TCACTACTCAACAGGTGGCATGAA",  # RB56
+    "GCTAGGTCAATCTCCTTCGGAAGT",  # RB57
+    "CAGGTTACTCCTCCGTGAGTCTGA",  # RB58
+    "TCAATCAAGAAGGGAAAGCAAGGT",  # RB59
+    "CATGTTCAACCAAGGCTTCTATGG",  # RB60
+    "AGAGGGTACTATGTGCCTCAGCAC",  # RB61
+    "CACCCACACTTACTTCAGGACGTA",  # RB62
+    "TTCTGAAGTTCCTGGGTCTTGAAC",  # RB63
+    "GACAGACACCGTTCATCGACTTTC",  # RB64
+    "TTCTCAGTCTTCCTCCAGACAAGG",  # RB65
+    "CCGATCCTTGTGGCTTCTAACTTC",  # RB66
+    "GTTTGTCATACTCGTGTGCTCACC",  # RB67
+    "GAATCTAAGCAAACACGAAGGTGG",  # RB68
+    "TACAGTCCGAGCCTCATGTGATCT",  # RB69
+    "ACCGAGATCCTACGAATGGAGTGT",  # RB70
+    "CCTGGGAGCATCAGGTAGTAACAG",  # RB71
+    "TAGCTGACTGTCTTCCATACCGAC",  # RB72
+    "AAGAAACAGGATGACAGAACCCTC",  # RB73
+    "TACAAGCATCCCAACACTTCCACT",  # RB74
+    "GACCATTGTGATGAACCCTGTTGT",  # RB75
+    "ATGCTTGTTACATCAACCCTGGAC",  # RB76
+    "CGACCTGTTTCTCAGGGATACAAC",  # RB77
+    "AACAACCGAACCTTTGAATCAGAA",  # RB78
+    "TCTCGGAGATAGTTCTCACTGCTG",  # RB79
+    "CGGATGAACATAGGATAGCGATTC",  # RB80
+    "CCTCATCTTGTGAAGTTGTTTCGG",  # RB81
+    "ACGGTATGTCGAGTTCCAGGACTA",  # RB82
+    "TGGCTTGATCTAGGTAAGGTCGAA",  # RB83
+    "GTAGTGGACCTAGAACCTGTGCCA",  # RB84
+    "AACGGAGGAGTTAGTTGGATGATC",  # RB85
+    "AGGTGATCCCAACAAGCGTAAGTA",  # RB86
+    "TACATGCTCCTGTTGTTAGGGAGG",  # RB87
+    "TCTTCTACTACCGATCCGAAGCAG",  # RB88
+    "ACAGCATCAATGTTTGGCTAGTTG",  # RB89
+    "GATGTAGAGGGTACGGTTTGAGGC",  # RB90
+    "GGCTCCATAGGAACTCACGCTACT",  # RB91
+    "TTGTGAGTGGAAAGATACAGGACC",  # RB92
+    "AGTTTCCATCACTTCAGACTTGGG",  # RB93
+    "GATTGTCCTCAAACTGCCACCTAC",  # RB94
+    "CCTGTCTGGAAGAAGAATGGACTT",  # RB95
+    "CTGAACGGTCATAGAGTCCACCAT",  # RB96
 ]
+
+
+def reverse_complement(seq: str) -> str:
+    """Return the reverse complement of a DNA sequence.
+
+    Handles both upper- and lower-case nucleotides; non-ATGC characters
+    are passed through unchanged.
+    """
+    complement = {
+        "A": "T", "T": "A", "G": "C", "C": "G",
+        "a": "t", "t": "a", "g": "c", "c": "g",
+    }
+    return "".join(complement.get(base, base) for base in reversed(seq))
+
+
+def fbc_to_rbc_masks(fbc_masks: dict) -> dict:
+    """Derive RBC mask sequences from FBC masks using the swap+RC pattern.
+
+    The reverse-strand barcodes see the backbone in the opposite
+    orientation, so each RBC mask is the reverse complement of the
+    corresponding FBC mask on the other end::
+
+        rbc.mask1_front = RC(fbc.mask2_rear)
+        rbc.mask1_rear  = RC(fbc.mask2_front)
+        rbc.mask2_front = RC(fbc.mask1_rear)
+        rbc.mask2_rear  = RC(fbc.mask1_front)
+
+    Args:
+        fbc_masks: Dict with keys ``mask1_front``, ``mask1_rear``,
+            ``mask2_front``, ``mask2_rear``.
+
+    Returns:
+        Dict with the same four keys, containing derived RBC masks.
+    """
+    return {
+        "mask1_front": reverse_complement(fbc_masks["mask2_rear"]),
+        "mask1_rear": reverse_complement(fbc_masks["mask2_front"]),
+        "mask2_front": reverse_complement(fbc_masks["mask1_rear"]),
+        "mask2_rear": reverse_complement(fbc_masks["mask1_front"]),
+    }
 
 
 def get_rbc_count_for_plates(n_plates: int) -> int:
@@ -233,6 +272,20 @@ def get_rbc_count_for_plates(n_plates: int) -> int:
     """
     return min(n_plates * 4, 96)
 
+
+# ---------------------------------------------------------------------------
+# Default scoring parameters for Dorado barcode classification
+# ---------------------------------------------------------------------------
+
+DEFAULT_SCORING: dict = {
+    "max_barcode_penalty": 12,
+    "min_barcode_penalty_dist": 3,
+    "flank_right_pad": 5,
+    "flank_left_pad": 5,
+    "min_separation_only_dist": 6,
+    "min_flank_score": 0.9,
+    "barcode_end_proximity": 150,
+}
 
 # ---------------------------------------------------------------------------
 # Default mask (flanking) sequences — cutinase plasmid backbone
@@ -262,6 +315,7 @@ def write_levseq_fbc_toml(
     output_dir: Path,
     kit_name: str = "levSeq_bcs_map",
     masks: dict = None,
+    scoring: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for forward barcodes.
 
@@ -274,6 +328,7 @@ def write_levseq_fbc_toml(
         kit_name: Kit name identifier for Dorado.
         masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
             ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
+        scoring: Optional dict overriding DEFAULT_SCORING parameters.
 
     Returns:
         Path to the generated TOML file.
@@ -282,11 +337,12 @@ def write_levseq_fbc_toml(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     m = {**DEFAULT_MASKS["fbc"], **(masks or {})}
+    s = {**DEFAULT_SCORING, **(scoring or {})}
 
     toml_path = output_dir / "levseq_fbc.toml"
     content = f"""[arrangement]
 name = "{kit_name}"
-kit = "Jewett_levSeq"
+kit = "levSeq"
 
 # Forward masks (flanking sequences around forward barcodes)
 mask1_front = "{m['mask1_front']}"
@@ -303,13 +359,13 @@ first_index = 1
 last_index = 96
 
 [scoring]
-max_barcode_penalty = 12
-min_barcode_penalty_dist = 3
-flank_right_pad = 5
-flank_left_pad = 5
-min_separation_only_dist = 6
-min_flank_score = 0.9
-barcode_end_proximity = 150
+max_barcode_penalty = {s['max_barcode_penalty']}
+min_barcode_penalty_dist = {s['min_barcode_penalty_dist']}
+flank_right_pad = {s['flank_right_pad']}
+flank_left_pad = {s['flank_left_pad']}
+min_separation_only_dist = {s['min_separation_only_dist']}
+min_flank_score = {s['min_flank_score']}
+barcode_end_proximity = {s['barcode_end_proximity']}
 """
     toml_path.write_text(content)
     return toml_path
@@ -320,6 +376,7 @@ def write_levseq_rbc_toml(
     n_barcodes: int = 4,
     kit_name: str = "levSeq_bcs_map",
     masks: dict = None,
+    scoring: dict = None,
 ) -> Path:
     """Generate a Dorado TOML barcode arrangement file for reverse barcodes.
 
@@ -334,6 +391,7 @@ def write_levseq_rbc_toml(
         kit_name: Kit name identifier for Dorado.
         masks: Optional dict with keys ``mask1_front``, ``mask1_rear``,
             ``mask2_front``, ``mask2_rear``.  Falls back to DEFAULT_MASKS.
+        scoring: Optional dict overriding DEFAULT_SCORING parameters.
 
     Returns:
         Path to the generated TOML file.
@@ -342,12 +400,13 @@ def write_levseq_rbc_toml(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     m = {**DEFAULT_MASKS["rbc"], **(masks or {})}
+    s = {**DEFAULT_SCORING, **(scoring or {})}
 
     last_index = min(n_barcodes, 96)
     toml_path = output_dir / "levseq_rbc.toml"
     content = f"""[arrangement]
 name = "{kit_name}"
-kit = "Jewett_levSeq"
+kit = "levSeq"
 
 # Forward masks (RC of FBC reverse masks — context for double-end scoring)
 mask1_front = "{m['mask1_front']}"
@@ -364,13 +423,13 @@ first_index = 1
 last_index = {last_index}
 
 [scoring]
-max_barcode_penalty = 12
-min_barcode_penalty_dist = 3
-flank_right_pad = 5
-flank_left_pad = 5
-min_separation_only_dist = 6
-min_flank_score = 0.9
-barcode_end_proximity = 150
+max_barcode_penalty = {s['max_barcode_penalty']}
+min_barcode_penalty_dist = {s['min_barcode_penalty_dist']}
+flank_right_pad = {s['flank_right_pad']}
+flank_left_pad = {s['flank_left_pad']}
+min_separation_only_dist = {s['min_separation_only_dist']}
+min_flank_score = {s['min_flank_score']}
+barcode_end_proximity = {s['barcode_end_proximity']}
 """
     toml_path.write_text(content)
     return toml_path

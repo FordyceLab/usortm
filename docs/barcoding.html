@@ -29,6 +29,13 @@
   </script>
   <!-- Critical CSS for instant theme application -->
   <style>
+    /* Table sizing override */
+    .content table{
+      width: auto;
+      max-width: 650px;
+      margin: 1.5rem auto;
+    }
+    
     :root {
       --color-bg: #fafafa;
       --color-sidebar: #f5f5f5;
@@ -60,6 +67,7 @@
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
     }
+    
   </style>
 
   <link rel="stylesheet" href="style.css">
@@ -119,8 +127,10 @@
     </nav>
     <!-- Theme toggle -->
     <div class="theme-toggle" onclick="toggleTheme()">
-      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
-      <span id="theme-label">Dark mode</span>
+      <span class="theme-toggle-icon" id="theme-icon">
+        <svg class="theme-svg" id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="theme-svg" id="icon-sun" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </span>
     </div>
     <main class="main">
       <div class="content">
@@ -160,108 +170,172 @@
           </thead>
           <tbody>
             <tr>
-              <td>Taq DNA Polymerase</td>
-              <td>NEB</td>
-              <td>M0273S</td>
-            </tr>
-            <tr>
-              <td>Thermopol Buffer</td>
-              <td>NEB</td>
-              <td>B9004S</td>
-            </tr>
-            <tr>
-              <td>Barcoded LevSeq primers (384 wells)</td>
+              <td>LevSeq F+R barcodes (1 µM)</td>
               <td>IDT</td>
               <td>Custom order</td>
             </tr>
             <tr>
-              <td>96-well PCR plates</td>
-              <td>Bio-Rad</td>
-              <td>HSP9601</td>
+              <td>Q5 Polymerase</td>
+              <td>NEB</td>
+              <td>M0491L</td>
             </tr>
             <tr>
-              <td>PCR plate seals</td>
-              <td>Bio-Rad</td>
-              <td>MSB1001</td>
+              <td>Q5 5X Reaction Buffer</td>
+              <td>NEB</td>
+              <td>B9027S</td>
             </tr>
             <tr>
-              <td>Ampure XP beads</td>
+              <td>10 mM dNTPs</td>
+              <td>NEB</td>
+              <td>N0447L</td>
+            </tr>
+            <tr>
+              <td>DMSO</td>
+              <td>Sigma</td>
+              <td>D8418</td>
+            </tr>
+            <tr>
+              <td>BioRad Hardshell 384-well PCR plates</td>
+              <td>Bio-Rad</td>
+              <td>HSR4801</td>
+            </tr>
+            <tr>
+              <td>Foil plate seals</td>
+              <td>Thermo</td>
+              <td>AB0626</td>
+            </tr>
+            <tr>
+              <td>Filtered 50% glycerol</td>
+              <td>—</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>100 mM EDTA</td>
+              <td>—</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>Beckman Coulter SPRIselect beads</td>
               <td>Beckman Coulter</td>
-              <td>A63880</td>
+              <td>B23317</td>
             </tr>
           </tbody>
         </table>
 
         <h2>Protocol</h2>
 
-        <h3>1. Prepare Primer Plates</h3>
+        <h3>1. Prepare plates</h3>
         <ol>
-          <li>Order barcoded primers at 100 µM stock concentration</li>
-          <li>Dilute to 10 µM working concentration in nuclease-free water</li>
-          <li>Aliquot into 384-well plates matching your plate layout:
-            <ul>
-              <li>Forward primer plate (contains universal reverse primer in all wells)</li>
-              <li>Reverse primer plate (contains well-specific barcodes)</li>
-            </ul>
-          </li>
-          <li>Store at -20 °C</li>
+          <li>Spin all plates at <strong>4,000×g for 2 minutes</strong>.</li>
+          <li><strong>Glycerol plates:</strong> aliquot <strong>10 µL</strong> of filtered <strong>50% glycerol</strong> per well.</li>
+          <li><strong>PCR plates:</strong> prepare a large tub of ice and arrange PCR plates on ice.</li>
         </ol>
 
-        <h3>2. Colony PCR from 384-Well Plates</h3>
+        <h3>2. Barcoding PCR setup (10 µL total reaction)</h3>
 
-        <p><strong>PCR setup (per well):</strong></p>
-        <ul>
-          <li>5 µL KAPA HiFi HotStart ReadyMix (2×)</li>
-          <li>0.25 µL forward primer (10 µM)</li>
-          <li>0.25 µL reverse primer with barcode (10 µM)</li>
-          <li>0.5 µL bacterial culture (direct from 384-well plate)</li>
-          <li>4 µL nuclease-free H₂O</li>
-          <li><strong>Total</strong>: 10 µL</li>
-        </ul>
+        <p><strong>Master mix (7 µL per reaction; include 10% excess):</strong></p>
+        <table>
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th>Volume per rxn (µL)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Q5 Polymerase</td><td>0.1</td></tr>
+            <tr><td>Q5 5X Buffer</td><td>2.0</td></tr>
+            <tr><td>10 mM dNTPs</td><td>0.2</td></tr>
+            <tr><td>DMSO</td><td>0.4</td></tr>
+            <tr><td>H₂O</td><td>4.3</td></tr>
+            <tr><td><strong>Total</strong></td><td><strong>7.0</strong></td></tr>
+          </tbody>
+        </table>
 
         <ol>
-          <li>Using a multichannel pipette, transfer 0.5 µL from each well of the 384-well plate to a PCR plate</li>
-          <li>Add master mix + primers to each well (can use liquid handler for automation)</li>
-          <li>Seal plates and centrifuge briefly</li>
-          <li>Run PCR program:
-            <ul>
-              <li>95 °C, 3 min (initial denaturation + cell lysis)</li>
-              <li>25× [98 °C, 20 s; 60 °C, 15 s; 72 °C, 30 s]</li>
-              <li>72 °C, 2 min</li>
-              <li>4 °C, hold</li>
-            </ul>
+          <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
+          <li><strong>Liquid handler workflow</strong> (minimize tips; do not change tips for each 384 or 96-well equivalent to prevent cross-contamination):
+            <ol>
+              <li>Add <strong>2 µL</strong> LevSeq barcodes to the PCR plate.</li>
+              <li>Set tip volume to <strong>10 µL</strong>; resuspend cultures in the sort plate by mixing.</li>
+              <li>Add <strong>10 µL</strong> cultures to glycerol plate and mix.</li>
+              <li>Set tip volume to <strong>1 µL</strong>; add <strong>1 µL</strong> cultures to the PCR plate.</li>
+              <li>Set tip volume to <strong>7 µL</strong>; mix PCR reactions.</li>
+            </ol>
           </li>
         </ol>
+
+        <h3>3. Thermocycler program (touchdown)</h3>
+
+        <table>
+        <thead>
+          <tr>
+            <th>Cycles</th>
+            <th>Temperature (°C)</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr>
+            <td>1</td>
+            <td>98</td>
+            <td>3 min</td>
+          </tr>
+
+          <tr>
+            <td rowspan="3">10</td>
+            <td>98</td>
+            <td>10 sec</td>
+          </tr>
+          <tr>
+            <td>65 → 55*</td>
+            <td>30 sec</td>
+          </tr>
+          <tr>
+            <td>72</td>
+            <td>20 sec/kb</td>
+          </tr>
+
+          <tr>
+            <td rowspan="3">25</td>
+            <td>98</td>
+            <td>10 sec</td>
+          </tr>
+          <tr>
+            <td>66</td>
+            <td>20 sec</td>
+          </tr>
+          <tr>
+            <td>72</td>
+            <td>20 sec/kb</td>
+          </tr>
+
+          <tr>
+            <td rowspan="2">1</td>
+            <td>72</td>
+            <td>3 min</td>
+          </tr>
+          <tr>
+            <td>10</td>
+            <td>hold</td>
+          </tr>
+
+        </tbody>
+      </table>
 
         <div class="callout">
-          <strong>⏱️ Time:</strong> Expect ~50 minutes per 384-well plate for setup and PCR (2–3 hours total with cycling).
-          With a liquid handler, you can process 8–10 plates per 8-hour day.
+          <strong>Note:</strong> Touchdown step decreases from 65°C to 55°C over 10 cycles (ΔT = −1°C/cycle). PCR takes ~1 hour. During PCR, measure ODs of sort plates and store glycerol stocks at −80°C.
         </div>
 
-        <h3>3. Verify Amplification</h3>
+        <h3>4. Pooling + cleanup</h3>
         <ol>
-          <li>Run 2 µL from 8–12 random wells on a 1% agarose gel</li>
-          <li>Verify presence of expected band size</li>
-          <li>Check for non-specific amplification</li>
+          <li>Aliquot <strong>30 µL</strong> of <strong>100 mM EDTA</strong> into <strong>two</strong> 8×200 µL strip tubes per plate.</li>
+          <li>Using Integra Voyager: configure <strong>Multi-Aspirate</strong> for <strong>24 aspirations</strong> of <strong>5 µL</strong> per step; aspirate row-wise along the plate.</li>
+          <li>Widen tip spacing and dispense the combined <strong>120 µL</strong> into an 8-tube strip.</li>
+          <li>Pool <strong>75 µL</strong> from strip tubes into a single 1.5 mL Eppendorf.</li>
+          <li>Repeat for each plate.</li>
+          <li>Perform bead cleanup with <strong>SPRIselect</strong> using a <strong>&gt;300 bp cutoff</strong> (per Beckman Coulter protocol).</li>
         </ol>
-
-        <h3>4. Pool Barcoded Amplicons</h3>
-        <ol>
-          <li>Pool 2 µL from each well of all PCR plates into a single tube</li>
-          <li>Mix thoroughly by vortexing and inversion</li>
-          <li>Purify pooled amplicons using DNA Clean & Concentrator:
-            <ul>
-              <li>Follow manufacturer's protocol</li>
-              <li>Elute in 30–50 µL nuclease-free water</li>
-            </ul>
-          </li>
-          <li>Quantify by Qubit or NanoDrop</li>
-          <li>Verify size distribution by TapeStation or Fragment Analyzer</li>
-        </ol>
-
-        <div class="callout">
-          <strong>Target yield:</strong> 5–20 µg total DNA from 2,000–5,000 wells. This is sufficient for most sequencing platforms.
-        </div>
 
         <h2>File Formats</h2>
 
@@ -387,15 +461,15 @@ plate_2,A02,TCGATCGATCGA</code></pre>
     }
 
     function updateThemeUI(theme) {
-      const icon = document.getElementById('theme-icon');
-      const label = document.getElementById('theme-label');
+      const moon = document.getElementById('icon-moon');
+      const sun = document.getElementById('icon-sun');
 
       if (theme === 'dark') {
-        icon.textContent = '☀️';
-        label.textContent = 'Light mode';
+        moon.style.display = 'none';
+        sun.style.display = 'block';
       } else {
-        icon.textContent = '🌙';
-        label.textContent = 'Dark mode';
+        moon.style.display = 'block';
+        sun.style.display = 'none';
       }
     }
 

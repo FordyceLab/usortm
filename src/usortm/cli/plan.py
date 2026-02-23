@@ -1,4 +1,5 @@
 """Plan and orchestrate a uSort-M experiment workflow."""
+from __future__ import annotations
 
 from typing import Optional
 from pathlib import Path
@@ -7,12 +8,13 @@ import json
 from datetime import datetime
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 # Project state file structure
 PROJECT_STATE_FILE = "usortm_project.json"
@@ -29,10 +31,10 @@ def plan(
         "--output", "-o",
         help="Output directory for project files.",
     ),
-    seq_length: int = typer.Option(
-        300,
+    seq_length: Optional[int] = typer.Option(
+        None,
         "--seq-length", "-l",
-        help="Length of the variable region in base pairs.",
+        help="Length of the variable region in base pairs (auto-detected from sequences if omitted).",
     ),
     fold_sampling: float = typer.Option(
         8.0,
@@ -56,7 +58,7 @@ def plan(
     ),
 ):
     """
-    Plan a [blue]uSort-M[/blue] experiment from a variant list.
+    Plan a [#4096E3]uSort-M[/#4096E3] experiment from a variant list.
     
     Creates a project directory with:
     
@@ -67,7 +69,7 @@ def plan(
     [bold]Workflow:[/bold]
     
     1. [cyan]usortm plan[/cyan] variants.csv → Create project, get sorting plan
-    2. [dim]Wet lab: synthesize, clone, sort, barcode, sequence[/dim]
+    2. [muted]Wet lab: synthesize, clone, sort, barcode, sequence[/muted]
     3. [cyan]usortm demux[/cyan] project/ --fastq data.fastq → Demultiplex reads
     4. [cyan]usortm pick[/cyan] project/ → Generate hit-picking list
     5. [cyan]usortm report[/cyan] project/ → Final plate maps
@@ -80,15 +82,23 @@ def plan(
     
     console.print()
     console.print(Panel.fit(
-        "[bold blue]uSort-M[/bold blue] Experiment Planner",
-        border_style="blue",
+        "[brand]uSort-M[/brand] Experiment Planner",
+        border_style=BORDER_STYLE,
     ))
     console.print()
     
     # Read variants
     variants = _read_variants(variants_file)
     library_size = len(variants)
-    
+
+    # Validate variant names for problematic characters
+    _validate_variant_names(variants)
+
+    # Auto-detect sequence length if not provided
+    if seq_length is None:
+        seq_length = _infer_seq_length(variants)
+        console.print(f"[green]✓[/green] Auto-detected sequence length: [cyan]{seq_length} bp[/cyan]")
+
     console.print(f"[green]✓[/green] Loaded [cyan]{library_size}[/cyan] variants from {variants_file.name}")
     
     # Calculate sorting requirements
@@ -110,7 +120,7 @@ def plan(
     import numpy as np
     from usortm.simulate.sortm import sortm
 
-    console.print("[dim]Running coverage simulation...[/dim]")
+    console.print("[muted]Running coverage simulation...[/muted]")
     predicted_variants = sortm(
         n_sims=100,
         lib_size=library_size,
@@ -140,9 +150,9 @@ def plan(
         show_header=True,
         header_style="bold cyan",
     )
-    summary_table.add_column("Parameter", style="dim")
+    summary_table.add_column("Parameter", style="muted")
     summary_table.add_column("Value", justify="right")
-    summary_table.add_column("Parameter", style="dim")
+    summary_table.add_column("Parameter", style="muted")
     summary_table.add_column("Value", justify="right")
     
     summary_table.add_row(
@@ -259,6 +269,78 @@ def _save_variants(variants: list[dict], output_path: Path):
         writer = csv.DictWriter(f, fieldnames=variants[0].keys())
         writer.writeheader()
         writer.writerows(variants)
+
+
+def _infer_seq_length(variants: list[dict]) -> int:
+    """Infer sequence length from variant sequences.
+
+    Looks for a ``Sequence`` or ``sequence`` column, computes the median
+    length of uppercase-only characters (matching
+    ``csv_to_reference_fasta(strip_flanking=True)`` behavior).  Falls back
+    to 300 bp if no sequence column is found.
+    """
+    import statistics
+
+    seq_col = None
+    for col_name in ("Sequence", "sequence"):
+        if variants and col_name in variants[0]:
+            seq_col = col_name
+            break
+
+    if seq_col is None:
+        return 300
+
+    lengths = []
+    for v in variants:
+        seq = v.get(seq_col, "")
+        upper_only = "".join(c for c in seq if c.isupper())
+        if upper_only:
+            lengths.append(len(upper_only))
+
+    if not lengths:
+        return 300
+
+    return int(statistics.median(lengths))
+
+
+def _validate_variant_names(variants: list[dict]) -> None:
+    """Check variant names for characters that break downstream processing.
+
+    Protected characters: ``/`` (file paths), ``|`` (FASTA/cons_check
+    delimiter), ``>`` (FASTA header), and whitespace.  Aborts with an
+    error message showing up to 10 offending names.
+    """
+    import re as _re
+
+    name_col = None
+    for col_name in ("Name", "name", "variant"):
+        if variants and col_name in variants[0]:
+            name_col = col_name
+            break
+
+    if name_col is None:
+        return
+
+    bad_pattern = _re.compile(r'[/|>\s]')
+    offenders: list[tuple[int, str]] = []
+
+    for idx, v in enumerate(variants, start=2):  # row 2 = first data row (1-indexed + header)
+        name = v.get(name_col, "")
+        if bad_pattern.search(name):
+            offenders.append((idx, name))
+
+    if offenders:
+        console.print()
+        console.print("[red]Error:[/red] Variant names contain characters that break downstream processing.")
+        console.print("Protected characters: [cyan]/[/cyan]  [cyan]|[/cyan]  [cyan]>[/cyan]  whitespace")
+        console.print()
+        for row_num, name in offenders[:10]:
+            console.print(f"  Row {row_num}: [yellow]{name!r}[/yellow]")
+        if len(offenders) > 10:
+            console.print(f"  ... and {len(offenders) - 10} more")
+        console.print()
+        console.print("Please fix the variant names and re-run.")
+        raise typer.Exit(1)
 
 
 def _generate_barcode_assignments(n_plates: int, barcode_kit: str, output_dir: Path) -> dict:
@@ -484,11 +566,13 @@ def _write_default_mask_config(output_dir: Path):
     Users can edit this file to match their plasmid backbone before
     running ``usortm demux``.  The demux command auto-detects this
     file in the project directory.
+
+    Only the ``[fbc]`` section is written; the ``[rbc]`` masks are
+    automatically derived (reverse-complement swap) at load time.
     """
-    from usortm.demux.barcodes import DEFAULT_MASKS
+    from usortm.demux.barcodes import DEFAULT_MASKS, DEFAULT_SCORING
 
     fbc = DEFAULT_MASKS["fbc"]
-    rbc = DEFAULT_MASKS["rbc"]
 
     content = f"""# Barcode mask (flanking) sequences for Dorado demultiplexing.
 #
@@ -496,7 +580,14 @@ def _write_default_mask_config(output_dir: Path):
 # and help Dorado locate barcodes in each read.  Edit these to match
 # YOUR plasmid backbone before running `usortm demux`.
 #
+# Only the [fbc] section is needed — the reverse-barcode (RBC) masks
+# are automatically derived as reverse complements at load time.
+#
 # The defaults below are for the cutinase expression vector.
+# You can also use a built-in preset: usortm config list
+
+[meta]
+description = "Cutinase expression vector (T7 backbone)"
 
 [fbc]
 mask1_front = "{fbc['mask1_front']}"
@@ -504,10 +595,17 @@ mask1_rear  = "{fbc['mask1_rear']}"
 mask2_front = "{fbc['mask2_front']}"
 mask2_rear  = "{fbc['mask2_rear']}"
 
-[rbc]
-mask1_front = "{rbc['mask1_front']}"
-mask1_rear  = "{rbc['mask1_rear']}"
-mask2_front = "{rbc['mask2_front']}"
-mask2_rear  = "{rbc['mask2_rear']}"
+# Uncomment and edit to override Dorado barcode scoring parameters.
+# These rarely need tuning — adjust only if you see low barcode
+# classification rates.
+#
+# [scoring]
+# max_barcode_penalty = {DEFAULT_SCORING['max_barcode_penalty']}
+# min_barcode_penalty_dist = {DEFAULT_SCORING['min_barcode_penalty_dist']}
+# flank_right_pad = {DEFAULT_SCORING['flank_right_pad']}
+# flank_left_pad = {DEFAULT_SCORING['flank_left_pad']}
+# min_separation_only_dist = {DEFAULT_SCORING['min_separation_only_dist']}
+# min_flank_score = {DEFAULT_SCORING['min_flank_score']}
+# barcode_end_proximity = {DEFAULT_SCORING['barcode_end_proximity']}
 """
     (output_dir / "mask_config.toml").write_text(content)

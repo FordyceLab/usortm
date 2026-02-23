@@ -5,10 +5,11 @@ from pathlib import Path
 import csv
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 
-console = Console()
+from usortm.cli.theme import get_console, BORDER_STYLE
+
+console = get_console()
 
 # Default evSeq barcode sequences (DI01-DI08, 96 wells each)
 # These are the standard evSeq barcodes from the FHAlab evSeq protocol
@@ -109,8 +110,8 @@ def demux_prep(
     
     console.print()
     console.print(Panel.fit(
-        "[bold blue]Generating Dorado Demux Input Files[/bold blue]",
-        border_style="blue",
+        "[brand]Generating Dorado Demux Input Files[/brand]",
+        border_style=BORDER_STYLE,
     ))
     console.print()
     
@@ -310,6 +311,5 @@ echo "Output: $OUTPUT_DIR"
 
 def _reverse_complement(seq: str) -> str:
     """Return reverse complement of a DNA sequence."""
-    complement = {"A": "T", "T": "A", "G": "C", "C": "G", 
-                  "a": "t", "t": "a", "g": "c", "c": "g"}
-    return "".join(complement.get(base, base) for base in reversed(seq))
+    from usortm.demux.barcodes import reverse_complement
+    return reverse_complement(seq)
