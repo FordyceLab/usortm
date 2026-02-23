@@ -5,6 +5,7 @@ import bionumpy as bnp
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.cm as cm
 from bokeh.plotting import figure
 from bokeh.models import (
     ColumnDataSource, HoverTool, RadioButtonGroup, CustomJS,
@@ -157,14 +158,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     plates = sorted(dom["plate"].unique())
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
 
-    # cool-warm diverging colormap: blue → white → red, centered at min_reads
-    def make_diverging_gradient(hex_low, hex_mid, hex_high, n=256):
-        cmap = mcolors.LinearSegmentedColormap.from_list(
-            "", [hex_low, hex_mid, hex_high]
-        )
-        return [mcolors.rgb2hex(cmap(i / n)[:3]) for i in range(n)]
-
-    palette = make_diverging_gradient("#4575B4", "#FFFFFF", "#D73027", 256)
+    palette = [mcolors.rgb2hex(cm.coolwarm(i / 255)[:3]) for i in range(256)]
     mapper = LinearColorMapper(palette=palette, low=0, high=min_reads * 2)
 
     TOOLTIPS = """
