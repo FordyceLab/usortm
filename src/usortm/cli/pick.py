@@ -236,9 +236,10 @@ def _load_well_assignments(assignments_file: Path) -> list:
             well_data.append({
                 "plate": row["plate"],
                 "well": row["well"],
-                "variant": row["variant"],
+                "variant": row["variant"].split("|")[0],  # strip legacy |cons_check suffix
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
+                "cons_check": row.get("cons_check", ""),
             })
 
     return well_data

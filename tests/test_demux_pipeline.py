@@ -395,7 +395,9 @@ class TestPipelineHelpers:
         # Check well assignment content
         a1 = results["well_assignments"]["1_A1"]
         assert a1["reads"] == 30
-        assert a1["variant"] == "GFP_test|Perfect Match"
+        # cons_check is stored separately — variant name is clean
+        assert a1["variant"] == "GFP_test"
+        assert a1["cons_check"] == "Perfect Match"
         assert a1["consensus_fraction"] == 0.95
 
     def test_translate_empty_well_df(self):
@@ -633,3 +635,99 @@ class TestFullPipeline:
 
         # Verify progress was tracked
         assert len(stages_seen) > 0
+
+
+# ---------------------------------------------------------------------------
+# Tests for _process_single_well and generate_per_well_consensus workers param
+# ---------------------------------------------------------------------------
+
+class TestProcessSingleWell:
+    """Unit tests for the per-well consensus helper."""
+
+    def test_returns_tuple_of_three(self, tmp_path):
+        """_process_single_well always returns (well, cigar, cons) even on failure."""
+        from usortm.demux.utils import _process_single_well
+
+        paths = {
+            "ref_fa": str(tmp_path / "nonexistent_ref.fasta"),
+            "fq": str(tmp_path / "nonexistent.fastq"),
+            "bam": str(tmp_path / "out.bam"),
+            "cons_fa": str(tmp_path / "cons.fasta"),
+            "cons_bam": str(tmp_path / "cons_align.bam"),
+        }
+        result = _process_single_well("1A1", paths, "minimap2_fake", "samtools_fake")
+        assert len(result) == 3
+        well, cigar, cons = result
+        assert well == "1A1"
+        # Should return None values on failure (subprocess will fail with fake paths)
+        assert cigar is None
+        assert cons is None
+
+    def test_workers_param_accepted(self):
+        """generate_per_well_consensus accepts a workers keyword argument."""
+        import inspect
+        from usortm.demux.utils import generate_per_well_consensus
+
+        sig = inspect.signature(generate_per_well_consensus)
+        assert "workers" in sig.parameters
+        assert sig.parameters["workers"].default == 4
+
+
+class TestConcatFastqDir:
+    """Unit tests for _concat_fastq_dir."""
+
+    def test_concatenates_plain_fastqs(self, tmp_path):
+        """Combines multiple plain FASTQ files into one."""
+        from usortm.cli.demux_cmd import _concat_fastq_dir
+
+        fq_dir = tmp_path / "fastqs"
+        fq_dir.mkdir()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        reads_a = "@read1\nACGT\n+\nIIII\n@read2\nTTTT\n+\nIIII\n"
+        reads_b = "@read3\nGGGG\n+\nIIII\n"
+        (fq_dir / "lane1.fastq").write_text(reads_a)
+        (fq_dir / "lane2.fastq").write_text(reads_b)
+
+        result = _concat_fastq_dir(fq_dir, out_dir)
+
+        assert result == out_dir / "combined.fastq"
+        combined = result.read_text()
+        assert "@read1" in combined
+        assert "@read2" in combined
+        assert "@read3" in combined
+
+    def test_concatenates_gzipped_fastqs(self, tmp_path):
+        """Decompresses and combines gzip FASTQ files."""
+        import gzip
+        from usortm.cli.demux_cmd import _concat_fastq_dir
+
+        fq_dir = tmp_path / "fastqs"
+        fq_dir.mkdir()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        reads = "@read1\nACGT\n+\nIIII\n"
+        with gzip.open(fq_dir / "lane1.fastq.gz", "wt") as f:
+            f.write(reads)
+        (fq_dir / "lane2.fastq").write_text("@read2\nTTTT\n+\nIIII\n")
+
+        result = _concat_fastq_dir(fq_dir, out_dir)
+
+        combined = result.read_text()
+        assert "@read1" in combined
+        assert "@read2" in combined
+
+    def test_raises_on_empty_dir(self, tmp_path):
+        """Exits with typer.Exit when no FASTQ files are found."""
+        import click
+        from usortm.cli.demux_cmd import _concat_fastq_dir
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        with pytest.raises(click.exceptions.Exit):
+            _concat_fastq_dir(empty_dir, out_dir)

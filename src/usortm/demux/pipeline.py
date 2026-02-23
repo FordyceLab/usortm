@@ -69,6 +69,7 @@ def run_levseq_pipeline(
     min_reads: int = 100,
     min_fraction: float = 0.8,
     threads: int = 4,
+    workers: int = 4,
     progress_callback: Optional[Callable[[str], None]] = None,
     mask_config: Optional[dict] = None,
     subsample: Optional[int] = None,
@@ -96,6 +97,7 @@ def run_levseq_pipeline(
         min_reads: Minimum reads per well to pass QC.
         min_fraction: Minimum consensus fraction to pass QC.
         threads: Number of threads for alignment.
+        workers: Number of parallel workers for per-well consensus.
         progress_callback: Optional function called with stage descriptions.
         mask_config: Optional dict with ``fbc`` and ``rbc`` sub-dicts
             containing mask sequences for Dorado barcode TOML files.
@@ -246,6 +248,7 @@ def run_levseq_pipeline(
             str(ref_dir),
             minimap2_path=tool_paths["minimap2"],
             samtools_path=tool_paths["samtools"],
+            workers=workers,
         )
 
         # --- Stage 10: Variant calling ---
@@ -369,15 +372,14 @@ def _translate_to_cli_format(
         well = str(row["well"])
         key = f"{plate}_{well}"
 
-        # Extract variant name from major_ref
+        # Extract variant name — strip strand prefix only, no suffix
         variant = str(row.get("major_ref", "unknown"))
         if ":" in variant:
             variant = variant.split(":")[-1]
 
-        # Append consensus check status if available
-        cons_check = row.get("cons_check", "")
-        if cons_check and cons_check != "Error":
-            variant = f"{variant}|{cons_check}"
+        # cons_check stored separately, not appended to name
+        _cc = row.get("cons_check")
+        cons_check_val = str(_cc) if (_cc is not None and pd.notna(_cc)) else ""
 
         well_assignments[key] = {
             "plate": plate,
@@ -385,7 +387,19 @@ def _translate_to_cli_format(
             "reads": int(row["depth"]),
             "variant": variant,
             "consensus_fraction": float(row.get("major_freq", 0.0)),
+            "cons_check": cons_check_val,
         }
+
+    # Compute actual sequence length stats from ref_len column
+    seq_len_stats = {}
+    if "ref_len" in well_df.columns:
+        ref_lens = well_df["ref_len"].dropna().astype(int)
+        if len(ref_lens) > 0:
+            seq_len_stats = {
+                "seq_len_min": int(ref_lens.min()),
+                "seq_len_max": int(ref_lens.max()),
+                "seq_len_median": int(ref_lens.median()),
+            }
 
     return {
         "input_reads": input_reads,
@@ -397,4 +411,5 @@ def _translate_to_cli_format(
         "well_assignments": well_assignments,
         # Keep total_reads as alias for backward compat
         "total_reads": input_reads,
+        **seq_len_stats,
     }

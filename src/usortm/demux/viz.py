@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from bokeh.plotting import figure
 from bokeh.models import (
-    ColumnDataSource, HoverTool, Slider, CustomJS,
+    ColumnDataSource, HoverTool, RadioButtonGroup, CustomJS,
     LinearColorMapper, ColorBar, CustomJSTickFormatter
 )
 from bokeh.layouts import column
@@ -181,7 +181,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     src = ColumnDataSource(plate_dict[str(start_plate)])
 
     fig = figure(x_range=(0.5, 24.5), y_range=ROWS[::-1],
-                 width=plot_width, height=500, tools="reset",
+                 width=900, height=560, tools="reset",
                  title=f"Plate {start_plate}")
     fig.scatter("col", "RowCat", size=well_size, source=src, marker="square",
                 fill_color={'field': 'reads', 'transform': mapper},
@@ -207,21 +207,26 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     """)
     fig.add_layout(color_bar, 'right')
 
-    slider = Slider(start=min(plates), end=max(plates), step=1, value=start_plate,
-                    title="Plate")
-    slider.js_on_change("value", CustomJS(args=dict(src=src, figs=fig, data=plate_dict),
-        code="""
-        const p = cb_obj.value.toString();
-        const new_data = {};
-        for (let k in data[p]) {
-            new_data[k] = data[p][k].slice();
-        }
-        src.data = new_data;
-        figs.title.text = "Plate " + p;
-        src.change.emit();
-    """))
-
-    layout = column(slider, fig)
+    if len(plates) > 1:
+        btn_group = RadioButtonGroup(
+            labels=[str(p) for p in plates],
+            active=0,
+            stylesheets=[".bk-btn { min-width: 40px; font-size: 14px; }"],
+        )
+        btn_group.js_on_change("active", CustomJS(
+            args=dict(src=src, figs=fig, data=plate_dict, labels=[str(p) for p in plates]),
+            code="""
+            const p = labels[cb_obj.active];
+            const new_data = {};
+            for (let k in data[p]) { new_data[k] = data[p][k].slice(); }
+            src.data = new_data;
+            figs.title.text = "Plate " + p;
+            src.change.emit();
+            """,
+        ))
+        layout = column(btn_group, fig)
+    else:
+        layout = column(fig)
     return layout
 
 
@@ -355,7 +360,7 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
 
     fig_obj = figure(
         x_range=(0.5, n_cols + 0.5), y_range=ROWS[::-1],
-        width=plot_width, height=500 if target_format == 384 else 300,
+        width=900, height=560 if target_format == 384 else 340,
         tools="reset",
         title=f"Pick Plate {start_plate}",
     )
@@ -378,24 +383,23 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
     fig_obj.add_layout(color_bar, "right")
 
     if len(plates) > 1:
-        slider = Slider(
-            start=min(plates), end=max(plates), step=1,
-            value=start_plate, title="Target Plate",
+        btn_group = RadioButtonGroup(
+            labels=[str(p) for p in plates],
+            active=0,
+            stylesheets=[".bk-btn { min-width: 40px; font-size: 14px; }"],
         )
-        slider.js_on_change("value", CustomJS(
-            args=dict(src=src, figs=fig_obj, data=plate_dict),
+        btn_group.js_on_change("active", CustomJS(
+            args=dict(src=src, figs=fig_obj, data=plate_dict, labels=[str(p) for p in plates]),
             code="""
-            const p = cb_obj.value.toString();
+            const p = labels[cb_obj.active];
             const new_data = {};
-            for (let k in data[p]) {
-                new_data[k] = data[p][k].slice();
-            }
+            for (let k in data[p]) { new_data[k] = data[p][k].slice(); }
             src.data = new_data;
             figs.title.text = "Pick Plate " + p;
             src.change.emit();
             """,
         ))
-        layout = column(slider, fig_obj)
+        layout = column(btn_group, fig_obj)
     else:
         layout = column(fig_obj)
 

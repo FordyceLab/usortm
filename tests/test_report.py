@@ -507,3 +507,122 @@ def test_report_html_library_recovery(mock_project_with_library):
     assert "Tier A" in html_content
     assert "Tier B" in html_content
     assert "Tier C" in html_content
+
+
+def test_final_mapping_groups_by_base_variant(tmp_path):
+    """_save_final_mapping should group by base name, stripping |cons_check suffixes."""
+    from usortm.cli.report import _save_final_mapping
+
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "AIRE;254;400", "reads": 50, "consensus_fraction": 0.80},
+        {"plate": "1", "well": "B1", "variant": "AIRE;254;400|Perfect Match", "reads": 200, "consensus_fraction": 0.98},
+        {"plate": "1", "well": "C1", "variant": "BRCA1;10;20", "reads": 120, "consensus_fraction": 0.95},
+    ]
+
+    output_file = tmp_path / "final_mapping.csv"
+    _save_final_mapping(well_data, output_file)
+
+    with open(output_file, newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    # Should have 2 unique base variants, not 3
+    assert len(rows) == 2
+    variants = {row["variant"] for row in rows}
+    assert variants == {"AIRE;254;400", "BRCA1;10;20"}
+
+    # AIRE row should show 2 wells and best reads = 200
+    aire_row = next(r for r in rows if r["variant"] == "AIRE;254;400")
+    assert aire_row["num_wells"] == "2"
+    assert aire_row["best_reads"] == "200"
+
+
+def test_report_seq_len_range_from_demux_summary(tmp_path):
+    """HTML report should show measured seq length range when available in demux_summary."""
+    project_dir = tmp_path / "seq_len_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 2,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writerow(["1", "A1", "var1", 200, 0.95])
+        writer.writerow(["1", "B1", "var2", 150, 0.92])
+
+    # Include measured seq_len range in summary
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({
+            "input_reads": 400,
+            "assigned_reads": 350,
+            "wells_with_data": 2,
+            "wells_passing": 2,
+            "seq_len_min": 285,
+            "seq_len_max": 510,
+            "seq_len_median": 400,
+        }, f)
+
+    result = runner.invoke(app, ["report", str(project_dir), "--format", "html"])
+    assert result.exit_code == 0
+
+    html_file = project_dir / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    # Should show range "285–510 bp", NOT the plan value "300 bp"
+    assert "285" in html_content
+    assert "510" in html_content
+    # The plan-step-only value should not appear as the seq length
+    assert "300 bp" not in html_content
+
+
+def test_report_seq_len_single_value_from_demux_summary(tmp_path):
+    """HTML report shows single value when min == max in demux_summary."""
+    project_dir = tmp_path / "seq_len_single_project"
+    project_dir.mkdir()
+
+    state = {
+        "library_size": 1,
+        "seq_length": 300,
+        "fold_sampling": 4,
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writerow(["1", "A1", "var1", 200, 0.95])
+
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({
+            "input_reads": 200,
+            "assigned_reads": 200,
+            "wells_with_data": 1,
+            "wells_passing": 1,
+            "seq_len_min": 450,
+            "seq_len_max": 450,
+        }, f)
+
+    result = runner.invoke(app, ["report", str(project_dir), "--format", "html"])
+    assert result.exit_code == 0
+
+    html_file = project_dir / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    assert "450 bp" in html_content

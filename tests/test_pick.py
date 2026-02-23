@@ -411,3 +411,63 @@ def test_pick_empty_wells(tmp_path):
     assert lib_a_row[1] == "1"
     assert lib_a_row[2] == "A1"
     assert lib_a_row[5] == "5.0"
+
+
+def test_pick_empty_wells_with_legacy_suffix(tmp_path):
+    """Variants with |cons_check suffix in well_assignments still match library names."""
+    project_dir = tmp_path / "legacy_suffix_project"
+    project_dir.mkdir()
+
+    library_file = tmp_path / "library.csv"
+    with open(library_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Name", "Sequence"])
+        writer.writerow(["libA", "ATCG"])
+        writer.writerow(["libB", "GCTA"])
+        writer.writerow(["libC", "TTTT"])
+
+    state = {
+        "library_size": 3,
+        "library_file": str(library_file),
+        "workflow_steps": {"demux": {"completed": True}},
+    }
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump(state, f)
+
+    demux_dir = project_dir / "demux_output"
+    demux_dir.mkdir()
+
+    # libA recovered with legacy |Perfect Match suffix, libC without suffix
+    well_data = [
+        {"plate": "1", "well": "A1", "variant": "libA|Perfect Match", "reads": 200, "consensus_fraction": 0.98},
+        {"plate": "1", "well": "B1", "variant": "libC", "reads": 150, "consensus_fraction": 0.92},
+    ]
+    with open(demux_dir / "well_assignments.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["plate", "well", "variant", "reads", "consensus_fraction"])
+        writer.writeheader()
+        writer.writerows(well_data)
+    with open(demux_dir / "demux_summary.json", "w") as f:
+        json.dump({"total_reads": 500, "assigned_reads": 350, "wells_with_data": 2, "wells_passing": 2}, f)
+
+    result = runner.invoke(app, ["pick", str(project_dir), "--tier", ""])
+    assert result.exit_code == 0
+
+    hitlist = project_dir / "hitlist.csv"
+    with open(hitlist, newline="") as f:
+        reader = csv.reader(f, delimiter=";")
+        next(reader)
+        rows = list(reader)
+
+    # 3 rows: libA (recovered), libB (empty), libC (recovered)
+    assert len(rows) == 3
+    assert [row[0] for row in rows] == ["libA", "libB", "libC"]
+
+    # libA matched despite |Perfect Match suffix — has real source data
+    lib_a_row = rows[0]
+    assert lib_a_row[1] == "1"   # source plate
+    assert lib_a_row[2] == "A1"  # source well
+
+    # libB is empty placeholder
+    lib_b_row = rows[1]
+    assert lib_b_row[1] == ""
+    assert lib_b_row[5] == "0.0"

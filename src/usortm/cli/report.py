@@ -231,10 +231,10 @@ def _save_plate_maps(well_data: list, output_file: Path):
 
 def _save_final_mapping(well_data: list, output_file: Path):
     """Save final variant-to-well mapping."""
-    # Group wells by variant
+    # Group wells by base variant name (strip legacy |cons_check suffix)
     variant_map = {}
     for well in well_data:
-        variant = well["variant"]
+        variant = well["variant"].split("|")[0]
         if variant not in variant_map:
             variant_map[variant] = []
         variant_map[variant].append(well)
@@ -278,8 +278,8 @@ def _save_missing_variants(project: dict, well_data: list, output_file: Path):
             except:
                 pass  # If we can't read it, skip
 
-    # Get recovered variants
-    recovered_variants = set(w["variant"] for w in well_data)
+    # Get recovered variants (strip legacy |cons_check suffix)
+    recovered_variants = set(w["variant"].split("|")[0] for w in well_data)
 
     # Find missing variants
     missing_variants = expected_variants - recovered_variants
@@ -455,6 +455,17 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
     plate_bar_svg = _generate_plate_bar_svg(plate_reads)
 
+    # Sequence length display — use measured range from demux, fall back to plan value
+    sl_min = demux_summary.get("seq_len_min")
+    sl_max = demux_summary.get("seq_len_max")
+    if sl_min is not None and sl_max is not None:
+        if sl_min == sl_max:
+            seq_len_display = f"{sl_min} bp"
+        else:
+            seq_len_display = f"{sl_min}\u2013{sl_max} bp"
+    else:
+        seq_len_display = f"{project.get('seq_length', 'N/A')} bp"
+
     # Library Recovery section
     recovery_section = ""
     if tiers:
@@ -494,8 +505,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                 plate_map_section = f"""
     <h2>Demux Plate Map</h2>
     <p>Interactive plate map showing per-well read depth and variant composition.</p>
-    <iframe srcdoc="{escaped}" width="100%" height="620"
-            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+    <iframe srcdoc="{escaped}" width="100%" height="780"
+            style="border:none;"></iframe>
 """
             except Exception:
                 rel_path = "../demux_output/plate_map.html"
@@ -503,8 +514,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <h2>Demux Plate Map</h2>
     <p>Interactive plate map showing per-well read depth and variant composition.
        <a href="{rel_path}" target="_blank">Open full size</a></p>
-    <iframe src="{rel_path}" width="100%" height="620"
-            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+    <iframe src="{rel_path}" width="100%" height="780"
+            style="border:none;"></iframe>
 """
 
         pick_plate_map = project_dir / "pick_plate_map.html"
@@ -515,8 +526,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                 pick_map_section = f"""
     <h2>Pick Plate Map</h2>
     <p>Interactive plate map showing cherry-picked wells.</p>
-    <iframe srcdoc="{escaped}" width="100%" height="620"
-            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+    <iframe srcdoc="{escaped}" width="100%" height="780"
+            style="border:none;"></iframe>
 """
             except Exception:
                 rel_path = "../pick_plate_map.html"
@@ -524,8 +535,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <h2>Pick Plate Map</h2>
     <p>Interactive plate map showing cherry-picked wells.
        <a href="{rel_path}" target="_blank">Open full size</a></p>
-    <iframe src="{rel_path}" width="100%" height="620"
-            style="border:1px solid var(--border); border-radius:8px;"></iframe>
+    <iframe src="{rel_path}" width="100%" height="780"
+            style="border:none;"></iframe>
 """
 
         # Add pick summary if pick step was completed
@@ -723,7 +734,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         </div>
         <div class="stat-box">
             <div class="stat-label">Sequence Length</div>
-            <div class="stat-value">{project.get('seq_length', 'N/A')} bp</div>
+            <div class="stat-value">{seq_len_display}</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Fold Sampling</div>

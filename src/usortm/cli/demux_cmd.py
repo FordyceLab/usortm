@@ -7,6 +7,7 @@ reference alignment, consensus generation, and variant calling.
 from typing import Optional
 from pathlib import Path
 import csv
+import gzip
 import json
 from datetime import datetime
 
@@ -33,8 +34,10 @@ def demux(
     fastq: Path = typer.Option(
         ...,
         "--fastq", "-f",
-        help="Path to FASTQ file with sequencing data.",
+        help="Path to FASTQ file or directory containing FASTQ files.",
         exists=True,
+        file_okay=True,
+        dir_okay=True,
     ),
     barcodes: Optional[Path] = typer.Option(
         None,
@@ -73,6 +76,11 @@ def demux(
         None,
         "--subsample", "-n",
         help="Subsample to this many reads before running the pipeline.",
+    ),
+    workers: int = typer.Option(
+        4,
+        "--workers", "-w",
+        help="Number of parallel workers for per-well consensus alignment.",
     ),
     mask_config_file: Optional[str] = typer.Option(
         None,
@@ -195,6 +203,10 @@ def demux(
     demux_output = project_dir / "demux_output"
     demux_output.mkdir(exist_ok=True)
 
+    # If directory, concatenate all FASTQs into a single file
+    if fastq.is_dir():
+        fastq = _concat_fastq_dir(fastq, demux_output)
+
     # Run the pipeline with progress updates
     with Progress(
         SpinnerColumn(),
@@ -214,6 +226,7 @@ def demux(
             min_reads=min_reads,
             min_fraction=min_fraction,
             threads=threads,
+            workers=workers,
             project_params=project,
             progress_callback=on_progress,
             mask_config=mask_config,
@@ -419,6 +432,53 @@ def _prompt_preset_selection() -> Optional[dict]:
     return _load_mask_config(selected["path"])
 
 
+def _concat_fastq_dir(directory: Path, output_dir: Path) -> Path:
+    """Concatenate all FASTQ files in a directory into a single file.
+
+    Scans for ``*.fastq``, ``*.fastq.gz``, ``*.fq``, ``*.fq.gz`` files
+    (recursively), prints the found files, and concatenates them into
+    ``output_dir/combined.fastq``.
+
+    Args:
+        directory: Directory to scan for FASTQ files.
+        output_dir: Directory for the combined output file.
+
+    Returns:
+        Path to the combined FASTQ file.
+    """
+    patterns = ["*.fastq", "*.fastq.gz", "*.fq", "*.fq.gz"]
+    found = sorted(
+        f for p in patterns for f in directory.rglob(p)
+    )
+    if not found:
+        console.print(
+            f"[red]Error:[/red] No FASTQ files found in {directory}"
+        )
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]\u2713[/green] Found {len(found)} FASTQ file(s) in {directory}:"
+    )
+    for f in found:
+        size_mb = f.stat().st_size / 1_048_576
+        console.print(f"  {f.name}  ({size_mb:.1f} MB)")
+
+    out_path = output_dir / "combined.fastq"
+    console.print(f"Concatenating into {out_path} ...")
+    with open(out_path, "wb") as out_fh:
+        for f in found:
+            if f.suffix == ".gz" or f.name.endswith(".fastq.gz") or f.name.endswith(".fq.gz"):
+                with gzip.open(f, "rb") as in_fh:
+                    for chunk in iter(lambda: in_fh.read(1 << 20), b""):
+                        out_fh.write(chunk)
+            else:
+                with open(f, "rb") as in_fh:
+                    for chunk in iter(lambda: in_fh.read(1 << 20), b""):
+                        out_fh.write(chunk)
+    console.print(f"[green]\u2713[/green] Combined FASTQ written to {out_path}")
+    return out_path
+
+
 def _run_demux(
     fastq: Path,
     output_dir: Path,
@@ -426,6 +486,7 @@ def _run_demux(
     min_reads: int,
     min_fraction: float,
     threads: int,
+    workers: int = 4,
     project_params: dict = None,
     progress_callback=None,
     mask_config: dict = None,
@@ -443,6 +504,7 @@ def _run_demux(
         min_reads: Minimum reads per well.
         min_fraction: Minimum consensus fraction.
         threads: Number of alignment threads.
+        workers: Number of parallel workers for per-well consensus.
         project_params: Project state dict (from usortm_project.json).
         progress_callback: Optional progress update function.
         mask_config: Optional dict with ``fbc`` and ``rbc`` mask sequences.
@@ -470,6 +532,7 @@ def _run_demux(
             min_reads=min_reads,
             min_fraction=min_fraction,
             threads=threads,
+            workers=workers,
             progress_callback=progress_callback,
             mask_config=mask_config,
             subsample=subsample,
@@ -535,21 +598,25 @@ def _save_demux_results(results: dict, output_dir: Path):
         output_dir: Output directory.
     """
     # Save summary JSON
+    summary = {
+        "input_reads": results.get("input_reads", 0),
+        "aligned_reads": results.get("aligned_reads", 0),
+        "demuxed_reads": results.get("demuxed_reads", 0),
+        "assigned_reads": results["assigned_reads"],
+        "wells_with_data": results["wells_with_data"],
+        "wells_passing": results["wells_passing"],
+    }
+    for key in ("seq_len_min", "seq_len_max", "seq_len_median"):
+        if key in results:
+            summary[key] = results[key]
     with open(output_dir / "demux_summary.json", "w") as f:
-        json.dump({
-            "input_reads": results.get("input_reads", 0),
-            "aligned_reads": results.get("aligned_reads", 0),
-            "demuxed_reads": results.get("demuxed_reads", 0),
-            "assigned_reads": results["assigned_reads"],
-            "wells_with_data": results["wells_with_data"],
-            "wells_passing": results["wells_passing"],
-        }, f, indent=2)
+        json.dump(summary, f, indent=2)
 
     # Save well assignments CSV
     with open(output_dir / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "plate", "well", "reads", "variant", "consensus_fraction"
+            "plate", "well", "reads", "variant", "consensus_fraction", "cons_check"
         ])
 
         for well_id, data in results["well_assignments"].items():
@@ -559,4 +626,5 @@ def _save_demux_results(results: dict, output_dir: Path):
                 data["reads"],
                 data["variant"],
                 data["consensus_fraction"],
+                data.get("cons_check", ""),
             ])

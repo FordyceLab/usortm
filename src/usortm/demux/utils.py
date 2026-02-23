@@ -880,6 +880,91 @@ def generate_well_df(read_df):
 
     return well_df
 
+def _process_single_well(well, paths, minimap2_path, samtools_path):
+    """Run alignment → consensus → re-alignment → CIGAR extraction for one well.
+
+    Args:
+        well: Well identifier string (e.g. "1A1").
+        paths: Dict with keys: ref_fa, fq, bam, cons_fa, cons_bam.
+        minimap2_path: Path to minimap2 binary.
+        samtools_path: Path to samtools binary.
+
+    Returns:
+        Tuple of (well, cigar_str, cons_seq) — values may be None on failure.
+    """
+    ref_fa = paths["ref_fa"]
+    fq = paths["fq"]
+    bam = paths["bam"]
+    cons_fa = paths["cons_fa"]
+    cons_bam = paths["cons_bam"]
+
+    # 1) Align reads to reference, pipe through samtools sort
+    try:
+        mm2 = subprocess.Popen(
+            [minimap2_path, "-a", ref_fa, fq],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            [samtools_path, "sort", "-o", bam],
+            stdin=mm2.stdout,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        mm2.wait()
+    except Exception as e:
+        print(f"Alignment failed for {well}: {e}")
+        return well, None, None
+
+    # 2) Generate consensus
+    try:
+        with open(cons_fa, "w") as cons_out:
+            subprocess.run(
+                [samtools_path, "consensus", "-f", "fasta", bam],
+                stdout=cons_out,
+                check=False,
+            )
+    except Exception as e:
+        print(f"Consensus failed for {well}: {e}")
+        return well, None, None
+
+    # 3) Align consensus back to reference
+    try:
+        mm2 = subprocess.Popen(
+            [minimap2_path, "-a", ref_fa, cons_fa],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            [samtools_path, "sort", "-o", cons_bam],
+            stdin=mm2.stdout,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        mm2.wait()
+    except Exception as e:
+        print(f"Consensus alignment failed for {well}: {e}")
+        return well, None, None
+
+    # 4) Extract CIGAR + consensus sequence
+    cigar_str, cons_seq = None, None
+    try:
+        with pysam.AlignmentFile(cons_bam, "rb") as bamfile:
+            for read in bamfile:
+                if not read.is_unmapped:
+                    cigar_str = read.cigarstring
+                    break
+
+        if os.path.exists(cons_fa):
+            with open(cons_fa) as f:
+                lines = f.read().splitlines()
+                cons_seq = "".join(l for l in lines if not l.startswith(">"))
+    except Exception as e:
+        print(f"Error processing {well}: {e}")
+
+    return well, cigar_str, cons_seq
+
+
 def generate_per_well_consensus(
     well_df,
     read_df,
@@ -887,6 +972,7 @@ def generate_per_well_consensus(
     reference_dir,
     minimap2_path=None,
     samtools_path=None,
+    workers: int = 4,
 ):
     """Generate per-well consensus sequences and add alignment info to well_df.
 
@@ -900,10 +986,13 @@ def generate_per_well_consensus(
         reference_dir: Directory containing single_ref_fastas/ subdirectory.
         minimap2_path: Path to minimap2 binary. Auto-detected if None.
         samtools_path: Path to samtools binary. Auto-detected if None.
+        workers: Number of parallel threads for consensus alignment.
 
     Returns:
         Updated well_df with CIGAR and cons_seq columns.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     if minimap2_path is None:
         minimap2_path = find_minimap2()
     if samtools_path is None:
@@ -915,7 +1004,7 @@ def generate_per_well_consensus(
     os.makedirs(wells_dir, exist_ok=True)
     os.makedirs(well_fastqs_dir, exist_ok=True)
 
-    # 1) Write per-well FASTQs
+    # 1) Write per-well FASTQs (sequential — fast I/O, sets up paths for parallel step)
     all_wells = read_df['well_pos'].unique()
 
     print("Writing per-well fastqs...")
@@ -942,88 +1031,41 @@ def generate_per_well_consensus(
     if "cons_seq" not in well_df.columns:
         well_df["cons_seq"] = None
 
-    print("Generating consensus alignments...")
-    for well in tqdm(all_wells):
-        if well not in well_df["global_well"].values:
+    # Pre-compute paths for all wells that have summary data
+    well_set = set(well_df["global_well"].values)
+    well_paths = {}
+    for well in all_wells:
+        if well not in well_set:
             continue
-
         major_ref = well_df.loc[well_df["global_well"] == well, "major_ref"].iloc[0]
         if ":" in major_ref:
             major_ref = major_ref.split(":")[-1]
+        well_paths[well] = {
+            "ref_fa": os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta"),
+            "fq": os.path.join(well_fastqs_dir, f"{well}.fastq"),
+            "bam": os.path.join(well_consensus_dir, f"{well}.bam"),
+            "cons_fa": os.path.join(well_consensus_dir, f"{well}_consensus.fasta"),
+            "cons_bam": os.path.join(well_consensus_dir, f"{well}_consensus_align.bam"),
+        }
 
-        ref_fa = os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta")
-        fq = os.path.join(well_fastqs_dir, f"{well}.fastq")
-        bam = os.path.join(well_consensus_dir, f"{well}.bam")
-        cons_fa = os.path.join(well_consensus_dir, f"{well}_consensus.fasta")
-        cons_bam = os.path.join(well_consensus_dir, f"{well}_consensus_align.bam")
+    # 2) Parallel consensus alignment
+    print(f"Generating consensus alignments ({workers} workers)...")
+    results = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _process_single_well, well, well_paths[well],
+                minimap2_path, samtools_path
+            ): well
+            for well in well_paths
+        }
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            well, cigar, cons = future.result()
+            results[well] = (cigar, cons)
 
-        # 1) Align reads to reference, pipe through samtools sort
-        try:
-            mm2 = subprocess.Popen(
-                [minimap2_path, "-a", ref_fa, fq],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                [samtools_path, "sort", "-o", bam],
-                stdin=mm2.stdout,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            mm2.wait()
-        except Exception as e:
-            print(f"Alignment failed for {well}: {e}")
-            continue
-
-        # 2) Generate consensus
-        try:
-            with open(cons_fa, "w") as cons_out:
-                subprocess.run(
-                    [samtools_path, "consensus", "-f", "fasta", bam],
-                    stdout=cons_out,
-                    check=False,
-                )
-        except Exception as e:
-            print(f"Consensus failed for {well}: {e}")
-            continue
-
-        # 3) Align consensus back to reference
-        try:
-            mm2 = subprocess.Popen(
-                [minimap2_path, "-a", ref_fa, cons_fa],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                [samtools_path, "sort", "-o", cons_bam],
-                stdin=mm2.stdout,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            mm2.wait()
-        except Exception as e:
-            print(f"Consensus alignment failed for {well}: {e}")
-            continue
-
-        # 4) Extract and store CIGAR + consensus sequence
-        cigar_str, cons_seq = None, None
-        try:
-            # Read CIGAR from consensus alignment
-            with pysam.AlignmentFile(cons_bam, "rb") as bamfile:
-                for read in bamfile:
-                    if not read.is_unmapped:
-                        cigar_str = read.cigarstring
-                        break
-
-            # Read consensus sequence
-            if os.path.exists(cons_fa):
-                with open(cons_fa) as f:
-                    lines = f.read().splitlines()
-                    cons_seq = "".join(l for l in lines if not l.startswith(">"))
-        except Exception as e:
-            print(f"Error processing {well}: {e}")
-
-        well_df.loc[well_df["global_well"] == well, ["CIGAR", "cons_seq"]] = [cigar_str, cons_seq]
+    # 3) Apply results back to well_df (sequential, avoids DataFrame race conditions)
+    for well, (cigar, cons) in results.items():
+        well_df.loc[well_df["global_well"] == well, ["CIGAR", "cons_seq"]] = [cigar, cons]
 
     return well_df
 
