@@ -15,6 +15,35 @@ from bokeh.layouts import column
 from bokeh.embed import file_html
 from bokeh.resources import INLINE
 
+def get_custom_cmap():
+    cdict = {
+        'red':   [(0.0,   1.0, 1.0),   # white
+                  (0.15,  1.0, 1.0),   # white
+                  (0.375, 1.0, 1.0),   # pale yellow (~75)
+                  (0.50,  0.5, 0.5),   # spring green transition
+                  (1.0,   0.0, 0.0)],  # deep green
+
+        'green': [(0.0,   1.0, 1.0),   # white
+                  (0.15,  1.0, 1.0),   # white
+                  (0.375, 0.95, 0.95), # pale yellow (~75)
+                  (0.50,  0.98, 0.98), # spring green
+                  (1.0,   0.39, 0.39)],# deep green
+
+        'blue':  [(0.0,   1.0, 1.0),   # white
+                  (0.15,  1.0, 1.0),   # white
+                  (0.375, 0.35, 0.35),   # pale yellow — blue doesn't fully drop (~75)
+                  (0.50,  0.6, 0.6),   # spring green
+                  (1.0,   0.0, 0.0)],  # deep green
+    }
+
+    base_cmap = mcolors.LinearSegmentedColormap('custom_summer', cdict, N=512)
+
+    lut = base_cmap(np.linspace(0, 1, 512))
+    lut[:, 3] = 1.0
+
+    custom_cmap = mcolors.ListedColormap(lut, name='custom_summer_opaque')
+    return custom_cmap
+
 def plot_length_hist(fastq, ax=None):
     """
     """
@@ -158,7 +187,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     plates = sorted(dom["plate"].unique())
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
 
-    palette = [mcolors.rgb2hex(cm.coolwarm(i / 255)[:3]) for i in range(256)]
+    custom_cmap = get_custom_cmap()
+    palette = [mcolors.rgb2hex(custom_cmap(i / 255)[:3]) for i in range(256)]
     mapper = LinearColorMapper(palette=palette, low=0, high=min_reads * 2)
 
     TOOLTIPS = """
