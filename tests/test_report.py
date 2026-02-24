@@ -225,7 +225,7 @@ def test_report_html_content(mock_project_with_library):
         assert "Library Size" in html_content
         assert "Input Reads" in html_content
         assert "Unique Variants" in html_content
-        assert "Library Coverage" in html_content
+        assert "Library Recovery" in html_content
         assert "80.0%" in html_content  # 4/5 coverage
 
 

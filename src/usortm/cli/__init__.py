@@ -6,6 +6,7 @@ from .estimate import estimate
 from .plan import plan
 from .demux_cmd import demux
 from .pick import pick
+from .reorder import reorder
 from .report import report
 from .config_cmd import config_app
 
@@ -21,7 +22,8 @@ app.command(name="estimate")(estimate)
 app.command(name="plan")(plan)
 app.command(name="demux")(demux)
 app.command(name="pick")(pick)
+app.command(name="reorder")(reorder)
 app.command(name="report")(report)
 app.add_typer(config_app, name="config")
 
-__all__ = ["app", "estimate", "plan", "demux", "pick", "report"]
+__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "report"]

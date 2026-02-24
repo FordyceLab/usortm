@@ -343,44 +343,35 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
 
 
 def _compute_quality_bins(well_data: list, library_size: int) -> dict:
-    """Classify wells into quality bins and compute recovery tiers.
+    """Classify variants into quality tiers, mirroring the pick command's logic.
 
-    Groups wells by base variant (stripping ``|cons_check`` suffix),
-    picks the **best well** per variant (highest reads), then bins:
-
-    - **Bin 1:** consensus > 90% AND reads >= 100
-    - **Bin 2:** consensus > 90% AND reads 50-99
-    - **Bin 3:** consensus > 90% AND reads 20-49
-    - **Unbinned:** consensus <= 90% or reads < 20
+    A variant qualifies for a tier if it has **at least one well** meeting the
+    threshold — matching how ``usortm pick --tier A/B/C`` counts recovered variants.
 
     Recovery tiers are cumulative:
-    - **Tier A:** Bin 1
-    - **Tier B:** Bin 1 + Bin 2
-    - **Tier C:** Bin 1 + Bin 2 + Bin 3
+    - **Tier A:** ≥100 reads AND >90% consensus
+    - **Tier B:** ≥50 reads AND >90% consensus  (includes Tier A)
+    - **Tier C:** ≥20 reads AND >90% consensus  (includes Tier A + B)
     """
-    # Group wells by base variant, pick best per variant
-    variant_best: dict[str, dict] = {}
-    for w in well_data:
-        base = w["variant"].split("|")[0]
-        if base not in variant_best or w["reads"] > variant_best[base]["reads"]:
-            variant_best[base] = w
+    def _qualifying_variants(min_reads: int) -> set[str]:
+        return {
+            w["variant"].split("|")[0] for w in well_data
+            if w["reads"] >= min_reads and w["consensus_fraction"] > 0.9
+        }
 
-    bin1 = bin2 = bin3 = unbinned = 0
-    for w in variant_best.values():
-        cf = w["consensus_fraction"]
-        reads = w["reads"]
-        if cf > 0.9 and reads >= 100:
-            bin1 += 1
-        elif cf > 0.9 and reads >= 50:
-            bin2 += 1
-        elif cf > 0.9 and reads >= 20:
-            bin3 += 1
-        else:
-            unbinned += 1
+    tier_a_set = _qualifying_variants(100)
+    tier_b_set = _qualifying_variants(50)
+    tier_c_set = _qualifying_variants(20)
 
-    tier_a = bin1
-    tier_b = bin1 + bin2
-    tier_c = bin1 + bin2 + bin3
+    tier_a = len(tier_a_set)
+    tier_b = len(tier_b_set)
+    tier_c = len(tier_c_set)
+
+    # Non-cumulative bins (for internal use / future histograms)
+    bin1 = tier_a
+    bin2 = len(tier_b_set - tier_a_set)
+    bin3 = len(tier_c_set - tier_b_set)
+    unbinned = _count_unique_variants(well_data) - tier_c
 
     def _pct(n: int) -> float:
         return round(n / library_size * 100, 1) if library_size else 0.0
@@ -466,12 +457,10 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     else:
         seq_len_display = f"{project.get('seq_length', 'N/A')} bp"
 
-    # Library Recovery section
-    recovery_section = ""
+    # Unified Library Recovery section (merges coverage + quality tiers)
+    tier_boxes = ""
     if tiers:
-        recovery_section = f"""
-    <h2>Library Recovery</h2>
-    <div class="stat-grid">
+        tier_boxes = f"""
         <div class="stat-box">
             <div class="stat-label">Tier A (\u2265100 reads)</div>
             <div class="stat-value success">{tiers['A']['count']}</div>
@@ -486,9 +475,28 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             <div class="stat-label">Tier C (\u226520 reads)</div>
             <div class="stat-value success">{tiers['C']['count']}</div>
             <div class="stat-sub">{tiers['C']['pct']:.1f}% of library</div>
+        </div>"""
+
+    tier_note = (
+        '<p class="note">All tiers require &gt;90% consensus and count unique variants '
+        '(best well per variant). Tiers are cumulative (B includes A, C includes B).</p>'
+        if tiers else ""
+    )
+
+    library_section = f"""
+    <h2>Library Recovery</h2>
+    <div class="stat-grid">
+        <div class="stat-box">
+            <div class="stat-label">Unique Variants</div>
+            <div class="stat-value success">{unique_variants}</div>
+            <div class="stat-sub">{coverage_pct:.1f}% of library</div>
         </div>
+        <div class="stat-box">
+            <div class="stat-label">Avg Reads/Well</div>
+            <div class="stat-value">{avg_reads:.0f}</div>
+        </div>{tier_boxes}
     </div>
-    <p class="note">All tiers require &gt;90% consensus. Tiers are cumulative (B includes A, C includes B).</p>
+{tier_note}
 """
 
     # Check for plate map files — embed via srcdoc if available
@@ -542,6 +550,10 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         # Add pick summary if pick step was completed
         pick_state = project.get("workflow_steps", {}).get("pick", {})
         if pick_state.get("completed"):
+            tier_sub = (
+                f'<div class="stat-sub">Tier {pick_state["tier"]} filter</div>'
+                if pick_state.get("tier") else ""
+            )
             pick_summary_section = f"""
     <h2>Hit Picking Summary</h2>
     <div class="stat-grid">
@@ -552,6 +564,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         <div class="stat-box">
             <div class="stat-label">Unique Variants Picked</div>
             <div class="stat-value success">{pick_state.get('unique_variants', 'N/A')}</div>
+            {tier_sub}
         </div>
         <div class="stat-box">
             <div class="stat-label">Target Format</div>
@@ -740,6 +753,10 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             <div class="stat-label">Fold Sampling</div>
             <div class="stat-value">{project.get('fold_sampling', 'N/A')}\u00d7</div>
         </div>
+        <div class="stat-box">
+            <div class="stat-label">Round</div>
+            <div class="stat-value">{project.get('round', 1)}</div>
+        </div>
     </div>
 
     <h2>Demultiplexing Results</h2>
@@ -757,22 +774,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             <div class="stat-value">{demux_summary.get('wells_with_data', 0):,}</div>
         </div>
     </div>
-{recovery_section}
-    <h2>Library Coverage</h2>
-    <div class="stat-grid">
-        <div class="stat-box">
-            <div class="stat-label">Unique Variants</div>
-            <div class="stat-value success">{unique_variants}</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">Library Coverage</div>
-            <div class="stat-value success">{coverage_pct:.1f}%</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-label">Avg Reads/Well</div>
-            <div class="stat-value">{avg_reads:.0f}</div>
-        </div>
-    </div>
+{library_section}
 
     <h2>Read Depth Statistics</h2>
     <div class="read-depth-row">

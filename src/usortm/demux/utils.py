@@ -249,7 +249,11 @@ def csv_to_reference_fasta(csv_path, fasta_path, strip_flanking=True):
     n_entries = 0
     with open(csv_path) as f_in, open(fasta_path, "w") as f_out:
         reader = csv_mod.DictReader(f_in)
+        # Normalise headers: strip surrounding whitespace so "Sequence " == "Sequence"
+        if reader.fieldnames:
+            reader.fieldnames = [h.strip() for h in reader.fieldnames]
         for row in reader:
+            row = {k.strip(): v for k, v in row.items()}
             name = row["Name"]
             seq = row["Sequence"]
             if strip_flanking:

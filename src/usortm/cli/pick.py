@@ -65,6 +65,11 @@ def pick(
         "--unique-only/--all-hits",
         help="Pick only one well per unique variant",
     ),
+    compact: bool = typer.Option(
+        False,
+        "--compact/--no-compact",
+        help="Pack recovered hits into adjacent wells; omit empty placeholders for unrecovered variants.",
+    ),
 ):
     """
     Generate hit-picking list from demultiplexing results.
@@ -144,6 +149,7 @@ def pick(
         fill_order=fill_order,
         library_order=library_order,
         tier=tier,
+        compact=compact,
     )
 
     if len(pick_list) == 0:
@@ -184,6 +190,7 @@ def pick(
         "total_hits": len([h for h in pick_list if not h.get("empty")]),
         "unique_variants": len(set(h["variant"] for h in pick_list if not h.get("empty"))),
         "target_format": target_format,
+        "compact": compact,
     }
     if tier:
         pick_state["tier"] = tier
@@ -207,7 +214,9 @@ def pick(
     unique_variants = len(set(h["variant"] for h in recovered))
     summary_table.add_row("Total hits", f"{len(recovered)}")
     summary_table.add_row("Unique variants", f"{unique_variants}")
-    if empty_count > 0:
+    if compact:
+        summary_table.add_row("Compact mode", "[green]on[/green]")
+    elif empty_count > 0:
         summary_table.add_row("Empty wells (unrecovered)", f"{empty_count}")
     if tier:
         summary_table.add_row("Quality tier", f"Tier {tier}")
@@ -294,6 +303,7 @@ def _generate_pick_list(
     fill_order: str,
     library_order: Optional[dict] = None,
     tier: Optional[str] = None,
+    compact: bool = False,
 ) -> list:
     """Generate pick list from well data.
 
@@ -304,6 +314,9 @@ def _generate_pick_list(
 
     When *tier* is set (A/B/C), wells are pre-filtered to meet the
     tier's minimum reads and consensus thresholds.
+
+    When *compact* is True, empty placeholders for unrecovered variants
+    are omitted so all recovered hits are packed into adjacent wells.
     """
     pick_list = []
     seen_variants = set()
@@ -341,23 +354,25 @@ def _generate_pick_list(
 
         seen_variants.add(variant)
 
-    # Re-sort by library ordering if available, and insert empty
-    # placeholder rows for unrecovered variants.
+    # Re-sort by library ordering if available.
     if library_order:
         max_idx = len(library_order)
 
-        # Add empty placeholders for library variants not recovered
-        for variant_name, _idx in sorted(library_order.items(), key=lambda x: x[1]):
-            if variant_name not in seen_variants:
-                pick_list.append({
-                    "variant": variant_name,
-                    "source_plate": "",
-                    "source_well": "",
-                    "reads": 0,
-                    "consensus_fraction": 0,
-                    "empty": True,
-                })
+        if not compact:
+            # Default: insert empty placeholders for unrecovered variants so
+            # the pick plate preserves library order with gaps.
+            for variant_name, _idx in sorted(library_order.items(), key=lambda x: x[1]):
+                if variant_name not in seen_variants:
+                    pick_list.append({
+                        "variant": variant_name,
+                        "source_plate": "",
+                        "source_well": "",
+                        "reads": 0,
+                        "consensus_fraction": 0,
+                        "empty": True,
+                    })
 
+        # Sort hits (and empties, if any) by library order
         pick_list.sort(
             key=lambda h: (library_order.get(h["variant"], max_idx), h["variant"])
         )

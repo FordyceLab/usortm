@@ -42,12 +42,12 @@ def main(
         [cyan]plan[/cyan]      Initialize project from variant list
         [cyan]demux[/cyan]     Demultiplex sequencing data
         [cyan]pick[/cyan]      Generate hit-picking list
+        [cyan]reorder[/cyan]   Export synthesis order for dropout variants
         [cyan]report[/cyan]    Generate final plate maps
 
     [bold]Utility commands:[/bold]
 
         [cyan]estimate[/cyan]  Quick cost/effort estimation
-        [cyan]integra[/cyan]   Generate Integra ASSIST file (standalone)
     """
     pass
 
@@ -57,15 +57,21 @@ from .estimate import estimate
 from .plan import plan
 from .demux_cmd import demux
 from .pick import pick
+from .reorder import reorder
 from .report import report
-from .integra import integra
 
 app.command(name="estimate")(estimate)
 app.command(name="plan")(plan)
 app.command(name="demux")(demux)
 app.command(name="pick")(pick)
+app.command(name="reorder")(reorder)
 app.command(name="report")(report)
-app.command(name="integra")(integra)
+
+try:
+    from .integra import integra
+    app.command(name="integra")(integra)
+except ImportError:
+    pass
 
 
 if __name__ == "__main__":
