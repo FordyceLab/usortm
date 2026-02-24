@@ -17,6 +17,10 @@ console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
 
+_BSAI_FWD = "GGTCTC"   # BsaI recognition site (forward)
+_BSAI_REV = "GAGACC"   # BsaI recognition site (reverse complement)
+_BSAI_FLANK = 7        # bp to keep outside each recognition site
+
 # 96-well row/column layout for eBlocks plate format
 _ROWS = list("ABCDEFGH")
 _COLS = list(range(1, 13))
@@ -50,6 +54,25 @@ def reorder(
         "--pool-name", "-p",
         help="Pool name for IDT oPools format (ignored for other formats).",
     ),
+    library: Optional[Path] = typer.Option(
+        None,
+        "--library", "-l",
+        help=(
+            "Path to the original library CSV containing full sequences (e.g. with golden gate "
+            "adapters or length-normalising padding). The name column is auto-detected; the "
+            "sequence column used is the one with the longest average length — the chosen column "
+            "name is always printed. Dropout sequences are replaced with those from the library."
+        ),
+    ),
+    trim_bsai: bool = typer.Option(
+        False,
+        "--trim-bsai",
+        help=(
+            f"Trim each sequence to {_BSAI_FLANK} bp outside its flanking BsaI sites "
+            f"(GGTCTC / GAGACC). Requires sequences to contain exactly one forward and one "
+            "reverse BsaI site. Sequences where sites cannot be found are kept as-is with a warning."
+        ),
+    ),
 ):
     """
     Generate a synthesis ordering file for dropout variants.
@@ -67,6 +90,7 @@ def reorder(
     [bold]Example:[/bold]
 
         usortm reorder my_project/ --format eblocks
+        usortm reorder my_project/ --format eblocks --library full_library.csv
         usortm reorder my_project/ --format opools --pool-name round2_dropouts
     """
     fmt = format.lower().strip()
@@ -113,6 +137,27 @@ def reorder(
     # Identify dropouts
     dropouts = [v for v in variants if _normalize(v["name"]) not in recovered]
 
+    # Optionally replace sequences with full sequences from a library CSV
+    if library is not None:
+        if not library.exists():
+            console.print(f"[red]Error:[/red] Library file not found: {library}")
+            raise typer.Exit(1)
+        library_seqs = _load_library_sequences(library)
+        not_found = []
+        for v in dropouts:
+            full_seq = library_seqs.get(v["name"])
+            if full_seq:
+                v["sequence"] = full_seq
+            else:
+                not_found.append(v["name"])
+        if not_found:
+            console.print(
+                f"[yellow]Warning:[/yellow] {len(not_found)} dropout(s) not found in library "
+                f"— original sequences kept:"
+            )
+            for name in not_found:
+                console.print(f"  {name}")
+
     console.print()
     console.print(Panel.fit(
         "[brand]uSort-M[/brand] Reorder Generator",
@@ -127,6 +172,26 @@ def reorder(
     if not dropouts:
         console.print("[green]✓[/green] All variants recovered — nothing to order!")
         raise typer.Exit(0)
+
+    # Optionally trim sequences to 5 bp outside flanking BsaI sites
+    if trim_bsai:
+        untrimmed = []
+        for v in dropouts:
+            trimmed = _trim_to_bsai(v["sequence"])
+            if trimmed is None:
+                untrimmed.append(v["name"])
+            else:
+                v["sequence"] = trimmed
+        if untrimmed:
+            console.print(
+                f"[yellow]Warning:[/yellow] {len(untrimmed)} sequence(s) missing a BsaI site — kept untrimmed:"
+            )
+            for name in untrimmed:
+                console.print(f"  {name}")
+        else:
+            console.print(
+                f"[green]✓[/green] Sequences trimmed to {_BSAI_FLANK} bp outside BsaI sites"
+            )
 
     # Write output
     if output is None:
@@ -148,6 +213,10 @@ def reorder(
         _write_idt_opools(dropouts, output, pool_name)
         console.print(f"[green]✓[/green] IDT oPools CSV written to [cyan]{output}[/cyan]")
         console.print(f"   {len(dropouts)} sequences in pool '{pool_name}'")
+
+    total_bp = sum(len(v["sequence"]) for v in dropouts)
+    cost = total_bp * 0.07
+    console.print(f"[yellow]→[/yellow] Estimated cost: [cyan]{total_bp:,} bp[/cyan] × $0.07 = [cyan]${cost:,.2f}[/cyan]")
 
     console.print()
     console.print("[bold]Next steps:[/bold]")
@@ -233,6 +302,76 @@ def _find_col(headers: list[str], candidates: tuple[str, ...]) -> Optional[str]:
         if c.lower() in lower:
             return lower[c.lower()]
     return None
+
+
+def _load_library_sequences(library_path: Path) -> dict[str, str]:
+    """Load name→sequence mapping from a library CSV.
+
+    The name column is detected using the same flexible logic as variant loading,
+    falling back to the first column (handles unnamed-index CSVs).
+    The sequence column is whichever non-name column has the longest average value
+    length — the chosen column name is always printed.
+    """
+    with open(library_path, newline="") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        rows = list(reader)
+
+    if not rows:
+        raise typer.BadParameter(f"Library file {library_path} is empty.")
+
+    # Find name column — fall back to first column for unnamed-index CSVs
+    name_col = _find_col(headers, ("Name", "name", "variant", "id"))
+    if name_col is None:
+        name_col = headers[0] if headers else None
+    if name_col is None:
+        raise typer.BadParameter(f"Could not find a name column in {library_path}.")
+
+    # Pick the longest column whose values are pure DNA (only A/C/G/T)
+    _DNA_CHARS = frozenset("ACGTacgt")
+
+    def _is_dna_col(col: str) -> bool:
+        vals = [row.get(col) or "" for row in rows if row.get(col)]
+        return bool(vals) and all(set(v) <= _DNA_CHARS for v in vals)
+
+    def _avg_len(col: str) -> float:
+        vals = [row.get(col) or "" for row in rows]
+        return sum(len(v) for v in vals) / len(vals)
+
+    candidate_cols = [h for h in headers if h != name_col and h and _is_dna_col(h)]
+    if not candidate_cols:
+        raise typer.BadParameter(
+            f"No DNA-only columns found in {library_path}. "
+            "Expected at least one column whose values contain only A, C, G, T."
+        )
+
+    seq_col = max(candidate_cols, key=_avg_len)
+    console.print(
+        f"[yellow]→[/yellow] Library sequence column auto-detected: "
+        f"[cyan]{seq_col!r}[/cyan] (longest DNA column, avg {_avg_len(seq_col):.0f} bp)"
+    )
+
+    return {row[name_col]: row[seq_col] for row in rows if row.get(name_col)}
+
+
+def _trim_to_bsai(seq: str) -> Optional[str]:
+    """Trim sequence to _BSAI_FLANK bp outside flanking BsaI sites.
+
+    Finds the first forward BsaI site (GGTCTC) and the last reverse BsaI site
+    (GAGACC), then keeps _BSAI_FLANK bp of flanking sequence on each side.
+    Returns None if either site is not found.
+    """
+    upper = seq.upper()
+    fwd_pos = upper.find(_BSAI_FWD)
+    rev_pos = upper.rfind(_BSAI_REV)
+
+    if fwd_pos == -1 or rev_pos == -1:
+        return None
+
+    start = max(0, fwd_pos - _BSAI_FLANK)
+    end = rev_pos + len(_BSAI_REV) + _BSAI_FLANK
+
+    return seq[start:end]
 
 
 def _write_idt_eblocks(dropouts: list[dict], output: Path) -> int:

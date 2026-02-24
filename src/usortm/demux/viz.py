@@ -274,7 +274,7 @@ def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
 
 
 _TIER_COLORS = {
-    "A": "#006400",  # dark green
+    "A": "#3fae4c",  # medium green (~150 reads on continuous cmap)
     "B": "#00FF7F",  # spring green
     "C": "#FFFF00",  # yellow
     "":  "#FFFFFF",  # white (no hit)
