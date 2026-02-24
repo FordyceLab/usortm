@@ -18,13 +18,13 @@ from bokeh.resources import INLINE
 def get_custom_cmap():
     cdict = {
         'red':   [(0.0,   1.0, 1.0),   # white
-                  (0.15,  1.0, 1.0),   # white
+                  (0.07,  1.0, 1.0),   # white
                   (0.375, 1.0, 1.0),   # pale yellow (~75)
                   (0.50,  0.5, 0.5),   # spring green transition
                   (1.0,   0.0, 0.0)],  # deep green
 
         'green': [(0.0,   1.0, 1.0),   # white
-                  (0.15,  1.0, 1.0),   # white
+                  (0.07,  1.0, 1.0),   # white
                   (0.375, 0.95, 0.95), # pale yellow (~75)
                   (0.50,  0.98, 0.98), # spring green
                   (1.0,   0.39, 0.39)],# deep green
