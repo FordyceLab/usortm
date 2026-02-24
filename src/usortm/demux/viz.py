@@ -273,6 +273,24 @@ def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
     Path(output_path).write_text(html)
 
 
+_TIER_COLORS = {
+    "A": "#006400",  # dark green
+    "B": "#00FF7F",  # spring green
+    "C": "#FFFF00",  # yellow
+    "":  "#FFFFFF",  # white (no hit)
+}
+
+def _well_tier(reads, cons_frac):
+    """Return quality tier (A/B/C) or '' for a well based on read/consensus thresholds."""
+    if reads >= 100 and cons_frac > 0.9:
+        return "A"
+    if reads >= 50 and cons_frac > 0.9:
+        return "B"
+    if reads >= 20 and cons_frac > 0.9:
+        return "C"
+    return ""
+
+
 def make_pick_plate_map_bokeh(pick_list, target_format=384,
                                well_size=26, plot_width=800):
     """Create an interactive Bokeh plate map for a cherry-pick list.
@@ -322,8 +340,6 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
     if not plates:
         plates = [0]
 
-    max_reads = max((h["reads"] for h in pick_list), default=100)
-
     def fill_plate(p):
         merged = full_layout.copy()
         sub = pd.DataFrame([
@@ -339,7 +355,8 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
                     f"{h['variant']}<br/>"
                     f"Source: {h['source_plate']}:{h['source_well']}<br/>"
                     f"Reads: {h['reads']:,}<br/>"
-                    f"Consensus: {h['consensus_fraction']:.0%}"
+                    f"Consensus: {h['consensus_fraction']:.0%}<br/>"
+                    f"Tier: {_well_tier(h['reads'], h['consensus_fraction']) or 'N/A'}"
                 ),
             }
             for h in pick_list if h["_plate"] == p
@@ -361,17 +378,13 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         merged["reads"] = merged["reads"].fillna(0)
         merged["cons_frac"] = merged["cons_frac"].fillna(0)
         merged["tooltip"] = merged["tooltip"].fillna("empty")
+        merged["tier"] = merged.apply(
+            lambda r: _well_tier(r["reads"], r["cons_frac"]), axis=1
+        )
+        merged["tier_color"] = merged["tier"].map(_TIER_COLORS)
         return merged
 
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
-
-    # Gradient white → green for pick maps
-    def make_gradient(hex1, hex2, n=256):
-        cmap = mcolors.LinearSegmentedColormap.from_list("", [hex1, hex2])
-        return [mcolors.rgb2hex(cmap(i / n)[:3]) for i in range(n)]
-
-    palette = make_gradient("#FFFFFF", "#059669", 256)
-    mapper = LinearColorMapper(palette=palette, low=0, high=max_reads)
 
     TOOLTIPS = """
     <div style="line-height:1.4">
@@ -390,21 +403,13 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
     )
     fig_obj.scatter(
         "col", "RowCat", size=well_size, source=src, marker="square",
-        fill_color={"field": "reads", "transform": mapper},
+        fill_color="tier_color",
         line_color="darkgray", line_width=1.2,
     )
     fig_obj.add_tools(HoverTool(tooltips=TOOLTIPS))
     fig_obj.xaxis.ticker = list(range(1, n_cols + 1))
     fig_obj.grid.grid_line_color = None
 
-    color_bar = ColorBar(
-        color_mapper=mapper,
-        label_standoff=8, width=12, location=(0, 0),
-        title="Read Count", title_text_font_size="14pt",
-        bar_line_color="black", major_tick_line_color="black",
-        major_label_text_font_size="12pt", major_tick_line_width=2,
-    )
-    fig_obj.add_layout(color_bar, "right")
 
     if len(plates) > 1:
         btn_group = RadioButtonGroup(
