@@ -5,6 +5,9 @@ from typing import Optional
 from pathlib import Path
 import csv
 import json
+import random
+
+import openpyxl
 
 import typer
 from rich.table import Table
@@ -16,6 +19,11 @@ from usortm.cli.theme import get_console, BORDER_STYLE
 console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
+
+_BSAI_FWD = "GGTCTC"   # BsaI recognition site (forward)
+_BSAI_REV = "GAGACC"   # BsaI recognition site (reverse complement)
+_BSAI_FLANK = 5        # minimum bp to keep outside each recognition site
+_EBLOCK_MIN_LEN = 300  # IDT eBlocks minimum product length
 
 # 96-well row/column layout for eBlocks plate format
 _ROWS = list("ABCDEFGH")
@@ -50,6 +58,25 @@ def reorder(
         "--pool-name", "-p",
         help="Pool name for IDT oPools format (ignored for other formats).",
     ),
+    library: Optional[Path] = typer.Option(
+        None,
+        "--library", "-l",
+        help=(
+            "Path to the original library CSV containing full sequences (e.g. with golden gate "
+            "adapters or length-normalising padding). The name column is auto-detected; the "
+            "sequence column used is the one with the longest average length — the chosen column "
+            "name is always printed. Dropout sequences are replaced with those from the library."
+        ),
+    ),
+    trim_bsai: bool = typer.Option(
+        False,
+        "--trim-bsai",
+        help=(
+            f"Trim each sequence to {_BSAI_FLANK} bp outside its flanking BsaI sites "
+            f"(GGTCTC / GAGACC). Requires sequences to contain exactly one forward and one "
+            "reverse BsaI site. Sequences where sites cannot be found are kept as-is with a warning."
+        ),
+    ),
 ):
     """
     Generate a synthesis ordering file for dropout variants.
@@ -67,6 +94,7 @@ def reorder(
     [bold]Example:[/bold]
 
         usortm reorder my_project/ --format eblocks
+        usortm reorder my_project/ --format eblocks --library full_library.csv
         usortm reorder my_project/ --format opools --pool-name round2_dropouts
     """
     fmt = format.lower().strip()
@@ -113,6 +141,27 @@ def reorder(
     # Identify dropouts
     dropouts = [v for v in variants if _normalize(v["name"]) not in recovered]
 
+    # Optionally replace sequences with full sequences from a library CSV
+    if library is not None:
+        if not library.exists():
+            console.print(f"[red]Error:[/red] Library file not found: {library}")
+            raise typer.Exit(1)
+        library_seqs = _load_library_sequences(library)
+        not_found = []
+        for v in dropouts:
+            full_seq = library_seqs.get(v["name"])
+            if full_seq:
+                v["sequence"] = full_seq
+            else:
+                not_found.append(v["name"])
+        if not_found:
+            console.print(
+                f"[yellow]Warning:[/yellow] {len(not_found)} dropout(s) not found in library "
+                f"— original sequences kept:"
+            )
+            for name in not_found:
+                console.print(f"  {name}")
+
     console.print()
     console.print(Panel.fit(
         "[brand]uSort-M[/brand] Reorder Generator",
@@ -128,13 +177,46 @@ def reorder(
         console.print("[green]✓[/green] All variants recovered — nothing to order!")
         raise typer.Exit(0)
 
+    # Optionally trim sequences to 5 bp outside flanking BsaI sites
+    if trim_bsai:
+        untrimmed = []
+        padded = []
+        for v in dropouts:
+            result = _trim_to_bsai(v["sequence"])
+            if result is None:
+                untrimmed.append(v["name"])
+            else:
+                trimmed_seq, left_added, right_added = result
+                v["sequence"] = trimmed_seq
+                if left_added > 0 or right_added > 0:
+                    padded.append((v["name"], left_added, right_added))
+        if untrimmed:
+            console.print(
+                f"[yellow]Warning:[/yellow] {len(untrimmed)} sequence(s) missing a BsaI site — kept untrimmed:"
+            )
+            for name in untrimmed:
+                console.print(f"  {name}")
+        if padded:
+            console.print(
+                f"[yellow]→[/yellow] {len(padded)} sequence(s) had insufficient flanking — random buffer added:"
+            )
+            for name, la, ra in padded:
+                sides = []
+                if la: sides.append(f"{la} bp left")
+                if ra: sides.append(f"{ra} bp right")
+                console.print(f"  {name}: {', '.join(sides)}")
+        console.print(
+            f"[green]✓[/green] Sequences trimmed to {_BSAI_FLANK} bp outside BsaI sites"
+        )
+
     # Write output
     if output is None:
         output = project_dir / f"reorder_{fmt}.csv"
 
     if fmt == "eblocks":
         n_plates = _write_idt_eblocks(dropouts, output)
-        console.print(f"[green]✓[/green] IDT eBlocks CSV written to [cyan]{output}[/cyan]")
+        console.print(f"[green]✓[/green] IDT eBlocks CSV written to  [cyan]{output}[/cyan]")
+        console.print(f"[green]✓[/green] IDT eBlocks XLSX written to [cyan]{output.with_suffix('.xlsx')}[/cyan]")
         console.print(f"   {len(dropouts)} sequences across {n_plates} plate(s)")
     elif fmt == "twist":
         _write_twist_gene_fragments(dropouts, output)
@@ -148,6 +230,10 @@ def reorder(
         _write_idt_opools(dropouts, output, pool_name)
         console.print(f"[green]✓[/green] IDT oPools CSV written to [cyan]{output}[/cyan]")
         console.print(f"   {len(dropouts)} sequences in pool '{pool_name}'")
+
+    total_bp = sum(len(v["sequence"]) for v in dropouts)
+    cost = total_bp * 0.07
+    console.print(f"[yellow]→[/yellow] Estimated cost: [cyan]{total_bp:,} bp[/cyan] × $0.07 = [cyan]${cost:,.2f}[/cyan]")
 
     console.print()
     console.print("[bold]Next steps:[/bold]")
@@ -235,26 +321,138 @@ def _find_col(headers: list[str], candidates: tuple[str, ...]) -> Optional[str]:
     return None
 
 
+def _load_library_sequences(library_path: Path) -> dict[str, str]:
+    """Load name→sequence mapping from a library CSV.
+
+    The name column is detected using the same flexible logic as variant loading,
+    falling back to the first column (handles unnamed-index CSVs).
+    The sequence column is whichever non-name column has the longest average value
+    length — the chosen column name is always printed.
+    """
+    with open(library_path, newline="") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        rows = list(reader)
+
+    if not rows:
+        raise typer.BadParameter(f"Library file {library_path} is empty.")
+
+    # Find name column — fall back to first column for unnamed-index CSVs
+    name_col = _find_col(headers, ("Name", "name", "variant", "id"))
+    if name_col is None:
+        name_col = headers[0] if headers else None
+    if name_col is None:
+        raise typer.BadParameter(f"Could not find a name column in {library_path}.")
+
+    # Pick the longest column whose values are pure DNA (only A/C/G/T)
+    _DNA_CHARS = frozenset("ACGTacgt")
+
+    def _is_dna_col(col: str) -> bool:
+        vals = [row.get(col) or "" for row in rows if row.get(col)]
+        return bool(vals) and all(set(v) <= _DNA_CHARS for v in vals)
+
+    def _avg_len(col: str) -> float:
+        vals = [row.get(col) or "" for row in rows]
+        return sum(len(v) for v in vals) / len(vals)
+
+    candidate_cols = [h for h in headers if h != name_col and h and _is_dna_col(h)]
+    if not candidate_cols:
+        raise typer.BadParameter(
+            f"No DNA-only columns found in {library_path}. "
+            "Expected at least one column whose values contain only A, C, G, T."
+        )
+
+    seq_col = max(candidate_cols, key=_avg_len)
+    console.print(
+        f"[yellow]→[/yellow] Library sequence column auto-detected: "
+        f"[cyan]{seq_col!r}[/cyan] (longest DNA column, avg {_avg_len(seq_col):.0f} bp)"
+    )
+
+    return {row[name_col]: row[seq_col] for row in rows if row.get(name_col)}
+
+
+def _rand_seq(n: int) -> str:
+    """Return n random lowercase bases with 60 % AT / 40 % GC composition."""
+    if n <= 0:
+        return ""
+    return "".join(random.choices("atgc", weights=[0.3, 0.3, 0.2, 0.2], k=n))
+
+
+def _trim_to_bsai(seq: str) -> Optional[tuple[str, int, int]]:
+    """Trim (or pad) a sequence to _BSAI_FLANK bp outside flanking BsaI sites,
+    extending symmetrically if the result would be shorter than _EBLOCK_MIN_LEN.
+
+    Logic:
+      1. Locate the core region (start of GGTCTC → end of GAGACC).
+      2. Desired total length = max(core + 2*_BSAI_FLANK, _EBLOCK_MIN_LEN).
+      3. Distribute the desired flanking evenly left/right (gene stays centred).
+      4. Pull from the original sequence where available; fill any remainder
+         with random 60/40 AT-biased lowercase bases.
+
+    Returns (result_seq, left_bp_added, right_bp_added), where added counts are
+    >0 when random padding was needed, or None if either BsaI site is absent.
+    """
+    upper = seq.upper()
+    fwd_pos = upper.find(_BSAI_FWD)
+    rev_pos = upper.rfind(_BSAI_REV)
+
+    if fwd_pos == -1 or rev_pos == -1:
+        return None
+
+    core_end = rev_pos + len(_BSAI_REV)
+    core_len = core_end - fwd_pos
+
+    # Total target length keeps the gene centred and meets the minimum
+    target_len = max(core_len + 2 * _BSAI_FLANK, _EBLOCK_MIN_LEN)
+    extra      = target_len - core_len
+    left_want  = extra // 2
+    right_want = extra - left_want  # absorbs any odd bp on the right
+
+    # Take as much flank as possible from the original sequence
+    start = max(0, fwd_pos - left_want)
+    end   = min(len(seq), core_end + right_want)
+
+    left_added  = left_want  - (fwd_pos  - start)
+    right_added = right_want - (end - core_end)
+
+    result = _rand_seq(left_added) + seq[start:end] + _rand_seq(right_added)
+    return result, left_added, right_added
+
+
 def _write_idt_eblocks(dropouts: list[dict], output: Path) -> int:
-    """Write IDT eBlocks 96-well plate upload CSV. Returns number of plates."""
+    """Write IDT eBlocks 96-well plate upload CSV and XLSX. Returns number of plates."""
+    headers = ["Well Position", "Name", "Sequence"]
+
+    # Split dropouts into plates of 96
+    plates: list[list[dict]] = []
+    for i, variant in enumerate(dropouts):
+        if i % len(_WELLS_96) == 0:
+            plates.append([])
+        plates[-1].append(variant)
+
+    # CSV — plates separated by blank line + "# Plate N" header
     with open(output, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Well Position", "Name", "Sequence"])
-
-        plate = 1
-        well_idx = 0
-        for variant in dropouts:
-            if well_idx >= len(_WELLS_96):
-                # Start new plate — blank separator row then plate header
+        for plate_idx, plate in enumerate(plates):
+            if plate_idx > 0:
                 writer.writerow([])
-                writer.writerow([f"# Plate {plate + 1}"])
-                writer.writerow(["Well Position", "Name", "Sequence"])
-                plate += 1
-                well_idx = 0
-            writer.writerow([_WELLS_96[well_idx], variant["name"], variant["sequence"]])
-            well_idx += 1
+                writer.writerow([f"# Plate {plate_idx + 1}"])
+            writer.writerow(headers)
+            for well_idx, variant in enumerate(plate):
+                writer.writerow([_WELLS_96[well_idx], variant["name"].replace(";", "."), variant["sequence"]])
 
-    return plate
+    # Excel — one worksheet per plate
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # remove default empty sheet
+    for plate_idx, plate in enumerate(plates):
+        ws = wb.create_sheet(title=f"Plate {plate_idx + 1}")
+        ws.append(headers)
+        for well_idx, variant in enumerate(plate):
+            ws.append([_WELLS_96[well_idx], variant["name"].replace(";", "."), variant["sequence"]])
+    xlsx_output = output.with_suffix(".xlsx")
+    wb.save(xlsx_output)
+
+    return len(plates)
 
 
 def _write_twist_gene_fragments(dropouts: list[dict], output: Path) -> None:

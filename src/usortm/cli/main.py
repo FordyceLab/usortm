@@ -48,6 +48,7 @@ def main(
     [bold]Utility commands:[/bold]
 
         [cyan]estimate[/cyan]  Quick cost/effort estimation
+        [cyan]platemap[/cyan]  Regenerate demux plate map HTML from existing results
     """
     pass
 
@@ -59,6 +60,7 @@ from .demux_cmd import demux
 from .pick import pick
 from .reorder import reorder
 from .report import report
+from .platemap import platemap
 
 app.command(name="estimate")(estimate)
 app.command(name="plan")(plan)
@@ -66,6 +68,7 @@ app.command(name="demux")(demux)
 app.command(name="pick")(pick)
 app.command(name="reorder")(reorder)
 app.command(name="report")(report)
+app.command(name="platemap")(platemap)
 
 try:
     from .integra import integra

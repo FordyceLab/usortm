@@ -18,21 +18,21 @@ from bokeh.resources import INLINE
 def get_custom_cmap():
     cdict = {
         'red':   [(0.0,   1.0, 1.0),   # white
-                  (0.07,  1.0, 1.0),   # white
-                  (0.375, 1.0, 1.0),   # pale yellow (~75)
-                  (0.50,  0.5, 0.5),   # spring green transition
+                  (0.05,  1.0, 1.0),   # white
+                  (0.20, 1.0, 1.0),   # pale yellow (~75)
+                  (0.40,  0.5, 0.5),   # spring green transition
                   (1.0,   0.0, 0.0)],  # deep green
 
         'green': [(0.0,   1.0, 1.0),   # white
-                  (0.07,  1.0, 1.0),   # white
-                  (0.375, 0.95, 0.95), # pale yellow (~75)
-                  (0.50,  0.98, 0.98), # spring green
+                  (0.05,  1.0, 1.0),   # white
+                  (0.20, 0.95, 0.95), # pale yellow (~75)
+                  (0.40,  0.98, 0.98), # spring green
                   (1.0,   0.39, 0.39)],# deep green
 
         'blue':  [(0.0,   1.0, 1.0),   # white
-                  (0.15,  1.0, 1.0),   # white
-                  (0.375, 0.35, 0.35),   # pale yellow — blue doesn't fully drop (~75)
-                  (0.50,  0.6, 0.6),   # spring green
+                  (0.05,  1.0, 1.0),   # white
+                  (0.20, 0.35, 0.35),   # pale yellow — blue doesn't fully drop (~75)
+                  (0.40,  0.6, 0.6),   # spring green
                   (1.0,   0.0, 0.0)],  # deep green
     }
 
@@ -273,12 +273,21 @@ def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
     Path(output_path).write_text(html)
 
 
-_TIER_COLORS = {
-    "A": "#006400",  # dark green
-    "B": "#00FF7F",  # spring green
-    "C": "#FFFF00",  # yellow
-    "":  "#FFFFFF",  # white (no hit)
-}
+def _tier_colors(min_reads=100):
+    """Sample tier colors from the custom colormap at fixed read counts.
+
+    Tier A → color at 115 reads, B → 70 reads, C → 40 reads, matching
+    the same 0–(min_reads*2) scale used by the demux plate map colorbar.
+    """
+    cmap = get_custom_cmap()
+    high = min_reads * 2
+    tier_reads = {"A": 150, "B": 70, "C": 40}
+    colors = {
+        tier: mcolors.rgb2hex(cmap(min(reads / high, 1.0))[:3])
+        for tier, reads in tier_reads.items()
+    }
+    colors[""] = "#FFFFFF"
+    return colors
 
 def _well_tier(reads, cons_frac):
     """Return quality tier (A/B/C) or '' for a well based on read/consensus thresholds."""
@@ -292,7 +301,7 @@ def _well_tier(reads, cons_frac):
 
 
 def make_pick_plate_map_bokeh(pick_list, target_format=384,
-                               well_size=26, plot_width=800):
+                               min_reads=100, well_size=26, plot_width=800):
     """Create an interactive Bokeh plate map for a cherry-pick list.
 
     Each well shows the picked variant with hover details including source
@@ -340,6 +349,8 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
     if not plates:
         plates = [0]
 
+    TIER_COLORS = _tier_colors(min_reads)
+
     def fill_plate(p):
         merged = full_layout.copy()
         sub = pd.DataFrame([
@@ -381,7 +392,7 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         merged["tier"] = merged.apply(
             lambda r: _well_tier(r["reads"], r["cons_frac"]), axis=1
         )
-        merged["tier_color"] = merged["tier"].map(_TIER_COLORS)
+        merged["tier_color"] = merged["tier"].map(TIER_COLORS)
         return merged
 
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
