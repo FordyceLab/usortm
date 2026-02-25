@@ -5,6 +5,9 @@ from typing import Optional
 from pathlib import Path
 import csv
 import json
+import random
+
+import openpyxl
 
 import typer
 from rich.table import Table
@@ -19,7 +22,8 @@ PROJECT_STATE_FILE = "usortm_project.json"
 
 _BSAI_FWD = "GGTCTC"   # BsaI recognition site (forward)
 _BSAI_REV = "GAGACC"   # BsaI recognition site (reverse complement)
-_BSAI_FLANK = 7        # bp to keep outside each recognition site
+_BSAI_FLANK = 5        # minimum bp to keep outside each recognition site
+_EBLOCK_MIN_LEN = 300  # IDT eBlocks minimum product length
 
 # 96-well row/column layout for eBlocks plate format
 _ROWS = list("ABCDEFGH")
@@ -176,22 +180,34 @@ def reorder(
     # Optionally trim sequences to 5 bp outside flanking BsaI sites
     if trim_bsai:
         untrimmed = []
+        padded = []
         for v in dropouts:
-            trimmed = _trim_to_bsai(v["sequence"])
-            if trimmed is None:
+            result = _trim_to_bsai(v["sequence"])
+            if result is None:
                 untrimmed.append(v["name"])
             else:
-                v["sequence"] = trimmed
+                trimmed_seq, left_added, right_added = result
+                v["sequence"] = trimmed_seq
+                if left_added > 0 or right_added > 0:
+                    padded.append((v["name"], left_added, right_added))
         if untrimmed:
             console.print(
                 f"[yellow]Warning:[/yellow] {len(untrimmed)} sequence(s) missing a BsaI site — kept untrimmed:"
             )
             for name in untrimmed:
                 console.print(f"  {name}")
-        else:
+        if padded:
             console.print(
-                f"[green]✓[/green] Sequences trimmed to {_BSAI_FLANK} bp outside BsaI sites"
+                f"[yellow]→[/yellow] {len(padded)} sequence(s) had insufficient flanking — random buffer added:"
             )
+            for name, la, ra in padded:
+                sides = []
+                if la: sides.append(f"{la} bp left")
+                if ra: sides.append(f"{ra} bp right")
+                console.print(f"  {name}: {', '.join(sides)}")
+        console.print(
+            f"[green]✓[/green] Sequences trimmed to {_BSAI_FLANK} bp outside BsaI sites"
+        )
 
     # Write output
     if output is None:
@@ -199,7 +215,8 @@ def reorder(
 
     if fmt == "eblocks":
         n_plates = _write_idt_eblocks(dropouts, output)
-        console.print(f"[green]✓[/green] IDT eBlocks CSV written to [cyan]{output}[/cyan]")
+        console.print(f"[green]✓[/green] IDT eBlocks CSV written to  [cyan]{output}[/cyan]")
+        console.print(f"[green]✓[/green] IDT eBlocks XLSX written to [cyan]{output.with_suffix('.xlsx')}[/cyan]")
         console.print(f"   {len(dropouts)} sequences across {n_plates} plate(s)")
     elif fmt == "twist":
         _write_twist_gene_fragments(dropouts, output)
@@ -354,12 +371,26 @@ def _load_library_sequences(library_path: Path) -> dict[str, str]:
     return {row[name_col]: row[seq_col] for row in rows if row.get(name_col)}
 
 
-def _trim_to_bsai(seq: str) -> Optional[str]:
-    """Trim sequence to _BSAI_FLANK bp outside flanking BsaI sites.
+def _rand_seq(n: int) -> str:
+    """Return n random lowercase bases with 60 % AT / 40 % GC composition."""
+    if n <= 0:
+        return ""
+    return "".join(random.choices("atgc", weights=[0.3, 0.3, 0.2, 0.2], k=n))
 
-    Finds the first forward BsaI site (GGTCTC) and the last reverse BsaI site
-    (GAGACC), then keeps _BSAI_FLANK bp of flanking sequence on each side.
-    Returns None if either site is not found.
+
+def _trim_to_bsai(seq: str) -> Optional[tuple[str, int, int]]:
+    """Trim (or pad) a sequence to _BSAI_FLANK bp outside flanking BsaI sites,
+    extending symmetrically if the result would be shorter than _EBLOCK_MIN_LEN.
+
+    Logic:
+      1. Locate the core region (start of GGTCTC → end of GAGACC).
+      2. Desired total length = max(core + 2*_BSAI_FLANK, _EBLOCK_MIN_LEN).
+      3. Distribute the desired flanking evenly left/right (gene stays centred).
+      4. Pull from the original sequence where available; fill any remainder
+         with random 60/40 AT-biased lowercase bases.
+
+    Returns (result_seq, left_bp_added, right_bp_added), where added counts are
+    >0 when random padding was needed, or None if either BsaI site is absent.
     """
     upper = seq.upper()
     fwd_pos = upper.find(_BSAI_FWD)
@@ -368,32 +399,60 @@ def _trim_to_bsai(seq: str) -> Optional[str]:
     if fwd_pos == -1 or rev_pos == -1:
         return None
 
-    start = max(0, fwd_pos - _BSAI_FLANK)
-    end = rev_pos + len(_BSAI_REV) + _BSAI_FLANK
+    core_end = rev_pos + len(_BSAI_REV)
+    core_len = core_end - fwd_pos
 
-    return seq[start:end]
+    # Total target length keeps the gene centred and meets the minimum
+    target_len = max(core_len + 2 * _BSAI_FLANK, _EBLOCK_MIN_LEN)
+    extra      = target_len - core_len
+    left_want  = extra // 2
+    right_want = extra - left_want  # absorbs any odd bp on the right
+
+    # Take as much flank as possible from the original sequence
+    start = max(0, fwd_pos - left_want)
+    end   = min(len(seq), core_end + right_want)
+
+    left_added  = left_want  - (fwd_pos  - start)
+    right_added = right_want - (end - core_end)
+
+    result = _rand_seq(left_added) + seq[start:end] + _rand_seq(right_added)
+    return result, left_added, right_added
 
 
 def _write_idt_eblocks(dropouts: list[dict], output: Path) -> int:
-    """Write IDT eBlocks 96-well plate upload CSV. Returns number of plates."""
+    """Write IDT eBlocks 96-well plate upload CSV and XLSX. Returns number of plates."""
+    headers = ["Well Position", "Name", "Sequence"]
+
+    # Split dropouts into plates of 96
+    plates: list[list[dict]] = []
+    for i, variant in enumerate(dropouts):
+        if i % len(_WELLS_96) == 0:
+            plates.append([])
+        plates[-1].append(variant)
+
+    # CSV — plates separated by blank line + "# Plate N" header
     with open(output, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Well Position", "Name", "Sequence"])
-
-        plate = 1
-        well_idx = 0
-        for variant in dropouts:
-            if well_idx >= len(_WELLS_96):
-                # Start new plate — blank separator row then plate header
+        for plate_idx, plate in enumerate(plates):
+            if plate_idx > 0:
                 writer.writerow([])
-                writer.writerow([f"# Plate {plate + 1}"])
-                writer.writerow(["Well Position", "Name", "Sequence"])
-                plate += 1
-                well_idx = 0
-            writer.writerow([_WELLS_96[well_idx], variant["name"], variant["sequence"]])
-            well_idx += 1
+                writer.writerow([f"# Plate {plate_idx + 1}"])
+            writer.writerow(headers)
+            for well_idx, variant in enumerate(plate):
+                writer.writerow([_WELLS_96[well_idx], variant["name"].replace(";", "."), variant["sequence"]])
 
-    return plate
+    # Excel — one worksheet per plate
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # remove default empty sheet
+    for plate_idx, plate in enumerate(plates):
+        ws = wb.create_sheet(title=f"Plate {plate_idx + 1}")
+        ws.append(headers)
+        for well_idx, variant in enumerate(plate):
+            ws.append([_WELLS_96[well_idx], variant["name"].replace(";", "."), variant["sequence"]])
+    xlsx_output = output.with_suffix(".xlsx")
+    wb.save(xlsx_output)
+
+    return len(plates)
 
 
 def _write_twist_gene_fragments(dropouts: list[dict], output: Path) -> None:
