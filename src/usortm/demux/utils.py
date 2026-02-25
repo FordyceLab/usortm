@@ -797,6 +797,13 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
     if rbc_df is not None and "rbc" in df.columns:
         df["rbc_name"] = df["rbc"].map(rbc_df["name"])
 
+    # Ensure required columns exist even when no reads were classified
+    # (e.g., tiny subsample or no-reference run). This keeps downstream
+    # filtering deterministic and avoids KeyError on empty demux outputs.
+    for col in ("fbc_name", "rbc_name", "ref_name"):
+        if col not in df.columns:
+            df[col] = pd.NA
+
     # --- drop reads missing required info ---
     pre_filter = len(df)
     df = df.dropna(subset=["fbc_name", "rbc_name", "ref_name"]).copy()
@@ -834,34 +841,61 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
     return df
 
 def generate_well_df(read_df):
-    
+    output_cols = [
+        "plate", "well", "global_well", "depth",
+        "major_ref", "major_freq", "ref_len", "ref_seq",
+    ]
+
     # Copy df
     temp_df = read_df.copy()
+    if "well_pos" not in temp_df.columns:
+        return pd.DataFrame(columns=output_cols)
+
     temp_df = temp_df.dropna(subset=['well_pos'])
     all_wells = temp_df.well_pos.unique()
-    
+    if len(all_wells) == 0:
+        return pd.DataFrame(columns=output_cols)
+
     # Generate well_df
-    well_df = pd.DataFrame()
+    well_df = pd.DataFrame(
+        columns=[
+            "plate", "well", "global_well", "depth", "well_row",
+            "well_col", "major_ref", "major_freq", "ref_len", "ref_seq",
+        ]
+    )
 
     for index, well in tqdm(enumerate(all_wells), total=len(all_wells)):
         curr = read_df[read_df['well_pos'] == well]
         depth = len(curr)
+        if depth == 0:
+            continue
         # Strip fwd:/rev: strand prefixes so reads for the same variant
         # are counted together (otherwise a well with 100% one variant
         # but split across strands would show ~50% major_freq).
         refs = [r.split(":", 1)[-1] if r.startswith(("fwd:", "rev:")) else r
                 for r in curr['ref_name'].to_list()]
+        if not refs:
+            continue
         major_ref = max(set(refs), key=refs.count)
         major_freq = refs.count(major_ref)/len(curr)
         # Look up ref_seq/ref_len from original column (may still have prefix)
-        ref_match = curr[curr['ref_name'].str.endswith(major_ref)]
-        ref_seq = ref_match['ref_seq'].iloc[0]
-        ref_len = int(ref_match['ref_len'].iloc[0])
+        ref_match = curr[curr['ref_name'].str.endswith(major_ref, na=False)]
+        ref_seq = None
+        ref_len = None
+        if not ref_match.empty:
+            if "ref_seq" in ref_match.columns:
+                ref_seq = ref_match['ref_seq'].iloc[0]
+            if "ref_len" in ref_match.columns and pd.notna(ref_match['ref_len'].iloc[0]):
+                ref_len = int(ref_match['ref_len'].iloc[0])
 
         parsed_well = _parse_well(well)
+        if parsed_well is None:
+            continue
         plate_num = parsed_well[0]
         well_row = parsed_well[1]
         well_col = parsed_well[2]
+        if plate_num is None or well_row is None or well_col is None:
+            continue
         plate_well = well_row + str(well_col)
 
         well_df.at[index, 'plate'] = plate_num
@@ -876,7 +910,12 @@ def generate_well_df(read_df):
         well_df.at[index, 'ref_len'] = ref_len
         well_df.at[index, 'ref_seq'] = ref_seq
 
+    if well_df.empty:
+        return pd.DataFrame(columns=output_cols)
+
     well_df.dropna(subset=['plate', 'well_row', 'well_col'], inplace=True)
+    if well_df.empty:
+        return pd.DataFrame(columns=output_cols)
     well_df.sort_values(by=['plate', 'well_row', 'well_col'], inplace=True)
 
     # Drop well_row and well_col

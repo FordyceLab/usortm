@@ -56,7 +56,7 @@ def plan(
         "--barcodes", "-b",
         help="Barcode kit to use: 'levseq' (recommended), 'evseq', or path to custom CSV.",
     ),
-    round: int = typer.Option(
+    round_num: int = typer.Option(
         1,
         "--round", "-r",
         help="Sequencing round number (1 for initial sort, 2+ for re-order rounds).",
@@ -196,7 +196,7 @@ def plan(
     project_state = {
         "created": datetime.now().isoformat(),
         "status": "planned",
-        "round": round,
+        "round": round_num,
         "variants_file": str(variants_file.absolute()),
         "library_size": library_size,
         "seq_length": seq_length,

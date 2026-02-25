@@ -386,34 +386,154 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     }
 
 
+def _cmap_hex(t: float) -> str:
+    """Sample the custom white→yellow→green colormap at t in [0, 1].
+
+    Mirrors the color stops used by ``get_custom_cmap()`` in demux/viz.py.
+    """
+    t = max(0.0, min(1.0, t))
+
+    def _lerp(stops: list, x: float) -> float:
+        for i in range(len(stops) - 1):
+            x0, v0 = stops[i]
+            x1, v1 = stops[i + 1]
+            if x0 <= x <= x1:
+                f = (x - x0) / (x1 - x0) if x1 > x0 else 0.0
+                return v0 + f * (v1 - v0)
+        return stops[-1][1]
+
+    r = _lerp([(0, 1), (0.07, 1), (0.375, 1),    (0.50, 0.5),  (1, 0)],    t)
+    g = _lerp([(0, 1), (0.07, 1), (0.375, 0.95), (0.50, 0.98), (1, 0.39)], t)
+    b = _lerp([(0, 1), (0.15, 1), (0.375, 0.35), (0.50, 0.6),  (1, 0)],    t)
+    return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+
+
+def _generate_read_depth_histogram_svg(read_counts: list) -> str:
+    """Generate an inline SVG histogram of per-well read depths with tier markers."""
+    if not read_counts:
+        return ""
+
+    max_val = max(read_counts)
+    n_bins = 25
+    bin_size = max(1, (max_val + n_bins) // n_bins)
+    total_range = bin_size * n_bins
+
+    bins = [0] * n_bins
+    for r in read_counts:
+        idx = min(int(r / bin_size), n_bins - 1)
+        bins[idx] += 1
+    max_count = max(bins) if any(bins) else 1
+
+    # SVG layout
+    ml, mr, mt, mb = 40, 15, 20, 42
+    chart_w, chart_h = 310, 150
+    svg_w = ml + chart_w + mr
+    svg_h = mt + chart_h + mb
+
+    bar_w = chart_w / n_bins
+    els = []
+
+    # Bars coloured by the white→yellow→green colormap (by bin midpoint / max reads)
+    for i, count in enumerate(bins):
+        if count == 0:
+            continue
+        x = ml + i * bar_w
+        h = max(1, int((count / max_count) * chart_h))
+        y = mt + chart_h - h
+        t = ((i + 0.5) * bin_size) / max_val
+        els.append(
+            f'<rect x="{x:.1f}" y="{y}" width="{max(bar_w - 1, 1):.1f}" height="{h}" '
+            f'rx="2" fill="{_cmap_hex(t)}" stroke="#aaa" stroke-width="0.3"/>'
+        )
+
+    # Tier threshold lines + labels
+    for threshold, tier_label in [(20, "C"), (50, "B"), (100, "A")]:
+        x = ml + (threshold / total_range) * chart_w
+        if ml <= x <= ml + chart_w:
+            els.append(
+                f'<line x1="{x:.1f}" y1="{mt}" x2="{x:.1f}" y2="{mt + chart_h}" '
+                f'stroke="var(--text-color)" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>'
+                f'<text x="{x + 3:.1f}" y="{mt + 11}" '
+                f'font-size="10" fill="var(--text-color)" opacity="0.55">Tier {tier_label}</text>'
+            )
+
+    # X-axis ticks and labels
+    for i in range(0, n_bins + 1, 5):
+        x = ml + i * bar_w
+        els.append(
+            f'<line x1="{x:.1f}" y1="{mt + chart_h}" x2="{x:.1f}" y2="{mt + chart_h + 4}" '
+            f'stroke="var(--border)" stroke-width="1"/>'
+            f'<text x="{x:.1f}" y="{mt + chart_h + 16}" '
+            f'text-anchor="middle" font-size="11" fill="var(--muted)">{i * bin_size}</text>'
+        )
+
+    # X-axis label
+    els.append(
+        f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
+        f'text-anchor="middle" font-size="11" fill="var(--muted)">Reads per well</text>'
+    )
+
+    # Y-axis label (rotated)
+    els.append(
+        f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
+        f'transform="rotate(-90)" text-anchor="middle" font-size="11" fill="var(--muted)">Wells</text>'
+    )
+
+    # Y-axis max value
+    els.append(
+        f'<text x="{ml - 4}" y="{mt + 5}" '
+        f'text-anchor="end" font-size="11" fill="var(--muted)">{max_count}</text>'
+    )
+
+    # Axes
+    els.append(
+        f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
+        f'stroke="var(--border)" stroke-width="1.5"/>'
+        f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
+        f'stroke="var(--border)" stroke-width="1.5"/>'
+    )
+
+    return (
+        f'<svg viewBox="0 0 {svg_w} {svg_h}" width="{svg_w}" height="{svg_h}" '
+        f'xmlns="http://www.w3.org/2000/svg" '
+        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
+        + "\n".join(els)
+        + "</svg>"
+    )
+
+
 def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
     """Generate an inline SVG horizontal bar chart for per-plate read counts."""
     if not plate_reads:
         return ""
 
     max_reads = max(plate_reads.values()) or 1
-    bar_height = 32
-    label_width = 80
-    chart_width = 500
+    bar_height = 28
+    label_width = 70
+    chart_width = 260
+    right_pad = 70
     padding = 4
+    svg_width = label_width + chart_width + right_pad
     svg_height = len(plate_reads) * (bar_height + padding) + 10
 
     bars = []
     for i, (plate, reads) in enumerate(sorted(plate_reads.items(), key=lambda x: int(x[0]))):
         y = i * (bar_height + padding)
         bar_w = max(int((reads / max_reads) * chart_width), 2)
+        fill = _cmap_hex(reads / max_reads)
         bars.append(
-            f'<text x="{label_width - 8}" y="{y + bar_height * 0.7}" '
-            f'text-anchor="end" font-size="15" fill="var(--text-color)">Plate {plate}</text>'
+            f'<text x="{label_width - 6}" y="{y + bar_height * 0.7}" '
+            f'text-anchor="end" font-size="13" fill="var(--text-color)">Plate {plate}</text>'
             f'<rect x="{label_width}" y="{y}" width="{bar_w}" height="{bar_height}" '
-            f'rx="4" fill="var(--accent)" opacity="0.85"/>'
-            f'<text x="{label_width + bar_w + 6}" y="{y + bar_height * 0.7}" '
-            f'font-size="14" fill="var(--muted)">{reads:,}</text>'
+            f'rx="3" fill="{fill}" stroke="#aaa" stroke-width="0.3"/>'
+            f'<text x="{label_width + bar_w + 5}" y="{y + bar_height * 0.7}" '
+            f'font-size="12" fill="var(--muted)">{reads:,}</text>'
         )
 
     return (
-        f'<svg width="{label_width + chart_width + 80}" height="{svg_height}" '
-        f'xmlns="http://www.w3.org/2000/svg" style="font-family:sans-serif;">'
+        f'<svg viewBox="0 0 {svg_width} {svg_height}" width="{svg_width}" height="{svg_height}" '
+        f'xmlns="http://www.w3.org/2000/svg" '
+        f'style="font-family:sans-serif; width:100%; height:auto;">'
         + "\n".join(bars)
         + "</svg>"
     )
@@ -445,6 +565,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         p = w["plate"]
         plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
     plate_bar_svg = _generate_plate_bar_svg(plate_reads)
+    read_depth_histogram_svg = _generate_read_depth_histogram_svg(read_counts)
 
     # Sequence length display — use measured range from demux, fall back to plan value
     sl_min = demux_summary.get("seq_len_min")
@@ -687,17 +808,22 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         }}
         .read-depth-row {{
             display: flex;
-            gap: 2rem;
-            align-items: center;
-            flex-wrap: wrap;
+            gap: 1.5rem;
+            align-items: flex-start;
+            flex-wrap: nowrap;
         }}
         .read-depth-row > table {{
             flex: 0 0 auto;
             width: auto;
-            min-width: 280px;
+            min-width: 220px;
         }}
         .read-depth-row > .bar-chart {{
-            flex: 1 1 400px;
+            flex: 1 1 0;
+            min-width: 0;
+        }}
+        .read-depth-row > .histogram-chart {{
+            flex: 1 1 0;
+            min-width: 0;
         }}
         table {{
             width: 100%;
@@ -800,6 +926,10 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             </tr>
         </tbody>
     </table>
+    <div class="histogram-chart">
+        <h3>Read Depth Distribution</h3>
+        {read_depth_histogram_svg}
+    </div>
     <div class="bar-chart">
         <h3>Reads per Plate</h3>
         {plate_bar_svg}

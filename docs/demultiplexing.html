@@ -389,11 +389,11 @@ usortm report my_project/ --format json</code></pre>
         <pre><code class="language-bash"># Pick one well per unique variant (default)
 usortm pick my_project/
 
-# Pick all wells (including duplicates)
-usortm pick my_project/ --all-hits
+# Compact pick list to minimize source plates
+usortm pick  my_project/ --compact
 
-# Custom transfer volume
-usortm pick my_project/ --volume 3.0
+# Include C-tier wells in the pick list
+usortm pick  my_project/ --tier C
 
 # Target 96-well plates instead of 384
 usortm pick my_project/ --target-format 96</code></pre>

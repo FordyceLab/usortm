@@ -134,17 +134,17 @@ def test_preset_get_not_found():
         get_preset("nonexistent_preset_xyz")
 
 
-def test_preset_add(tmp_path):
-    """add_preset should copy a TOML into the user dir."""
-    from usortm.demux.presets import add_preset, USER_DIR
+def test_preset_add(tmp_path, monkeypatch):
+    """add_preset should copy a TOML into a writable user dir."""
+    from usortm.demux import presets
 
     source = tmp_path / "my_custom.toml"
     source.write_text('[meta]\ndescription = "custom"\n\n[fbc]\nmask1_front = "AAA"\n')
 
-    # Use a custom name to avoid polluting the real user dir
-    dest = add_preset(source, name="test_custom_preset_xyz")
+    # Redirect USER_DIR so the test never writes to ~/.usortm.
+    monkeypatch.setattr(presets, "USER_DIR", tmp_path / "presets")
+
+    # Use a custom name to avoid collisions with any real user preset names.
+    dest = presets.add_preset(source, name="test_custom_preset_xyz")
     assert dest.is_file()
     assert "test_custom_preset_xyz" in dest.name
-
-    # Cleanup
-    dest.unlink(missing_ok=True)

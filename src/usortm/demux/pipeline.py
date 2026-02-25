@@ -363,7 +363,10 @@ def _translate_to_cli_format(
         assigned_reads = 0
 
     wells_with_data = len(well_df)
-    wells_passing = int((well_df["depth"] >= min_reads).sum())
+    if "depth" in well_df.columns:
+        wells_passing = int((well_df["depth"] >= min_reads).sum())
+    else:
+        wells_passing = 0
 
     # Build per-well assignment dict
     well_assignments = {}
@@ -381,10 +384,14 @@ def _translate_to_cli_format(
         _cc = row.get("cons_check")
         cons_check_val = str(_cc) if (_cc is not None and pd.notna(_cc)) else ""
 
+        depth = row.get("depth", 0)
+        if pd.isna(depth):
+            depth = 0
+
         well_assignments[key] = {
             "plate": plate,
             "well": well,
-            "reads": int(row["depth"]),
+            "reads": int(depth),
             "variant": variant,
             "consensus_fraction": float(row.get("major_freq", 0.0)),
             "cons_check": cons_check_val,

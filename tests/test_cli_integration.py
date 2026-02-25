@@ -249,6 +249,23 @@ def test_estimate_command():
     assert "$" in result.stdout or "cost" in result.stdout.lower()
 
 
+def test_plan_command_with_round_option(tmp_path, library_csv):
+    """Plan should accept --round without shadowing Python's round()."""
+    project_dir = tmp_path / "round_test"
+    result = runner.invoke(app, [
+        "plan",
+        str(library_csv),
+        "--output", str(project_dir),
+        "--seq-length", "300",
+        "--round", "2",
+    ])
+    assert result.exit_code == 0
+
+    with open(project_dir / "usortm_project.json") as f:
+        state = json.load(f)
+    assert state["round"] == 2
+
+
 # ===================================================================
 # Error handling
 # ===================================================================

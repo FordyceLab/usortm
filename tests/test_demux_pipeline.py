@@ -417,6 +417,42 @@ class TestPipelineHelpers:
         assert results["wells_passing"] == 0
         assert results["well_assignments"] == {}
 
+    def test_generate_well_df_empty_assignments(self):
+        """generate_well_df should return an empty, well-formed frame."""
+        from usortm.demux.utils import generate_well_df
+
+        read_df = pd.DataFrame({
+            "read_name": ["read_1", "read_2"],
+            "ref_name": ["fwd:GFP_test", "rev:GFP_test"],
+            "well_pos": [None, None],
+        })
+
+        well_df = generate_well_df(read_df)
+
+        assert well_df.empty
+        assert set([
+            "plate", "well", "global_well", "depth",
+            "major_ref", "major_freq", "ref_len", "ref_seq",
+        ]).issubset(set(well_df.columns))
+
+    def test_format_df_handles_missing_assignment_columns(self):
+        """format_df should not crash when demux columns are missing."""
+        from usortm.demux.utils import format_df
+
+        read_df = pd.DataFrame({
+            "read_name": ["read_1"],
+            "read_seq": ["ATGC"],
+            "read_qual": ["IIII"],
+            "avg_qual": [40.0],
+        })
+
+        formatted = format_df(read_df, fbc_df=None, rbc_df=None, ref_fasta=None)
+
+        assert formatted.empty
+        assert set(["fbc_name", "rbc_name", "ref_name", "well_pos"]).issubset(
+            set(formatted.columns)
+        )
+
 
 # ===================================================================
 # Fake FASTQ fixture validation tests
