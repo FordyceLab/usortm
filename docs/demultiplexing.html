@@ -157,6 +157,7 @@
           <li><strong>Reverse barcode (RBC) demux</strong>: Dorado identifies the reverse barcode (4 per plate = plate quadrants)</li>
           <li><strong>Well mapping</strong>: Combine FBC + RBC assignments to map each read to a 384-well plate position</li>
           <li><strong>Consensus &amp; variant calling</strong>: Generate per-well consensus sequences via samtools and identify variants</li>
+          <li><strong>Streak-out detection</strong>: Screen mixed wells for recoverable minority variants (see below)</li>
         </ol>
 
         <h2>Prerequisites</h2>
@@ -289,6 +290,7 @@ mask2_rear  = "AATTTATATT"
 ├── well_assignments.csv   # Per-well variant calls
 ├── read_df.csv            # Per-read barcode + reference assignments
 ├── well_df.csv            # Per-well summary with consensus & variants
+├── plate_map.html         # Interactive Bokeh plate map
 ├── dorado_config/         # Generated Dorado TOML + FASTA configs
 │   ├── levseq_fbc.toml
 │   ├── levseq_fbc.fasta
@@ -297,7 +299,10 @@ mask2_rear  = "AATTTATATT"
 ├── alignment/             # minimap2 alignment + strand-split FASTQs
 ├── fbc/                   # Dorado forward barcode demux output
 ├── rbc/                   # Dorado reverse barcode demux output
-└── reference_fasta/       # Per-variant reference FASTAs for consensus</code></pre>
+├── reference_fasta/       # Per-variant reference FASTAs for consensus
+└── streakout/             # Streak-out candidate detection (if found)
+    ├── streakout_candidates.csv
+    └── well_*.html        # Per-well pileup visualizations</code></pre>
 
         <h3>CLI Summary Table</h3>
         <p>
@@ -420,6 +425,121 @@ usortm pick my_project/ --target-format 96</code></pre>
 K44A;1;K23;0;A1;5.0
 G45A;1;A11;0;B1;5.0
 T203Y;2;C5;0;C1;5.0</code></pre>
+
+        <h2>Streak-Out Candidate Detection</h2>
+
+        <p>
+          During demultiplexing, some wells may contain two or more correctly-assembled
+          subpopulations of reads. This occurs when a well captures multiple variants from
+          the library &mdash; for example, if two cells were sorted into the same well.
+          If the minority variant was missed during initial sampling (e.g. because the
+          dominant variant was picked), the user can <strong>streak out</strong> those wells
+          to isolate the minority clone.
+        </p>
+
+        <p>
+          The pipeline automatically screens for these wells after variant calling
+          (Stage 10.5) and reports them as <em>streak-out candidates</em>.
+        </p>
+
+        <h3>Detection Algorithm</h3>
+
+        <p>For each well where the dominant read fraction is below 90% and the total read
+           depth is at least 50:</p>
+        <ol>
+          <li><strong>Group reads by reference</strong>: Reads are grouped by their assigned
+              reference variant (strand prefixes <code>fwd:</code>/<code>rev:</code> are
+              stripped so both orientations count together).</li>
+          <li><strong>Filter small groups</strong>: Groups with fewer than 5 reads are
+              dropped (insufficient for reliable consensus).</li>
+          <li><strong>Per-group consensus</strong>: For each surviving group, generate a
+              consensus sequence using the same minimap2 &rarr; samtools consensus &rarr;
+              re-align pipeline used for per-well variant calling.</li>
+          <li><strong>Classify consensus</strong>: The consensus CIGAR is classified as
+              <em>Perfect Match</em> (exact match to reference), <em>Silent Mutation</em>
+              (nucleotide differences that produce the same protein), or <em>Error</em>.</li>
+          <li><strong>Identify candidates</strong>: If <strong>two or more groups</strong>
+              produce a correct consensus (Perfect Match or Silent Mutation), the well is
+              flagged as a streak-out candidate. The minority group(s) with correct consensus
+              are the <em>recoverable variants</em>.</li>
+        </ol>
+
+        <h3>Outputs</h3>
+
+        <p>When streak-out candidates are found, a <code>streakout/</code> directory is
+           created inside <code>demux_output/</code>:</p>
+
+        <pre><code class="language-bash">demux_output/streakout/
+├── streakout_candidates.csv    # Summary table of candidate wells
+├── well_1_A3.html              # Per-well pileup visualization
+├── well_1_H12.html
+└── ...</code></pre>
+
+        <p><strong>streakout_candidates.csv</strong> contains one row per candidate well:</p>
+        <pre><code class="language-csv">plate,well,total_reads,top_frac,n_groups,recoverable_variants
+1,A3,47,0.68,2,var_089
+2,H12,83,0.76,2,var_012;var_055</code></pre>
+
+        <h3>Per-Well Pileup HTML</h3>
+
+        <p>
+          Each candidate well gets a standalone HTML page showing reads grouped by reference.
+          The reference sequence appears as a bold header line, with aligned reads displayed
+          below in monospace. Each base is colored:
+        </p>
+        <ul>
+          <li><strong>Gray</strong>: match (base agrees with reference)</li>
+          <li><strong style="color: #ef4444;">Red &amp; bold</strong>: mismatch (base differs from reference)</li>
+          <li><strong>Faded dash</strong>: gap/deletion</li>
+        </ul>
+        <p>
+          Groups whose consensus was classified as correct are labeled with a star
+          (&starf;) if they are recoverable minority variants. The pileup pages support
+          horizontal scrolling for long sequences and respect the light/dark theme toggle.
+        </p>
+
+        <h3>Plate Map Annotation</h3>
+
+        <p>
+          Streak-out candidate wells are annotated with a <strong style="color: #2563eb;">blue
+          corner tab</strong> in the top-left corner of the well on the demux plate map. This
+          distinguishes them from generic doublets (red triangle in the lower-right), which
+          are wells where the dominant fraction is below 90% but the subpopulations have not
+          been verified to both have correct consensus sequences.
+        </p>
+
+        <h3>Report Integration</h3>
+
+        <p>
+          When <code>usortm report</code> is run, a &ldquo;Streak-Out Candidates&rdquo;
+          section appears in <code>summary.html</code> (after the Hit Picking section)
+          with a table of candidate wells and links to the per-well pileup pages.
+        </p>
+
+        <h3>Default Parameters</h3>
+
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>min_well_reads</code></td>
+              <td>50</td>
+              <td>Minimum total reads in a well to screen for streak-out</td>
+            </tr>
+            <tr>
+              <td><code>min_group_reads</code></td>
+              <td>5</td>
+              <td>Minimum reads per reference group for consensus</td>
+            </tr>
+            <tr>
+              <td><code>max_top_frac</code></td>
+              <td>0.9</td>
+              <td>Wells with dominant fraction above this are skipped</td>
+            </tr>
+          </tbody>
+        </table>
 
         <h2>Quality Control</h2>
 

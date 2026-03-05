@@ -236,7 +236,18 @@ def demux(
         progress.update(task, description="Done!", completed=True)
 
     # Save results
-    _save_demux_results(results, demux_output)
+    _save_demux_results(results, demux_output, project=project)
+
+    # Build streakout wells set for plate map annotation
+    streakout_wells = set()
+    streakout_info = results.get("streakout", {})
+    if streakout_info.get("candidates", 0) > 0:
+        streakout_csv = demux_output / "streakout" / "streakout_candidates.csv"
+        if streakout_csv.exists():
+            import csv as csv_mod
+            with open(streakout_csv) as _sf:
+                for row in csv.DictReader(_sf):
+                    streakout_wells.add(f"{row['plate']}_{row['well']}")
 
     # Generate interactive plate map (Bokeh is an optional dependency)
     try:
@@ -258,6 +269,7 @@ def demux(
                 save_plate_map_html(
                     read_df, str(plate_map_path),
                     title="Demux Plate Map",
+                    streakout_wells=streakout_wells,
                     min_reads=min_reads,
                 )
                 console.print(
@@ -320,6 +332,17 @@ def demux(
 
     console.print(summary_table)
     console.print()
+
+    # Streak-out candidate summary
+    if streakout_info.get("candidates", 0) > 0:
+        n_cands = streakout_info["candidates"]
+        n_recov = len(streakout_info.get("recoverable_variants", []))
+        console.print(
+            f"[green]\u2713[/green] {n_cands} streak-out candidate(s) detected "
+            f"({n_recov} recoverable variant(s))"
+        )
+        console.print(f"  Output: {demux_output / 'streakout'}/")
+        console.print()
 
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
@@ -402,32 +425,31 @@ def _prompt_preset_selection() -> Optional[dict]:
 
     Returns the loaded mask config dict, or None to use defaults.
     """
+    import questionary
     from usortm.demux.presets import list_presets
 
     presets = list_presets()
     if not presets:
         return None
 
-    console.print()
-    console.print("[bold]No mask config found.[/bold] Select a preset or use defaults:")
-    console.print()
-    for i, p in enumerate(presets, 1):
-        desc = f" — {p['description']}" if p["description"] else ""
-        console.print(f"  [{i}] {p['name']}{desc}")
-    console.print(f"  [0] None (use built-in defaults)")
-    console.print()
+    choices = [
+        questionary.Choice(
+            title=f"{p['name']} — {p['description']}" if p["description"] else p["name"],
+            value=i + 1,
+        )
+        for i, p in enumerate(presets)
+    ]
+    choices.append(questionary.Choice(title="None (use built-in defaults)", value=0))
 
     try:
-        from rich.prompt import Prompt
-        choice = Prompt.ask("Preset", default="0", console=console)
-        idx = int(choice)
-    except (ValueError, KeyboardInterrupt, EOFError):
+        answer = questionary.select("Select a mask config preset:", choices=choices).ask()
+    except KeyboardInterrupt:
         return None
 
-    if idx == 0 or idx > len(presets):
+    if answer is None or answer == 0:
         return None
 
-    selected = presets[idx - 1]
+    selected = presets[answer - 1]
     console.print(f"[green]\u2713[/green] Using preset: {selected['name']}")
     return _load_mask_config(selected["path"])
 
@@ -585,7 +607,41 @@ def _load_barcode_map(barcode_file: Path) -> dict:
     return barcode_map
 
 
-def _save_demux_results(results: dict, output_dir: Path):
+def _compute_recovery_curve(library_size: int, skew: float = 4.0) -> Optional[dict]:
+    """Run sortm simulations over a range of fold-sampling values.
+
+    Returns dict with 'fold_samplings', 'coverage_means', and 'coverage_stds'
+    lists, or None if the simulate module is unavailable.
+    """
+    try:
+        from usortm.simulate.sortm import sortm
+        import numpy as np
+    except ImportError:
+        return None
+
+    fold_samplings = [0.5, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15]
+    coverage_means = []
+    coverage_stds = []
+    for fs in fold_samplings:
+        result = sortm(
+            n_sims=30,
+            lib_size=library_size,
+            fold_sampling=fs,
+            skew=skew,
+            p_grow=0.67,
+            return_correct=True,
+            seed=42,
+        )
+        coverage_means.append(round(float(np.mean(result) / library_size * 100), 2))
+        coverage_stds.append(round(float(np.std(result) / library_size * 100), 2))
+    return {
+        "fold_samplings": fold_samplings,
+        "coverage_means": coverage_means,
+        "coverage_stds": coverage_stds,
+    }
+
+
+def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict] = None):
     """Save demultiplexing results to JSON summary and CSV well assignments.
 
     Output files:
@@ -596,6 +652,8 @@ def _save_demux_results(results: dict, output_dir: Path):
     Args:
         results: Results dict from the pipeline.
         output_dir: Output directory.
+        project: Project state dict (used to extract library_size and skew for
+            the recovery curve simulation).
     """
     # Save summary JSON
     summary = {
@@ -609,6 +667,21 @@ def _save_demux_results(results: dict, output_dir: Path):
     for key in ("seq_len_min", "seq_len_max", "seq_len_median"):
         if key in results:
             summary[key] = results[key]
+    if "read_len_hist" in results:
+        summary["read_len_hist"] = results["read_len_hist"]
+    if "streakout" in results:
+        summary["streakout"] = results["streakout"]
+
+    # Pre-compute recovery curve if library_size is known
+    if project:
+        library_size = project.get("library_size")
+        skew = float(project.get("skew", 4.0))
+        if library_size and int(library_size) > 0:
+            console.print("[muted]Running coverage simulations...[/muted]")
+            curve = _compute_recovery_curve(int(library_size), skew)
+            if curve:
+                summary["recovery_curve"] = curve
+
     with open(output_dir / "demux_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
 

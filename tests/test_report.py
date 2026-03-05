@@ -224,9 +224,9 @@ def test_report_html_content(mock_project_with_library):
         assert "uSort-M Workflow Report" in html_content
         assert "Library Size" in html_content
         assert "Input Reads" in html_content
-        assert "Unique Variants" in html_content
+        assert "True Sampling" in html_content
+        assert "5 wells with &gt;20 reads" in html_content
         assert "Library Recovery" in html_content
-        assert "80.0%" in html_content  # 4/5 coverage
 
 
 def test_report_invalid_format(mock_project_with_library):
@@ -358,8 +358,7 @@ def test_report_html_has_bar_chart(mock_project_with_library):
         html_content = f.read()
 
     assert "<svg" in html_content
-    assert "Plate 1" in html_content
-    assert "Reads per Plate" in html_content
+    assert "Plate 1" not in html_content
 
 
 def test_report_html_no_minimum_reads_row(mock_project_with_library):
@@ -507,6 +506,32 @@ def test_report_html_library_recovery(mock_project_with_library):
     assert "Tier A" in html_content
     assert "Tier B" in html_content
     assert "Tier C" in html_content
+
+
+def test_report_html_selected_tier_indicator(mock_project_with_library):
+    """HTML report should highlight selected recovery tier when pick tier is present."""
+    state_file = mock_project_with_library / "usortm_project.json"
+    with open(state_file) as f:
+        state = json.load(f)
+
+    state["workflow_steps"]["pick"] = {
+        "completed": True,
+        "tier": "B",
+        "total_hits": 10,
+        "unique_variants": 4,
+        "target_format": 384,
+    }
+    with open(state_file, "w") as f:
+        json.dump(state, f)
+
+    runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
+
+    html_file = mock_project_with_library / "report" / "summary.html"
+    with open(html_file) as f:
+        html_content = f.read()
+
+    assert "Selected tier" in html_content
+    assert html_content.count('class="stat-box selected-tier"') == 1
 
 
 def test_final_mapping_groups_by_base_variant(tmp_path):

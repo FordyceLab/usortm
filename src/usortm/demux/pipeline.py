@@ -44,6 +44,38 @@ def _count_fastq_reads(fastq_path: str) -> int:
     return n_lines // 4
 
 
+def _compute_read_length_hist(fastq_path: str) -> dict:
+    """Return a read-length histogram dict for embedding in demux_summary.json.
+
+    Single-pass over the FASTQ sequence lines (line index % 4 == 1).
+
+    Returns:
+        Dict with keys bin_size, counts (50 ints), median (int), n_reads (int),
+        or empty dict if the file has no reads.
+    """
+    import statistics
+
+    open_fn = gzip.open if str(fastq_path).endswith(".gz") else open
+    lengths = []
+    with open_fn(fastq_path, "rt") as fh:
+        for i, line in enumerate(fh):
+            if i % 4 == 1:
+                lengths.append(len(line.rstrip()))
+    if not lengths:
+        return {}
+    max_len = max(lengths)
+    bin_size = max(1, (max_len + 49) // 50)
+    bins = [0] * 50
+    for ln in lengths:
+        bins[min(ln // bin_size, 49)] += 1
+    return {
+        "bin_size": bin_size,
+        "counts": bins,
+        "median": int(statistics.median(lengths)),
+        "n_reads": len(lengths),
+    }
+
+
 def _extract_reads_gzip_aware(
     input_fastq: str,
     output_fastq: str,
@@ -87,6 +119,7 @@ def run_levseq_pipeline(
         8. Generate per-well summary
         9. Generate per-well consensus sequences
         10. Call variants from consensus CIGAR strings
+        10.5. Screen for streak-out candidates (mixed wells with correct subpops)
         11. Translate results to CLI output format
 
     Args:
@@ -151,6 +184,12 @@ def run_levseq_pipeline(
         fastq = sub_path
         logger.info("Subsampled %d reads to %s", subsample, sub_path)
         pipeline_stats["input_reads"] = subsample
+
+    # --- Read length histogram ---
+    _progress("Computing read length histogram...")
+    read_len_hist = _compute_read_length_hist(str(fastq))
+    if read_len_hist:
+        pipeline_stats["read_len_hist"] = read_len_hist
 
     # --- Stage 3: Multi-ref alignment + strand split ---
     # This must happen BEFORE barcode demux because NB13-NB96 and
@@ -254,6 +293,40 @@ def run_levseq_pipeline(
         # --- Stage 10: Variant calling ---
         _progress("Calling variants from consensus...")
         well_df = utils.extract_matches(well_df)
+
+        # --- Stage 10.5: Streak-out candidate detection ---
+        _progress("Screening for streak-out candidates...")
+        from usortm.demux.streakout import (
+            detect_streakout_candidates,
+            save_streakout_results,
+            generate_well_pileup_html,
+        )
+
+        streakout_dir = output_dir / "streakout"
+        candidates = detect_streakout_candidates(
+            well_df, read_df, str(ref_dir), str(output_dir),
+            minimap2_path=tool_paths["minimap2"],
+            samtools_path=tool_paths["samtools"],
+            workers=workers,
+        )
+
+        if candidates:
+            streakout_dir.mkdir(exist_ok=True)
+            save_streakout_results(candidates, str(streakout_dir))
+            for cand in candidates:
+                generate_well_pileup_html(
+                    cand["global_well"], read_df, str(ref_dir), cand,
+                    str(streakout_dir / f"well_{cand['plate']}_{cand['well']}.html"),
+                    minimap2_path=tool_paths["minimap2"],
+                    samtools_path=tool_paths["samtools"],
+                )
+
+        pipeline_stats["streakout"] = {
+            "candidates": len(candidates),
+            "recoverable_variants": list({
+                v for c in candidates for v in c["recoverable_variants"]
+            }),
+        }
 
     _progress("Finalizing results...")
 
@@ -408,7 +481,7 @@ def _translate_to_cli_format(
                 "seq_len_median": int(ref_lens.median()),
             }
 
-    return {
+    result: dict = {
         "input_reads": input_reads,
         "aligned_reads": aligned_reads,
         "demuxed_reads": demuxed_reads,
@@ -420,3 +493,8 @@ def _translate_to_cli_format(
         "total_reads": input_reads,
         **seq_len_stats,
     }
+    if "read_len_hist" in stats:
+        result["read_len_hist"] = stats["read_len_hist"]
+    if "streakout" in stats:
+        result["streakout"] = stats["streakout"]
+    return result

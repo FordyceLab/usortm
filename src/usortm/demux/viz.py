@@ -131,7 +131,8 @@ def _well_label(r, c):
 
 def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
                                min_reads=100, max_lines=6,
-                               well_size=26, plot_width=800):
+                               well_size=26, plot_width=800,
+                               streakout_wells=None):
     
     ROWS = list(string.ascii_uppercase[:16])  # A–P
 
@@ -155,7 +156,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
           .apply(lambda x: "<br/>".join(
               [f"<b>{_well_label(x.iloc[0].row, x.iloc[0].col)}</b>"] +
               [f"{r} {p:.0%}" for r,p in zip(x[ref_col], x["frac"])][:max_lines]
-          ), include_groups=False)  # suppress future warning
+          ))
           .rename("tooltip").reset_index())
 
     dom = g.sort_values([well_col,"n"], ascending=[True,False]).groupby(well_col).head(1)
@@ -173,6 +174,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     full_layout["RowCat"] = pd.Categorical(full_layout["row"], categories=ROWS[::-1], ordered=True)
     full_layout["well"] = full_layout.apply(lambda r: _well_label(r["row"], r["col"]), axis=1)
 
+    _streakout_set = streakout_wells or set()
+
     def fill_plate(p):
         merged = full_layout.copy()
         sub = dom[dom["plate"] == p]
@@ -182,6 +185,37 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         merged["tooltip"] = merged["tooltip"].fillna("empty")
         merged["reads"] = merged["reads"].fillna(0)
         merged["frac"] = merged["frac"].fillna(0)
+
+        # Flag potential doublets and precompute lower-right triangle overlays.
+        # Triangle is split by diagonal from bottom-left to top-right.
+        tri_offset = 0.37
+        def _doublet_overlay(r):
+            if (r["reads"] > 20) and (r["frac"] < 0.9):
+                return (
+                    [r["col"] - tri_offset, r["col"] + tri_offset, r["col"] + tri_offset],
+                    [(r["row"], -tri_offset), (r["row"], -tri_offset), (r["row"], tri_offset)],
+                )
+            return ([], [])
+
+        merged["doublet_xs"], merged["doublet_ys"] = zip(
+            *merged.apply(_doublet_overlay, axis=1)
+        )
+
+        # Blue top-left corner tab for streak-out candidates (verified mixed
+        # wells where both subpopulations have correct consensus).
+        so_offset = 0.37
+        def _streakout_overlay(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            if key in _streakout_set:
+                return (
+                    [r["col"] - so_offset, r["col"] - so_offset, r["col"] + so_offset],
+                    [(r["row"], so_offset), (r["row"], -so_offset), (r["row"], so_offset)],
+                )
+            return ([], [])
+
+        merged["streakout_xs"], merged["streakout_ys"] = zip(
+            *merged.apply(_streakout_overlay, axis=1)
+        )
         return merged
 
     plates = sorted(dom["plate"].unique())
@@ -207,9 +241,19 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     fig = figure(x_range=(0.5, 24.5), y_range=ROWS[::-1],
                  width=900, height=560, tools="reset",
                  title=f"Plate {start_plate}")
-    fig.scatter("col", "RowCat", size=well_size, source=src, marker="square",
-                fill_color={'field': 'reads', 'transform': mapper},
-                line_color="darkgray", line_width=1.2)
+    fig.rect(
+        "col", "RowCat", width=0.74, height=0.74, source=src,
+        fill_color={'field': 'reads', 'transform': mapper},
+        line_color="darkgray", line_width=1.2
+    )
+    fig.patches(
+        "doublet_xs", "doublet_ys", source=src,
+        fill_color="#dc2626", fill_alpha=1.0, line_color=None
+    )
+    fig.patches(
+        "streakout_xs", "streakout_ys", source=src,
+        fill_color="#2563eb", fill_alpha=1.0, line_color=None
+    )
     fig.add_tools(HoverTool(tooltips=TOOLTIPS))
     fig.xaxis.ticker = list(range(1, 25))
     fig.grid.grid_line_color = None
@@ -254,7 +298,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     return layout
 
 
-def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
+def save_plate_map_html(df, output_path, title="Plate Map",
+                        streakout_wells=None, **kwargs):
     """Generate an interactive plate map and save as standalone HTML.
 
     Wraps :func:`make_plate_map_bokeh_reads` and writes a self-contained
@@ -264,13 +309,61 @@ def save_plate_map_html(df, output_path, title="Plate Map", **kwargs):
         df: DataFrame with ``well_pos`` and ``ref_name`` columns.
         output_path: Path to write the HTML file.
         title: HTML page title.
+        streakout_wells: Optional set of ``"{plate}_{well}"`` keys for
+            streak-out candidates (shown as blue corner tabs).
         **kwargs: Forwarded to :func:`make_plate_map_bokeh_reads`.
     """
     from pathlib import Path
 
-    layout = make_plate_map_bokeh_reads(df, **kwargs)
+    layout = make_plate_map_bokeh_reads(df, streakout_wells=streakout_wells,
+                                        **kwargs)
     html = file_html(layout, INLINE, title)
+    html = _inject_usortm_theme(html)
     Path(output_path).write_text(html)
+
+
+def _inject_usortm_theme(html: str) -> str:
+    """Inject summary-style light/dark page background sync into HTML.
+
+    Standalone plate map pages are generated by Bokeh and default to a white
+    background. This adds lightweight CSS/JS so they match the summary report
+    background and follow the saved ``usortm-theme`` preference.
+    """
+    if "usortm-theme-bridge" in html:
+        return html
+
+    style_block = """
+<style id="usortm-theme-bridge">
+:root { --usortm-bg: #fafafa; }
+[data-theme="dark"] { --usortm-bg: #1a1a2e; }
+html, body { background: var(--usortm-bg) !important; }
+</style>
+""".strip()
+
+    script_block = """
+<script id="usortm-theme-sync">
+(function () {
+  try {
+    var stored = localStorage.getItem('usortm-theme');
+    if (stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  } catch (e) {
+    document.documentElement.removeAttribute('data-theme');
+  }
+})();
+</script>
+""".strip()
+
+    if "<head>" in html:
+        html = html.replace("<head>", "<head>\n" + style_block, 1)
+
+    if "</body>" in html:
+        html = html.replace("</body>", script_block + "\n</body>", 1)
+
+    return html
 
 
 def _tier_colors(min_reads=100):
@@ -460,4 +553,5 @@ def save_pick_plate_map_html(pick_list, output_path, title="Pick Plate Map",
 
     layout = make_pick_plate_map_bokeh(pick_list, **kwargs)
     html = file_html(layout, INLINE, title)
+    html = _inject_usortm_theme(html)
     Path(output_path).write_text(html)
