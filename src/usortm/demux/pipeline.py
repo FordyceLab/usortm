@@ -105,6 +105,7 @@ def run_levseq_pipeline(
     progress_callback: Optional[Callable[[str], None]] = None,
     mask_config: Optional[dict] = None,
     subsample: Optional[int] = None,
+    orient_ref: Optional[Path] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -200,7 +201,14 @@ def run_levseq_pipeline(
     oriented_fq = str(fastq)  # default: use raw FASTQ if no reference
 
     if reference is not None:
-        _progress("Aligning reads to reference library...")
+        # When --orient-ref is provided, align against that single
+        # reference for fast orientation.  Otherwise fall back to the
+        # full multi-ref library.
+        align_ref = str(orient_ref) if orient_ref is not None else str(reference)
+        if orient_ref is not None:
+            _progress("Orienting reads against single reference...")
+        else:
+            _progress("Aligning reads to reference library...")
         align_dir = output_dir / "alignment"
 
         def _align_progress(n_done, total):
@@ -213,7 +221,7 @@ def run_levseq_pipeline(
                 _progress(f"Aligning reads to reference library... {n_done:,} aligned")
 
         oriented_fq, ref_map, align_stats = utils.align_and_split_by_strand(
-            multi_ref_fasta=str(reference),
+            multi_ref_fasta=align_ref,
             fastq=str(fastq),
             output_dir=str(align_dir),
             minimap2_path=tool_paths["minimap2"],
@@ -291,6 +299,11 @@ def run_levseq_pipeline(
         _progress("Generating per-well consensus sequences...")
         ref_dir = output_dir / "reference_fasta"
         _prepare_single_ref_fastas(reference, ref_dir)
+        # When using --orient-ref, all reads map to the orient ref.
+        # Ensure its sequence is available in single_ref_fastas/ so
+        # the per-well consensus step can find it.
+        if orient_ref is not None:
+            _prepare_single_ref_fastas(orient_ref, ref_dir)
 
         well_df = utils.generate_per_well_consensus(
             well_df,

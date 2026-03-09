@@ -14,7 +14,7 @@ import logging
 import re
 import string
 import subprocess
-import threading
+import json
 
 import numpy as np
 import pandas as pd
@@ -108,6 +108,29 @@ def make_index(fasta, minimap2_path=None):
     return mmi
 
 
+def _rebuild_ref_map_from_fastq(path):
+    """Reconstruct ref_map from tagged FASTQ headers.
+
+    Parses lines like ``@readname|ref=X|dir=fwd`` and returns the same
+    (ref_map, stats) structure produced by :func:`align_and_split_by_strand`.
+    """
+    ref_map = {}
+    n_fwd = n_rev = 0
+    tag_re = re.compile(r"^@([^|]+)\|ref=([^|]+)\|dir=(fwd|rev)")
+    with open(path) as fh:
+        for line in fh:
+            m = tag_re.match(line)
+            if m:
+                read_name, ref_name, direction = m.group(1), m.group(2), m.group(3)
+                ref_map[read_name] = {"ref": ref_name, "direction": direction}
+                if direction == "fwd":
+                    n_fwd += 1
+                else:
+                    n_rev += 1
+    stats = {"fwd": n_fwd, "rev": n_rev, "mapped": n_fwd + n_rev}
+    return ref_map, stats
+
+
 def align_and_split_by_strand(
     multi_ref_fasta,
     fastq,
@@ -120,12 +143,12 @@ def align_and_split_by_strand(
 ):
     """Align raw reads to a multi-ref library and split by strand.
 
-    Runs a single minimap2 pass (no direction filter), then splits reads
-    into forward- and reverse-strand FASTQs.  Reverse reads are
-    reverse-complemented back to the forward orientation so that
-    downstream Dorado barcode demux sees consistent barcode positions.
+    Streams minimap2 SAM output directly (no samtools sort, no BAM, no
+    index) in a single pass.  Reverse-mapped reads are
+    reverse-complemented back to forward orientation so that downstream
+    Dorado barcode demux sees consistent barcode positions.
 
-    Each read in the output FASTQs is tagged with the reference it
+    Each read in the output FASTQ is tagged with the reference it
     aligned to (``@readname|ref=REFNAME|dir=fwd``).
 
     Args:
@@ -133,8 +156,11 @@ def align_and_split_by_strand(
         fastq: Path to raw input FASTQ.
         output_dir: Directory for output files.
         minimap2_path: Optional path to minimap2 binary.
-        samtools_path: Optional path to samtools binary.
-        threads: Number of minimap2/samtools threads.
+        samtools_path: Optional path to samtools binary (unused, kept
+            for backward compatibility).
+        threads: Number of minimap2 threads.
+        progress_callback: Optional ``(n_done, total)`` callback.
+        total_reads: Total reads for progress denominator.
 
     Returns:
         Tuple of (oriented_fastq, ref_map, align_stats) where:
@@ -147,113 +173,105 @@ def align_and_split_by_strand(
     """
     if minimap2_path is None:
         minimap2_path = find_minimap2()
-    if samtools_path is None:
-        samtools_path = find_samtools()
 
     os.makedirs(output_dir, exist_ok=True)
     mmi = make_index(multi_ref_fasta, minimap2_path=minimap2_path)
 
-    bam_path = os.path.join(output_dir, "ref_alignment.bam")
     oriented_fq = os.path.join(output_dir, "oriented_reads.fastq")
+    stats_path = os.path.join(output_dir, "align_stats.json")
 
-    # --- minimap2 | samtools sort → BAM (no intermediate SAM on disk) ---
-    if os.path.exists(bam_path):
-        logger.info("Using cached alignment BAM: %s", bam_path)
+    # --- Cache check: if oriented FASTQ already exists, rebuild from it ---
+    if os.path.exists(oriented_fq):
+        logger.info("Using cached oriented FASTQ: %s", oriented_fq)
         if progress_callback is not None:
             progress_callback(None, None)  # signal: cached
-    else:
-        logger.info("Running minimap2 multi-ref alignment...")
-        mm2_cmd = [
-            minimap2_path, "-ax", "map-ont",
-            "--secondary=no",   # skip secondary alignments (we discard them anyway)
-            "-t", str(threads),
-            mmi, fastq,
-        ]
-        sort_cmd = [
-            samtools_path, "sort",
-            "-@", str(threads),
-            "-o", bam_path,
-        ]
-        stderr_target = subprocess.PIPE if progress_callback is not None else subprocess.DEVNULL
-        mm2_proc = subprocess.Popen(
-            mm2_cmd, stdout=subprocess.PIPE, stderr=stderr_target,
-        )
-
-        # Always connect mm2 stdout directly to samtools stdin (no Python relay).
-        sort_proc = subprocess.Popen(
-            sort_cmd, stdin=mm2_proc.stdout, stderr=subprocess.DEVNULL,
-        )
-        mm2_proc.stdout.close()  # let sort_proc own the read end
-
-        if progress_callback is not None:
-            # Parse minimap2 stderr for "mapped N sequences" progress lines.
-            # This avoids routing SAM data through Python, keeping the
-            # mm2→samtools pipe at full kernel speed.
-            _mm2_stderr_re = re.compile(rb"mapped (\d+) sequences")
-
-            def _parse_stderr():
-                count = 0
-                for line in mm2_proc.stderr:
-                    m = _mm2_stderr_re.search(line)
-                    if m:
-                        count = int(m.group(1))
-                        progress_callback(count, total_reads)
-                # Final update with whatever count we saw
-                progress_callback(count, total_reads)
-
-            stderr_thread = threading.Thread(target=_parse_stderr, daemon=True)
-            stderr_thread.start()
-            sort_proc.wait()
-            stderr_thread.join()
+        ref_map, align_stats = _rebuild_ref_map_from_fastq(oriented_fq)
+        # Restore unmapped count from sidecar if available
+        if os.path.exists(stats_path):
+            with open(stats_path) as fh:
+                saved = json.load(fh)
+            align_stats["unmapped"] = saved.get("unmapped", 0)
         else:
-            sort_proc.wait()
+            align_stats["unmapped"] = 0
+        return oriented_fq, ref_map, align_stats
 
-        if sort_proc.returncode != 0:
-            raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
-        mm2_proc.wait()
+    # SAM FLAG bits used below
+    _FLAG_UNMAPPED = 0x4
+    _FLAG_REVERSE = 0x10
+    _FLAG_SECONDARY = 0x100
+    _FLAG_SUPPLEMENTARY = 0x800
 
-        # Index the BAM for random access
-        subprocess.run(
-            [samtools_path, "index", bam_path],
-            check=True, stderr=subprocess.DEVNULL,
-        )
+    # --- Stream minimap2 SAM as plain text (no pysam, no samtools) ---
+    logger.info("Running minimap2 multi-ref alignment (streaming)...")
+    mm2_cmd = [
+        minimap2_path, "-ax", "map-ont",
+        "--secondary=no",
+        "-t", str(threads),
+        mmi, fastq,
+    ]
+    mm2_stderr_path = os.path.join(output_dir, "minimap2.log")
+    mm2_stderr_fh = open(mm2_stderr_path, "w")
+    logger.info("minimap2 stderr → %s", mm2_stderr_path)
+    mm2_proc = subprocess.Popen(
+        mm2_cmd, stdout=subprocess.PIPE, stderr=mm2_stderr_fh,
+    )
 
-    # --- Split by strand and write oriented FASTQ ---
-    logger.info("Splitting reads by strand...")
-    ref_map = {}  # read_name -> {"ref": ..., "direction": ...}
-    n_fwd = n_rev = n_unmapped = 0
+    ref_map = {}
+    n_fwd = n_rev = n_unmapped = n_processed = 0
 
-    with pysam.AlignmentFile(bam_path, "rb") as bam, open(oriented_fq, "w") as fq_out:
-        for read in bam:
-            if read.is_unmapped or not read.query_sequence:
+    with open(oriented_fq, "w") as fq_out:
+        for raw_line in mm2_proc.stdout:
+            line = raw_line.decode("utf-8", errors="replace")
+            if line.startswith("@"):
+                continue  # skip SAM header lines
+
+            fields = line.split("\t", 11)  # only need first 11 columns
+            if len(fields) < 11:
+                continue
+
+            qname = fields[0]
+            flag = int(fields[1])
+            rname = fields[2]
+            seq = fields[9]
+            qual = fields[10]
+
+            if flag & (_FLAG_SECONDARY | _FLAG_SUPPLEMENTARY):
+                continue
+
+            n_processed += 1
+            if progress_callback is not None and n_processed % 5000 == 0:
+                progress_callback(n_processed, total_reads)
+
+            if flag & _FLAG_UNMAPPED or seq == "*":
                 n_unmapped += 1
                 continue
-            if read.is_secondary or read.is_supplementary:
-                continue
 
-            ref_name = bam.get_reference_name(read.reference_id)
-            seq = read.query_sequence
-            quals = read.query_qualities
-
-            if read.is_reverse:
-                # RC back to forward orientation
+            if flag & _FLAG_REVERSE:
                 seq = str(Seq(seq).reverse_complement())
-                if quals is not None:
-                    quals = quals[::-1]
+                qual = qual[::-1]
                 direction = "rev"
                 n_rev += 1
             else:
                 direction = "fwd"
                 n_fwd += 1
 
-            qual_str = "".join(chr(q + 33) for q in quals) if quals else "I" * len(seq)
-            read_name = read.query_name
-
-            ref_map[read_name] = {"ref": ref_name, "direction": direction}
+            ref_map[qname] = {"ref": rname, "direction": direction}
             fq_out.write(
-                f"@{read_name}|ref={ref_name}|dir={direction}\n"
-                f"{seq}\n+\n{qual_str}\n"
+                f"@{qname}|ref={rname}|dir={direction}\n"
+                f"{seq}\n+\n{qual}\n"
             )
+
+    mm2_proc.wait()
+    mm2_stderr_fh.close()
+    if mm2_proc.returncode != 0:
+        # Clean up partial output so next run doesn't hit cache
+        if os.path.exists(oriented_fq):
+            os.remove(oriented_fq)
+        raise subprocess.CalledProcessError(mm2_proc.returncode, mm2_cmd)
+
+    # Final progress update
+    if progress_callback is not None:
+        progress_callback(n_processed, total_reads)
 
     align_stats = {
         "fwd": n_fwd,
@@ -261,6 +279,11 @@ def align_and_split_by_strand(
         "mapped": n_fwd + n_rev,
         "unmapped": n_unmapped,
     }
+
+    # Write sidecar for unmapped count (not encoded in FASTQ)
+    with open(stats_path, "w") as fh:
+        json.dump(align_stats, fh)
+
     logger.info(
         "Strand split complete: %d forward, %d reverse, %d unmapped",
         n_fwd, n_rev, n_unmapped,

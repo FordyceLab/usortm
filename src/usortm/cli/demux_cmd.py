@@ -82,6 +82,17 @@ def demux(
         "--workers", "-w",
         help="Number of parallel workers for per-well consensus alignment.",
     ),
+    orient_ref: Optional[Path] = typer.Option(
+        None,
+        "--orient-ref",
+        help=(
+            "Single reference FASTA for read orientation only. "
+            "Use when the library has many near-identical variants "
+            "(e.g. site-saturation mutagenesis) to avoid slow "
+            "multi-ref alignment. Reads are oriented against this "
+            "reference but still assigned to variants from --reference."
+        ),
+    ),
     mask_config_file: Optional[str] = typer.Option(
         None,
         "--mask-config",
@@ -231,6 +242,7 @@ def demux(
             progress_callback=on_progress,
             mask_config=mask_config,
             subsample=subsample,
+            orient_ref=orient_ref,
         )
 
         progress.update(task, description="Done!", completed=True)
@@ -513,6 +525,7 @@ def _run_demux(
     progress_callback=None,
     mask_config: dict = None,
     subsample: Optional[int] = None,
+    orient_ref: Optional[Path] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -558,6 +571,7 @@ def _run_demux(
             progress_callback=progress_callback,
             mask_config=mask_config,
             subsample=subsample,
+            orient_ref=orient_ref,
         )
     else:
         raise NotImplementedError(
