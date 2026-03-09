@@ -1,0 +1,72 @@
+[meta]
+name = "Twist Oligo Pools"
+vendor = "Twist Bioscience"
+type = "pooled"
+date_collected = "2026-06-01"
+notes = "Prices from Twist Combined Price Sheet (June 2025). Academic discount available (2/3 list)."
+
+[capabilities]
+seq_length_min = 20
+seq_length_max = 350
+library_size_min = 2
+library_size_max = 54000
+
+[simulation]
+error_rate = [1e-4, 5e-4]
+abundance_skew = [2.0, 6.0]
+
+[pricing]
+model = "lookup"
+commercial_discount = 0.667
+
+[[pricing.tiers]]
+library_size = [2, 100]
+costs = {120 = 400.00, 150 = 466.00, 200 = 520.00, 250 = 689.00, 300 = 1030.00, 350 = 1288.00}
+
+[[pricing.tiers]]
+library_size = [101, 500]
+costs = {120 = 800.00, 150 = 933.00, 200 = 1040.00, 250 = 1379.00, 300 = 2060.00, 350 = 2575.00}
+
+[[pricing.tiers]]
+library_size = [501, 1000]
+costs = {120 = 1200.00, 150 = 1400.00, 200 = 1560.00, 250 = 2068.00, 300 = 3090.00, 350 = 3863.00}
+
+[[pricing.tiers]]
+library_size = [1001, 2000]
+costs = {120 = 1600.00, 150 = 1867.00, 200 = 2080.00, 250 = 2757.00, 300 = 4121.00, 350 = 5152.00}
+
+[[pricing.tiers]]
+library_size = [2001, 6000]
+costs = {120 = 2400.00, 150 = 2800.00, 200 = 3120.00, 250 = 4136.00, 300 = 6181.00, 350 = 7727.00}
+
+[[pricing.tiers]]
+library_size = [6001, 12000]
+costs = {120 = 3120.00, 150 = 3744.00, 200 = 4056.00, 250 = 5148.00, 300 = 7694.00, 350 = 9618.00}
+
+[[pricing.tiers]]
+library_size = [12001, 18000]
+costs = {120 = 4056.00, 150 = 4867.00, 200 = 5273.00, 250 = 6694.00, 300 = 10004.00, 350 = 12505.00}
+
+[[pricing.tiers]]
+library_size = [18001, 24000]
+costs = {120 = 5273.00, 150 = 6327.00, 200 = 6855.00, 250 = 8702.00, 300 = 13006.00, 350 = 16258.00}
+
+[[pricing.tiers]]
+library_size = [24001, 30000]
+costs = {120 = 6855.00, 150 = 8225.00, 200 = 8912.00, 250 = 11315.00, 300 = 16910.00, 350 = 21138.00}
+
+[[pricing.tiers]]
+library_size = [30001, 36000]
+costs = {120 = 7037.00, 150 = 8444.00, 200 = 9149.00, 250 = 11615.00, 300 = 17359.00, 350 = 21699.00}
+
+[[pricing.tiers]]
+library_size = [36001, 42000]
+costs = {120 = 7741.00, 150 = 9289.00, 200 = 10064.00, 250 = 12775.00, 300 = 19093.00, 350 = 23867.00}
+
+[[pricing.tiers]]
+library_size = [42001, 48000]
+costs = {120 = 8515.00, 150 = 10218.00, 200 = 11070.00, 250 = 14051.00, 300 = 21000.00, 350 = 26250.00}
+
+[[pricing.tiers]]
+library_size = [48001, 54000]
+costs = {120 = 9367.00, 150 = 11240.00, 200 = 12177.00, 250 = 15456.00, 300 = 23100.00, 350 = 28875.00}

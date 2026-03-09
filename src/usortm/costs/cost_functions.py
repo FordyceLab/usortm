@@ -3,20 +3,28 @@ import math
 import numpy as np
 import pandas as pd
 
+from usortm.costs.method_loader import load_all_methods, compute_cost, find_methods
+
+# Map legacy method keys to TOML slugs
+_METHOD_SLUG_MAP = {
+    'idt_eblocks': 'idt_eblocks',
+    'idt_gblocks': 'idt_gblocks',
+    'twist_genefragments': 'twist_gene_fragments',
+}
+
+# Lazy-loaded cache of all methods
+_methods_cache = None
+
+def _get_methods(methods_dir=None):
+    global _methods_cache
+    if _methods_cache is None:
+        _methods_cache = load_all_methods(methods_dir)
+    return _methods_cache
+
+
 def parsed_genefragments_synthesis_cost(length, fragment_number, method):
     """
     Calculate gene fragment synthesis cost based on length, number of fragments, and method.
-
-    As of 1/13/2026, methods are priced as follows:
-        1. IDT eBlocks:
-            - Length > 300 and <= 500 bp: $35 per fragment
-            - Length <= 300 bp: $0.07 per base pair
-        2. IDT gBlocks:
-            - $0.09 per base pair
-        3. Twist Gene Fragments:
-            - Length < 300 bp: Not available (returns NaN)
-            - Length between 300 and 500 bp: $35 per fragment
-            - Length > 500 bp: $0.07 per base pair  
 
     Args:
         length: Length of the fragment in base pairs.
@@ -24,26 +32,22 @@ def parsed_genefragments_synthesis_cost(length, fragment_number, method):
         method: Synthesis method/vendor ('idt_eblocks', 'idt_gblocks', 'twist_genefragments').
     Returns:
         Cost in USD as a float, or NaN if not applicable.
-
     """
-    if method == 'idt_eblocks':
-        if (length > 300) and (length <= 500):
-            return fragment_number * 35
-        else:
-            return length * fragment_number * 0.07
-    
-    elif method == 'idt_gblocks':
-        return length * fragment_number * 0.09
-    
-    elif method == 'twist_genefragments':
-        if length < 300:
-            return np.nan  # Return NaN instead of None
-        elif 300 <= length <= 500:
-            return fragment_number * 35
-        else:
-            return length * fragment_number * 0.07
-    
-    return np.nan  # Default return for unknown methods
+    slug = _METHOD_SLUG_MAP.get(method)
+    if slug is None:
+        return np.nan
+
+    methods = _get_methods()
+    m = methods.get(slug)
+    if m is None:
+        return np.nan
+
+    # Check if length is within capabilities
+    if not (m.seq_length_min <= length <= m.seq_length_max):
+        return np.nan
+
+    cost = compute_cost(m, fragment_number, length)
+    return cost if cost is not None else np.nan
     
 def parsed_genefragments_assembly_cost(library_size, assembly_method):
     cost = 0
@@ -248,61 +252,38 @@ def generate_commercial_cost_stats_dict(commercial_cost_comparison_dict, library
 
     return cost_stats
 
-# --- Twist Oligo Pool Pricing Table ---
-twist_library_costs = {
-    (2, 100):   {120: 400.00, 150: 466.00, 200: 520.00, 250: 689.00, 300: 1030.00},
-    (101, 500): {120: 800.00, 150: 933.00, 200: 1040.00, 250: 1379.00, 300: 2060.00},
-    (501, 1000): {120: 1200.00, 150: 1400.00, 200: 1560.00, 250: 2068.00, 300: 3090.00},
-    (1001, 2000): {120: 1600.00, 150: 1867.00, 200: 2080.00, 250: 2757.00, 300: 4121.00},
-    (2001, 6000): {120: 2400.00, 150: 2800.00, 200: 3120.00, 250: 4136.00, 300: 6181.00},
-    (6001, 12000): {120: 3120.00, 150: 3744.00, 200: 4056.00, 250: 5148.00, 300: 7694.00},
-    (12001, 18000): {120: 4056.00, 150: 4867.00, 200: 5273.00, 250: 6694.00, 300: 10004.00},
-}
-
-def usortm_synthesis_cost(n_seqs, 
-                          seq_length, 
-                          library_costs=twist_library_costs,
+def usortm_synthesis_cost(n_seqs,
+                          seq_length,
                           commercial_discount=True,
+                          methods_dir=None,
                           ):
     """
     Compute synthesis cost (USD) for a pooled oligo library sequences.
 
+    For sequences <=350 bp, uses Twist Oligo Pool lookup pricing.
     For sequences >350 bp, assumes a substitution library model where
     30 bp inserts are synthesized and assembled into the full-length gene.
-    Only the 30 bp insert synthesis cost is calculated here.
     """
-    # Check length: Twist/IDT oPools for <=350 bp full gene synthesis
-    if seq_length <= 350:
-        # Select appropriate tier
-        for (low, high), length_dict in library_costs.items():
-            if low <= n_seqs <= high:
-                # Pick nearest length bracket
-                valid_lengths = sorted(length_dict.keys())
-                nearest_len = min(valid_lengths, key=lambda x: abs(x - seq_length))
-                if commercial_discount:
-                    return length_dict[nearest_len] * (2/3)
-                else:
-                    return length_dict[nearest_len]
-    
-    # For >350 bp: substitution library with 30 bp inserts
-    else:
-        insert_length = 30  # Synthesize 30 bp inserts, not full genes
-        total_bp = insert_length * n_seqs
-        if n_seqs < 3000:
-            return 0.015 * total_bp
-        elif (n_seqs >= 3000) and (n_seqs < 30000):
-            # Note: insert_length is always 30 bp, so always uses tier 1 pricing
-            if insert_length < 301:
-                return 0.001 * total_bp
-            elif (insert_length >= 301) and (insert_length <= 549):
-                return 0.002 * total_bp
-            elif (insert_length >= 550) and (insert_length <= 2050):
-                return 0.004 * total_bp
-            else:
-                return 0
-            
+    methods = _get_methods(methods_dir)
 
-        
+    if seq_length <= 350:
+        m = methods.get("twist_oligo_pools")
+        if m is None:
+            return 0
+        cost = compute_cost(m, n_seqs, seq_length)
+        if cost is not None:
+            if not commercial_discount:
+                # Undo the discount baked into the TOML
+                return cost / m.pricing.get("commercial_discount", 1.0)
+            return cost
+    else:
+        m = methods.get("usortm_substitution")
+        if m is None:
+            return 0
+        cost = compute_cost(m, n_seqs, seq_length)
+        if cost is not None:
+            return cost
+
     return 0  # outside defined tiers
 
 def usortm_cloning_cost(library_size):

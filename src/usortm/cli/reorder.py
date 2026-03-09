@@ -37,15 +37,16 @@ def reorder(
         help="Path to completed uSort-M project directory (pick must be done).",
         exists=True,
     ),
-    format: str = typer.Option(
-        ...,
+    format: Optional[str] = typer.Option(
+        None,
         "--format", "-f",
         help=(
             "Ordering format: "
             "'eblocks' (IDT eBlocks, 96-well plate), "
             "'twist' (Twist Gene Fragments), "
             "'twist_oligo' (Twist Oligonucleotide Pools), "
-            "'opools' (IDT oPools)."
+            "'opools' (IDT oPools). "
+            "Prompted interactively if not provided."
         ),
     ),
     output: Optional[Path] = typer.Option(
@@ -97,6 +98,22 @@ def reorder(
         usortm reorder my_project/ --format eblocks --library full_library.csv
         usortm reorder my_project/ --format opools --pool-name round2_dropouts
     """
+    if format is None:
+        import questionary
+        format = questionary.select(
+            "Select synthesis ordering format:",
+            choices=[
+                questionary.Separator(" ── Arrayed Library ── "),
+                questionary.Choice("IDT eBlocks (96-well plate)", "eblocks"),
+                questionary.Choice("Twist Gene Fragments", "twist"),
+                questionary.Separator(" ── Pooled Library ── "),
+                questionary.Choice("Twist Oligonucleotide Pools", "twist_oligo"),
+                questionary.Choice("IDT oPools", "opools"),
+            ],
+        ).ask()
+        if format is None:
+            raise typer.Exit(0)
+
     fmt = format.lower().strip()
     valid_formats = ("eblocks", "twist", "twist_oligo", "opools")
     if fmt not in valid_formats:
@@ -130,8 +147,10 @@ def reorder(
         console.print("[red]Error:[/red] No variants found in variants file.")
         raise typer.Exit(1)
 
-    # Load recovered variants from hitlist
-    hitlist_path = project_dir / "hitlist.csv"
+    # Load recovered variants from hitlist (new path first, then legacy root)
+    hitlist_path = project_dir / "pick" / "hitlist.csv"
+    if not hitlist_path.exists():
+        hitlist_path = project_dir / "hitlist.csv"  # backward compat
     if not hitlist_path.exists():
         console.print(f"[red]Error:[/red] hitlist.csv not found in {project_dir}")
         raise typer.Exit(1)
@@ -211,7 +230,9 @@ def reorder(
 
     # Write output
     if output is None:
-        output = project_dir / f"reorder_{fmt}.csv"
+        reorder_dir = project_dir / "reorder"
+        reorder_dir.mkdir(exist_ok=True)
+        output = reorder_dir / f"reorder_{fmt}.csv"
 
     if fmt == "eblocks":
         n_plates = _write_idt_eblocks(dropouts, output)

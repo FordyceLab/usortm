@@ -158,9 +158,12 @@ def pick(
         raise typer.Exit(1)
 
     # Determine output file path
+    pick_dir = project_dir / "pick"
+    pick_dir.mkdir(exist_ok=True)
+
     output_file = output
     if output_file is None:
-        output_file = project_dir / "hitlist.csv"
+        output_file = pick_dir / "hitlist.csv"
 
     # Save pick list in Integra ASSIST PLUS format
     _save_pick_list(pick_list, output_file, volume)
@@ -169,7 +172,7 @@ def pick(
     try:
         from usortm.demux.viz import save_pick_plate_map_html
 
-        pick_map_path = project_dir / "pick_plate_map.html"
+        pick_map_path = pick_dir / "pick_plate_map.html"
         save_pick_plate_map_html(
             pick_list, str(pick_map_path),
             title="Pick Plate Map",

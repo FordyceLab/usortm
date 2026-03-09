@@ -1,0 +1,131 @@
+[meta]
+name = "Twist Cloned Oligo Pools"
+vendor = "Twist Bioscience"
+type = "pooled"
+date_collected = "2026-06-01"
+notes = "Cloned pooled library in customer vector. Yield: 50ug. TAT: 4-6 weeks (up to 100nt), 6-8 weeks (101-300nt) + 2 weeks CVOB. From Twist Combined Price Sheet (June 2025)."
+
+[capabilities]
+seq_length_min = 1
+seq_length_max = 250
+library_size_min = 2
+library_size_max = 696000
+
+[simulation]
+error_rate = [5e-5, 2e-4]
+abundance_skew = [1.5, 5.0]
+
+[pricing]
+model = "lookup"
+
+[[pricing.tiers]]
+library_size = [2, 100]
+costs = {120 = 5000.00, 150 = 5466.00, 200 = 7020.00, 250 = 7189.00}
+
+[[pricing.tiers]]
+library_size = [101, 500]
+costs = {120 = 5000.00, 150 = 5933.00, 200 = 7540.00, 250 = 7879.00}
+
+[[pricing.tiers]]
+library_size = [501, 1000]
+costs = {120 = 5000.00, 150 = 6400.00, 200 = 8060.00, 250 = 8568.00}
+
+[[pricing.tiers]]
+library_size = [1001, 2000]
+costs = {120 = 5000.00, 150 = 6867.00, 200 = 8580.00, 250 = 9257.00}
+
+[[pricing.tiers]]
+library_size = [2001, 6000]
+costs = {120 = 5000.00, 150 = 7800.00, 200 = 9620.00, 250 = 10636.00}
+
+[[pricing.tiers]]
+library_size = [6001, 12000]
+costs = {120 = 8120.00, 150 = 8744.00, 200 = 11056.00, 250 = 12148.00}
+
+[[pricing.tiers]]
+library_size = [12001, 18000]
+costs = {120 = 9056.00, 150 = 9867.00, 200 = 12273.00, 250 = 13694.00}
+
+[[pricing.tiers]]
+library_size = [18001, 24000]
+costs = {120 = 10273.00, 150 = 11327.00, 200 = 13855.00, 250 = 15702.00}
+
+[[pricing.tiers]]
+library_size = [24001, 30000]
+costs = {120 = 11855.00, 150 = 13225.00, 200 = 15912.00, 250 = 18315.00}
+
+[[pricing.tiers]]
+library_size = [30001, 36000]
+costs = {120 = 12037.00, 150 = 13444.00, 200 = 16149.00, 250 = 18615.00}
+
+[[pricing.tiers]]
+library_size = [36001, 42000]
+costs = {120 = 13741.00, 150 = 15289.00, 200 = 17564.00, 250 = 20275.00}
+
+[[pricing.tiers]]
+library_size = [42001, 48000]
+costs = {120 = 14515.00, 150 = 16218.00, 200 = 18570.00, 250 = 21551.00}
+
+[[pricing.tiers]]
+library_size = [48001, 54000]
+costs = {120 = 15367.00, 150 = 17240.00, 200 = 19677.00, 250 = 22956.00}
+
+[[pricing.tiers]]
+library_size = [54001, 60000]
+costs = {120 = 16304.00, 150 = 18364.00, 200 = 20895.00, 250 = 24503.00}
+
+[[pricing.tiers]]
+library_size = [60001, 72000]
+costs = {120 = 16819.00, 150 = 18982.00, 200 = 21565.00, 250 = 25354.00}
+
+[[pricing.tiers]]
+library_size = [72001, 84000]
+costs = {120 = 17197.00, 150 = 19437.00, 200 = 22057.00, 250 = 25977.00}
+
+[[pricing.tiers]]
+library_size = [84001, 96000]
+costs = {120 = 17502.00, 150 = 19802.00, 200 = 22453.00, 250 = 26481.00}
+
+[[pricing.tiers]]
+library_size = [96001, 120000]
+costs = {120 = 19129.00, 150 = 21456.00, 200 = 23319.00, 250 = 27390.00}
+
+[[pricing.tiers]]
+library_size = [120001, 150000]
+costs = {120 = 20784.00, 150 = 23442.00, 200 = 25470.00, 250 = 30119.00}
+
+[[pricing.tiers]]
+library_size = [150001, 180000]
+costs = {120 = 22113.00, 150 = 25036.00, 200 = 27197.00, 250 = 32311.00}
+
+[[pricing.tiers]]
+library_size = [180001, 210000]
+costs = {120 = 22979.00, 150 = 26075.00, 200 = 28323.00, 250 = 33741.00}
+
+[[pricing.tiers]]
+library_size = [210001, 240000]
+costs = {120 = 24527.00, 150 = 27932.00, 200 = 30335.00, 250 = 36295.00}
+
+[[pricing.tiers]]
+library_size = [240001, 300000]
+costs = {120 = 28500.00, 150 = 33000.00, 200 = 35200.00, 250 = 41200.00}
+
+[[pricing.tiers]]
+library_size = [300001, 360000]
+costs = {120 = 32700.00, 150 = 38100.00, 200 = 40600.00, 250 = 47800.00}
+
+[[pricing.tiers]]
+library_size = [360001, 420000]
+costs = {120 = 36900.00, 150 = 43200.00, 200 = 46000.00, 250 = 54400.00}
+
+[[pricing.tiers]]
+library_size = [420001, 480000]
+costs = {120 = 41100.00, 150 = 48300.00, 200 = 51400.00, 250 = 61000.00}
+
+[[pricing.tiers]]
+library_size = [480001, 600000]
+costs = {120 = 48660.00, 150 = 57480.00, 200 = 61120.00, 250 = 72880.00}
+
+[[pricing.tiers]]
+library_size = [600001, 696000]
+costs = {120 = 56220.00, 150 = 66660.00, 200 = 70840.00, 250 = 84760.00}

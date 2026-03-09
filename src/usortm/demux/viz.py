@@ -9,7 +9,7 @@ import matplotlib.cm as cm
 from bokeh.plotting import figure
 from bokeh.models import (
     ColumnDataSource, HoverTool, RadioButtonGroup, CustomJS,
-    LinearColorMapper, ColorBar, CustomJSTickFormatter
+    LinearColorMapper, ColorBar, CustomJSTickFormatter, TapTool
 )
 from bokeh.layouts import column
 from bokeh.embed import file_html
@@ -216,6 +216,18 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         merged["streakout_xs"], merged["streakout_ys"] = zip(
             *merged.apply(_streakout_overlay, axis=1)
         )
+
+        def _streakout_url(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            if key in _streakout_set:
+                return f"streakout/well_{key}.html"
+            return ""
+
+        merged["streakout_url"] = merged.apply(_streakout_url, axis=1)
+        merged["streakout_hint"] = merged["streakout_url"].apply(
+            lambda u: '<div style="font-size:11px;color:#2563eb;margin-top:2px;">'
+                      '→ Click to view pileup</div>' if u else ""
+        )
         return merged
 
     plates = sorted(dom["plate"].unique())
@@ -232,6 +244,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
       <div style="font-size:11px;color:#666;margin-top:4px;">
         Reads: @reads &nbsp;|&nbsp; Top frac: @frac{0.0%}
       </div>
+      @streakout_hint{safe}
     </div>
     """
 
@@ -241,10 +254,11 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     fig = figure(x_range=(0.5, 24.5), y_range=ROWS[::-1],
                  width=900, height=560, tools="reset",
                  title=f"Plate {start_plate}")
-    fig.rect(
+    well_renderer = fig.rect(
         "col", "RowCat", width=0.74, height=0.74, source=src,
         fill_color={'field': 'reads', 'transform': mapper},
-        line_color="darkgray", line_width=1.2
+        line_color="darkgray", line_width=1.2,
+        nonselection_fill_alpha=1.0, nonselection_line_alpha=1.0,
     )
     fig.patches(
         "doublet_xs", "doublet_ys", source=src,
@@ -254,7 +268,19 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         "streakout_xs", "streakout_ys", source=src,
         fill_color="#2563eb", fill_alpha=1.0, line_color=None
     )
-    fig.add_tools(HoverTool(tooltips=TOOLTIPS))
+    fig.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
+    fig.add_tools(TapTool(renderers=[well_renderer]))
+    src.selected.js_on_change("indices", CustomJS(args=dict(src=src), code="""
+        const indices = src.selected.indices;
+        if (indices.length > 0) {
+            const url = src.data['streakout_url'][indices[0]];
+            if (url && url.length > 0) {
+                window.open(url, '_blank');
+            }
+        }
+        // Always clear so wells don't stay highlighted
+        src.selected.indices = [];
+    """))
     fig.xaxis.ticker = list(range(1, 25))
     fig.grid.grid_line_color = None
 

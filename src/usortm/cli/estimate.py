@@ -59,10 +59,51 @@ def estimate(
         "--operator-rate", 
         help="FACS operator hourly rate in USD.",
     ),
+    actual_synthesis: Optional[float] = typer.Option(
+        None,
+        "--actual-synthesis",
+        help="Actual synthesis cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
+    actual_cloning: Optional[float] = typer.Option(
+        None,
+        "--actual-cloning",
+        help="Actual cloning cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
+    actual_sorting: Optional[float] = typer.Option(
+        None,
+        "--actual-sorting",
+        help="Actual sorting cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
+    actual_barcoding: Optional[float] = typer.Option(
+        None,
+        "--actual-barcoding",
+        help="Actual barcoding cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
+    actual_sequencing: Optional[float] = typer.Option(
+        None,
+        "--actual-sequencing",
+        help="Actual sequencing cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
+    actual_hitpicking: Optional[float] = typer.Option(
+        None,
+        "--actual-hitpicking",
+        help="Actual hit-picking cost paid (USD). Overrides the predicted value.",
+        min=0.0,
+    ),
     compare: bool = typer.Option(
         True,
         "--compare/--no-compare",
         help="Show comparison with traditional gene synthesis costs.",
+    ),
+    methods_dir: Optional[str] = typer.Option(
+        None,
+        "--methods-dir",
+        help="Path to custom synthesis pricing TOML files (defaults to built-in methods).",
     ),
     json_output: bool = typer.Option(
         False,
@@ -81,20 +122,36 @@ def estimate(
         usortm estimate --library-size 500 --seq-length 300 --fold-sampling 8
     """
     from usortm.costs import cost_functions as cf
-    
+    from usortm.costs.method_loader import load_all_methods
+
+    # Load pricing methods (custom dir or built-in)
+    _loaded_methods = load_all_methods(methods_dir)
+    # Populate cache so cost_functions uses the same methods
+    cf._methods_cache = _loaded_methods
+
     # Calculate uSort-M costs
     total_wells = int(library_size * fold_sampling)
     n_plates = max(1, total_wells // 384)
 
-    synthesis_cost = cf.usortm_synthesis_cost(library_size, seq_length)
-    cloning_cost = cf.usortm_cloning_cost(library_size)
-    sorting_cost = cf.usortm_sorting_cost(
+    synthesis_cost = actual_synthesis if actual_synthesis is not None else cf.usortm_synthesis_cost(library_size, seq_length, methods_dir=methods_dir)
+    cloning_cost = actual_cloning if actual_cloning is not None else cf.usortm_cloning_cost(library_size)
+    sorting_cost = actual_sorting if actual_sorting is not None else cf.usortm_sorting_cost(
         library_size, fold_sampling=fold_sampling,
         machine_rate=machine_rate, operator_rate=operator_rate
     )
-    barcoding_cost = cf.usortm_barcoding_cost(n_wells=total_wells)
-    sequencing_cost = cf.usortm_sequencing_cost(n_wells=total_wells, seq_length=seq_length)
-    hitpicking_cost = cf.usortm_hitpicking_cost(library_size, seq_length)
+    barcoding_cost = actual_barcoding if actual_barcoding is not None else cf.usortm_barcoding_cost(n_wells=total_wells)
+    sequencing_cost = actual_sequencing if actual_sequencing is not None else cf.usortm_sequencing_cost(n_wells=total_wells, seq_length=seq_length)
+    hitpicking_cost = actual_hitpicking if actual_hitpicking is not None else cf.usortm_hitpicking_cost(library_size, seq_length)
+
+    # Track which steps used actual vs. predicted costs
+    _actual_flags = {
+        "synthesis": actual_synthesis is not None,
+        "cloning": actual_cloning is not None,
+        "sorting": actual_sorting is not None,
+        "barcoding": actual_barcoding is not None,
+        "sequencing": actual_sequencing is not None,
+        "hitpicking": actual_hitpicking is not None,
+    }
     
     usortm_total = (
         synthesis_cost + cloning_cost + sorting_cost + 
@@ -139,6 +196,7 @@ def estimate(
                 "hitpicking": round(hitpicking_cost, 2),
                 "total": round(usortm_total, 2),
             },
+            "actual_costs": {k: v for k, v in _actual_flags.items() if v},
             "effort": {
                 "total_wells": total_wells,
                 "n_plates": n_plates,
@@ -166,8 +224,12 @@ def estimate(
         f"Library: [cyan]{library_size:,}[/cyan] variants × [cyan]{seq_length}[/cyan] bp",
         border_style=BORDER_STYLE,
     ))
+
+    # Show pricing dates from loaded methods
+    _dates = sorted(set(m.date_collected for m in _loaded_methods.values()))
+    console.print(f"  [dim]Pricing date: {', '.join(_dates)}[/dim]")
     console.print()
-    
+
     # Parameters summary
     param_table = Table(
         title="Simulation Parameters",
@@ -203,28 +265,33 @@ def estimate(
     if compare:
         cost_table.add_column("Traditional", justify="right", style="yellow")
     
+    def _step_label(name: str, *keys: str) -> str:
+        if any(_actual_flags.get(k) for k in keys):
+            return f"{name} [dim](actual)[/dim]"
+        return name
+
     cost_table.add_row(
-        "Synthesis",
+        _step_label("Synthesis", "synthesis"),
         f"${synthesis_cost:,.0f}",
         f"${trad_synthesis:,.0f}" if compare else None,
     )
     cost_table.add_row(
-        "Cloning",
+        _step_label("Cloning", "cloning"),
         f"${cloning_cost:,.0f}",
         f"${trad_cloning:,.0f}" if compare else None,
     )
     cost_table.add_row(
-        "Sorting",
+        _step_label("Sorting", "sorting"),
         f"${sorting_cost:,.0f}",
         "N/A" if compare else None,
     )
     cost_table.add_row(
-        "Barcoding + Sequencing",
+        _step_label("Barcoding + Sequencing", "barcoding", "sequencing"),
         f"${barcoding_cost + sequencing_cost:,.0f}",
         f"${trad_sequencing:,.0f}" if compare else None,
     )
     cost_table.add_row(
-        "Hit-picking",
+        _step_label("Hit-picking", "hitpicking"),
         f"${hitpicking_cost:,.0f}",
         "N/A" if compare else None,
     )

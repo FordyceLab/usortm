@@ -23,8 +23,10 @@ dependencies = [
     "scipy>=1.7",
     "typer[all]>=0.9.0",
     "rich>=13.0",
+    "questionary>=2.0",
     "openpyxl>=3.0",
     "numba",
+    "tomli>=1.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +44,6 @@ demux = [
     "bionumpy>=1.0",
     "pysam>=0.20",
     "tqdm>=4.60",
-    "tomli>=1.0; python_version < '3.11'",
 ]
 all = [
     "usortm[dev,viz,demux]",

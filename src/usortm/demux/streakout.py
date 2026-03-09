@@ -53,26 +53,58 @@ def _classify_cigar(cigar: Optional[str], ref_len: int,
                     ref_seq: str, cons_seq: Optional[str]) -> str:
     """Classify a consensus CIGAR string as a match status.
 
+    Expects CIGAR produced with minimap2 ``--eqx`` so that ``=`` denotes
+    sequence match and ``X`` denotes mismatch.  Falls back to sequence
+    comparison when legacy ``M`` operators are present.
+
     Returns one of: "Perfect Match", "Silent Mutation", "Partial Match",
     "Other Error", or "Error".
     """
+    import re as _re
+
     if cigar is None or cons_seq is None:
         return "Error"
 
-    alpha = ''.join(c for c in cigar if c.isalpha()).lower()
-    if alpha == 'm':
-        num = int(cigar[:-1])
-        if num == int(ref_len):
+    # Parse CIGAR into (length, op) pairs
+    ops = _re.findall(r'(\d+)([A-Z=])', cigar)
+    if not ops:
+        return "Error"
+
+    op_letters = set(op for _, op in ops)
+    total_ref = sum(int(n) for n, op in ops if op in ('M', '=', 'X', 'D', 'N'))
+
+    # --eqx mode: '=' and 'X' operators
+    if '=' in op_letters or 'X' in op_letters:
+        has_mismatch = 'X' in op_letters
+        has_indel = bool(op_letters & {'I', 'D', 'N'})
+        if not has_mismatch and not has_indel and total_ref == ref_len:
             return "Perfect Match"
+        # Full-length alignment with only substitutions — check silent
+        if not has_indel and total_ref == ref_len and len(cons_seq) == ref_len:
+            try:
+                if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                    return "Silent Mutation"
+            except Exception:
+                pass
+        if total_ref == ref_len:
+            return "Other Error"
         return "Partial Match"
 
-    # Non-pure-M CIGAR — check for silent mutations
-    if len(cons_seq) == ref_len:
-        try:
-            if Seq.translate(ref_seq) == Seq.translate(cons_seq):
-                return "Silent Mutation"
-        except Exception:
-            pass
+    # Legacy M-only CIGAR: compare sequences directly
+    if op_letters == {'M'} and total_ref == ref_len:
+        if cons_seq.upper() == ref_seq.upper():
+            return "Perfect Match"
+        # Check for silent mutation
+        if len(cons_seq) == ref_len:
+            try:
+                if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                    return "Silent Mutation"
+            except Exception:
+                pass
+        return "Other Error"
+
+    if total_ref < ref_len:
+        return "Partial Match"
     return "Other Error"
 
 
@@ -119,10 +151,10 @@ def _group_consensus(reads_fastq: str, ref_fasta: str, work_dir: str,
     except Exception:
         return None, None
 
-    # 3) Re-align consensus to reference
+    # 3) Re-align consensus to reference (--eqx for =/X CIGAR ops)
     try:
         mm2 = subprocess.Popen(
-            [minimap2_path, "-a", ref_fasta, cons_fa],
+            [minimap2_path, "-a", "--eqx", ref_fasta, cons_fa],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         subprocess.run(
@@ -462,7 +494,7 @@ def _build_pileup_grid(
         # Align
         try:
             mm2 = subprocess.Popen(
-                [minimap2_path, "-a", ref_fasta, fq_path],
+                [minimap2_path, "-a", "--MD", ref_fasta, fq_path],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             subprocess.run(
@@ -474,7 +506,8 @@ def _build_pileup_grid(
                 [samtools_path, "index", bam_path],
                 stderr=subprocess.DEVNULL, check=False,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Pileup alignment failed: %s", exc)
             return []
 
         # Parse BAM for pileup
@@ -496,67 +529,128 @@ def _build_pileup_grid(
                             is_match = qbase.upper() == ref_seq[rpos].upper()
                             row[rpos] = (qbase, is_match)
                     rows.append(row)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("BAM parsing failed: %s", exc)
+
+        if not rows:
+            logger.warning(
+                "Pileup produced 0 aligned rows for %d reads against %s",
+                len(group_reads), ref_fasta,
+            )
 
     return rows
 
 
 def _render_pileup_html(well_pos: str, candidate: dict,
                          groups: list[dict]) -> str:
-    """Render the pileup HTML page for one well."""
+    """Render the pileup HTML page for one well.
+
+    Uses an HTML5 canvas matrix: each read is a row of colored cells.
+    Green = match, per-base color = mismatch, light gray = gap.
+    """
     import html as _html
+    import json as _json
 
     plate = candidate["plate"]
     well = candidate["well"]
     title = f"Pileup: Plate {plate} Well {well}"
 
     sections_html = []
-    for g in groups:
+    for idx, g in enumerate(groups):
         star = " &#9733;" if g["is_recoverable"] else ""
         status_class = "status-correct" if _is_correct(g["status"]) else "status-other"
+
+        # Compute per-read identity from pileup data
+        identity_str = ""
+        if g["pileup_rows"]:
+            total_bases = 0
+            total_matches = 0
+            for row in g["pileup_rows"]:
+                aligned = [(b, m) for b, m in row if b != "-"]
+                total_bases += len(aligned)
+                total_matches += sum(1 for _, m in aligned if m)
+            if total_bases > 0:
+                identity = total_matches / total_bases
+                identity_str = f" &middot; Read identity: {identity:.1%}"
+
+        ref_len = len(g["ref_seq"])
 
         header = (
             f'<div class="group-header">'
             f'<span class="ref-name">{_html.escape(g["ref_id"])}{star}</span>'
             f'<span class="group-meta">'
             f'{g["n_reads"]} reads ({g["frac"]:.0%}) &middot; '
-            f'<span class="{status_class}">{_html.escape(g["status"])}</span>'
+            f'{ref_len} bp &middot; '
+            f'Consensus: <span class="{status_class}">'
+            f'{_html.escape(g["status"])}</span>'
+            f'{identity_str}'
             f'</span></div>'
         )
 
-        # Reference line
-        ref_line = ''.join(
-            f'<span class="base ref-base">{b}</span>'
-            for b in g["ref_seq"]
-        )
-
-        # Read lines (limit to 100 rows for performance)
-        read_lines = []
-        for row in g["pileup_rows"][:100]:
+        # Encode pileup data compactly for JS:
+        # '.' = match, base letter = mismatch, '-' = gap
+        rows_encoded = []
+        for row in g["pileup_rows"]:
             chars = []
             for base_char, is_match in row:
                 if base_char == "-":
-                    chars.append('<span class="base gap">-</span>')
+                    chars.append("-")
                 elif is_match:
-                    chars.append(f'<span class="base match">{_html.escape(base_char)}</span>')
+                    chars.append(".")
                 else:
-                    chars.append(f'<span class="base mismatch">{_html.escape(base_char)}</span>')
-            read_lines.append(''.join(chars))
+                    chars.append(base_char.upper())
+            rows_encoded.append("".join(chars))
 
-        truncation_note = ""
-        if len(g["pileup_rows"]) > 100:
-            truncation_note = (
-                f'<div class="truncation-note">'
-                f'Showing 100 of {len(g["pileup_rows"])} reads</div>'
+        # Build consensus from pileup: majority base at each position
+        from collections import Counter
+        consensus_encoded = []
+        ref_seq = g["ref_seq"]
+        for col_idx in range(ref_len):
+            counts = Counter()
+            for row in g["pileup_rows"]:
+                base, _ = row[col_idx]
+                if base != "-":
+                    counts[base.upper()] += 1
+            if counts:
+                cons_base = counts.most_common(1)[0][0]
+                if cons_base == ref_seq[col_idx].upper():
+                    consensus_encoded.append(".")
+                else:
+                    consensus_encoded.append(cons_base)
+            else:
+                consensus_encoded.append("-")
+        consensus_str = "".join(consensus_encoded)
+
+        ref_seq_js = _json.dumps(ref_seq)
+        rows_js = _json.dumps(rows_encoded)
+        cons_js = _json.dumps(consensus_str)
+        n_rows = len(rows_encoded)
+        n_cols = ref_len
+
+        if n_rows == 0:
+            pileup_block = (
+                f'<div class="pileup-empty">'
+                f'No aligned reads available ({g["n_reads"]} reads unaligned)'
+                f'</div>'
             )
-
-        pileup_block = (
-            f'<div class="pileup-scroll"><pre class="pileup">'
-            f'<div class="ref-row">{ref_line}</div>'
-            + '\n'.join(f'<div class="read-row">{rl}</div>' for rl in read_lines)
-            + f'</pre></div>{truncation_note}'
-        )
+        else:
+            pileup_block = (
+                f'<div class="pileup-container">'
+                f'<div class="pileup-scroll" id="scroll-{idx}">'
+                f'<canvas id="pileup-{idx}"></canvas>'
+                f'</div>'
+                f'<div class="pileup-info">{n_rows} aligned reads &times; '
+                f'{n_cols} bp</div>'
+                f'</div>'
+                f'<script>'
+                f'(function(){{'
+                f'var ref={ref_seq_js};'
+                f'var cons={cons_js};'
+                f'var rows={rows_js};'
+                f'drawPileup("pileup-{idx}",ref,cons,rows);'
+                f'}})();'
+                f'</script>'
+            )
 
         sections_html.append(f'{header}\n{pileup_block}')
 
@@ -622,55 +716,160 @@ h1 {{
 .status-other {{
     color: #ef4444;
 }}
+.pileup-container {{
+    margin-bottom: 0.5rem;
+}}
 .pileup-scroll {{
     overflow-x: auto;
+    overflow-y: auto;
+    max-height: 60vh;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 0.5rem;
+    padding: 0;
 }}
-.pileup {{
-    margin: 0;
-    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-    font-size: 11px;
-    line-height: 1.3;
-    white-space: pre;
+.pileup-scroll canvas {{
+    display: block;
 }}
-.base {{
-    display: inline-block;
-    width: 0.7em;
-    text-align: center;
-}}
-.ref-base {{
-    font-weight: 700;
-}}
-.match {{
+.pileup-info {{
+    font-size: 0.75rem;
     color: var(--muted);
+    margin-top: 0.25rem;
 }}
-.mismatch {{
-    color: #ef4444;
-    font-weight: 700;
-}}
-.gap {{
+.pileup-empty {{
+    font-size: 0.85rem;
     color: var(--muted);
-    opacity: 0.5;
+    font-style: italic;
+    padding: 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
 }}
-.ref-row {{
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 2px;
-    margin-bottom: 2px;
+.legend {{
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}}
+.legend-item {{
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}}
+.legend-swatch {{
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
 }}
 .group-sep {{
     border: none;
     border-top: 1px solid var(--border);
     margin: 1.5rem 0;
 }}
-.truncation-note {{
-    font-size: 0.8rem;
-    color: var(--muted);
-    margin-top: 0.3rem;
-}}
 </style>
+<script>
+function drawPileup(canvasId, refSeq, cons, rows) {{
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var nCols = refSeq.length;
+  var nRows = rows.length;
+  var cellW = nCols < 200 ? 4 : nCols < 500 ? 3 : 2;
+  var cellH = nRows < 100 ? 3 : 2;
+  var refH = Math.max(cellH, 6);
+  var consH = refH;
+  var gap = 1;
+  canvas.width = nCols * cellW;
+  canvas.height = refH + gap + consH + gap + nRows * cellH;
+  var ctx = canvas.getContext('2d');
+  var matchColor = '#059669';
+  var gapColor = '#d1d5db';
+  var refColor = '#1e293b';
+  var consMatchColor = '#059669';
+  var baseColors = {{'A':'#ef4444','T':'#3b82f6','C':'#f59e0b','G':'#8b5cf6'}};
+  if (document.documentElement.getAttribute('data-theme') === 'dark') {{
+    matchColor = '#34d399';
+    gapColor = '#334155';
+    refColor = '#e0e0e0';
+    consMatchColor = '#34d399';
+    baseColors = {{'A':'#f87171','T':'#60a5fa','C':'#fbbf24','G':'#a78bfa'}};
+  }}
+  // Reference row
+  ctx.fillStyle = refColor;
+  for (var i = 0; i < nCols; i++) {{
+    ctx.fillRect(i * cellW, 0, cellW, refH);
+  }}
+  // Consensus row
+  var consY = refH + gap;
+  for (var i = 0; i < cons.length; i++) {{
+    var ch = cons[i];
+    if (ch === '.') {{
+      ctx.fillStyle = consMatchColor;
+    }} else if (ch === '-') {{
+      ctx.fillStyle = gapColor;
+    }} else {{
+      ctx.fillStyle = baseColors[ch] || '#94a3b8';
+    }}
+    ctx.fillRect(i * cellW, consY, cellW, consH);
+  }}
+  // Read rows
+  var readsY = consY + consH + gap;
+  for (var r = 0; r < nRows; r++) {{
+    var row = rows[r];
+    var y = readsY + r * cellH;
+    for (var c = 0; c < row.length; c++) {{
+      var ch = row[c];
+      if (ch === '.') {{
+        ctx.fillStyle = matchColor;
+      }} else if (ch === '-') {{
+        ctx.fillStyle = gapColor;
+      }} else {{
+        ctx.fillStyle = baseColors[ch] || '#94a3b8';
+      }}
+      ctx.fillRect(c * cellW, y, cellW, cellH);
+    }}
+  }}
+  // Tooltip
+  var tooltip = document.createElement('div');
+  tooltip.style.cssText = 'position:fixed;background:#1e293b;color:#fff;padding:4px 8px;'
+    + 'border-radius:4px;font-size:11px;pointer-events:none;display:none;z-index:10;'
+    + 'font-family:SF Mono,Menlo,Consolas,monospace;';
+  document.body.appendChild(tooltip);
+  canvas.addEventListener('mousemove', function(e) {{
+    var rect = canvas.getBoundingClientRect();
+    var x = e.clientX - rect.left;
+    var yp = e.clientY - rect.top;
+    var col = Math.floor(x / cellW);
+    if (col < 0 || col >= nCols) {{ tooltip.style.display = 'none'; return; }}
+    if (yp < refH) {{
+      tooltip.textContent = 'Ref pos ' + (col + 1) + ': ' + refSeq[col];
+    }} else if (yp < consY + consH) {{
+      var ch = cons[col];
+      var base = ch === '.' ? refSeq[col] : ch;
+      var note = ch === '.' ? ' (match)' : ch === '-' ? '' : ' (mismatch)';
+      tooltip.textContent = 'Consensus pos ' + (col + 1) + ': ' + base + note;
+    }} else {{
+      var row_idx = Math.floor((yp - readsY) / cellH);
+      if (row_idx >= 0 && row_idx < nRows) {{
+        var ch = rows[row_idx][col];
+        var label = ch === '.' ? refSeq[col] + ' (match)' : ch === '-' ? 'gap' : ch + ' (mismatch)';
+        tooltip.textContent = 'Read ' + (row_idx + 1) + ', pos ' + (col + 1) + ': ' + label;
+      }} else {{
+        tooltip.style.display = 'none'; return;
+      }}
+    }}
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 12) + 'px';
+    tooltip.style.top = (e.clientY - 24) + 'px';
+  }});
+  canvas.addEventListener('mouseleave', function() {{
+    tooltip.style.display = 'none';
+  }});
+}}
+</script>
 </head>
 <body>
 <h1>{_html.escape(title)}</h1>
@@ -678,6 +877,18 @@ h1 {{
     {candidate["total_reads"]} total reads &middot;
     Top fraction: {candidate["top_frac"]:.0%} &middot;
     Recoverable: {_html.escape(recoverable_list)}
+</div>
+<div class="legend">
+    <span style="font-weight:600;">Legend:</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#059669;"></span> Match</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span> A</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span> T</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#f59e0b;"></span> C</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#8b5cf6;"></span> G</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#d1d5db;"></span> Gap</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#1e293b;"></span> Reference</span>
+    <span style="color:var(--muted);">|</span>
+    <span style="font-size:0.75rem;color:var(--muted);">Rows: Reference &rarr; Consensus &rarr; Reads</span>
 </div>
 {body}
 <script id="usortm-theme-sync">

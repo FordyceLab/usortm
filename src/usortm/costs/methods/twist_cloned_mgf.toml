@@ -1,0 +1,37 @@
+[meta]
+name = "Twist Cloned Multiplexed Gene Fragments"
+vendor = "Twist Bioscience"
+type = "pooled"
+date_collected = "2026-03-06"
+notes = "Early Access. Cloned in customer vector. TAT: 6-8 weeks + 2 weeks CVOB. Cloning fee: $5000 (low), $8500 (medium), $11500 (high diversity). From Twist Combined Price Sheet (June 2025)."
+
+[capabilities]
+seq_length_min = 251
+seq_length_max = 450
+library_size_min = 501
+library_size_max = 12000
+
+[simulation]
+error_rate = [5e-5, 2e-4]
+abundance_skew = [1.5, 5.0]
+
+[pricing]
+model = "lookup"
+
+# Note: Cloning + sequencing fee is additional: $5000 (up to 12k), $8500 (up to 120k), $11500 (120k+)
+
+[[pricing.tiers]]
+library_size = [501, 1000]
+costs = {300 = 9944.00, 350 = 11798.00, 400 = 13652.00, 450 = 15506.00}
+
+[[pricing.tiers]]
+library_size = [1001, 2000]
+costs = {300 = 11594.00, 350 = 14066.00, 400 = 16539.00, 450 = 19011.00}
+
+[[pricing.tiers]]
+library_size = [2001, 6000]
+costs = {300 = 14890.00, 350 = 18598.00, 400 = 22307.00, 450 = 26015.00}
+
+[[pricing.tiers]]
+library_size = [6001, 12000]
+costs = {300 = 17310.00, 350 = 21927.00, 400 = 26543.00, 450 = 31160.00}
