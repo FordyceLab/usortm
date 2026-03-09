@@ -202,6 +202,16 @@ def run_levseq_pipeline(
     if reference is not None:
         _progress("Aligning reads to reference library...")
         align_dir = output_dir / "alignment"
+
+        def _align_progress(n_done, total):
+            if n_done is None:
+                _progress("Aligning reads to reference library... (cached)")
+            elif total:
+                pct = int(100 * n_done / total)
+                _progress(f"Aligning reads to reference library... {n_done:,}/{total:,} ({pct}%)")
+            else:
+                _progress(f"Aligning reads to reference library... {n_done:,} aligned")
+
         oriented_fq, ref_map, align_stats = utils.align_and_split_by_strand(
             multi_ref_fasta=str(reference),
             fastq=str(fastq),
@@ -209,6 +219,8 @@ def run_levseq_pipeline(
             minimap2_path=tool_paths["minimap2"],
             samtools_path=tool_paths["samtools"],
             threads=threads,
+            progress_callback=_align_progress,
+            total_reads=input_reads,
         )
         pipeline_stats["align"] = align_stats
         _progress("Strand split complete.")

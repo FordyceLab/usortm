@@ -14,6 +14,7 @@ import logging
 import re
 import string
 import subprocess
+import threading
 
 import numpy as np
 import pandas as pd
@@ -114,6 +115,8 @@ def align_and_split_by_strand(
     minimap2_path=None,
     samtools_path=None,
     threads=4,
+    progress_callback=None,
+    total_reads=None,
 ):
     """Align raw reads to a multi-ref library and split by strand.
 
@@ -154,7 +157,11 @@ def align_and_split_by_strand(
     oriented_fq = os.path.join(output_dir, "oriented_reads.fastq")
 
     # --- minimap2 | samtools sort → BAM (no intermediate SAM on disk) ---
-    if not os.path.exists(bam_path):
+    if os.path.exists(bam_path):
+        logger.info("Using cached alignment BAM: %s", bam_path)
+        if progress_callback is not None:
+            progress_callback(None, None)  # signal: cached
+    else:
         logger.info("Running minimap2 multi-ref alignment...")
         mm2_cmd = [
             minimap2_path, "-ax", "map-ont",
@@ -169,10 +176,44 @@ def align_and_split_by_strand(
         mm2_proc = subprocess.Popen(
             mm2_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
-        subprocess.run(
-            sort_cmd, stdin=mm2_proc.stdout,
-            stderr=subprocess.DEVNULL, check=True,
-        )
+
+        if progress_callback is not None:
+            # Insert a counting thread between minimap2 stdout and samtools
+            # stdin.  Each non-header SAM line is one alignment record.
+            r_fd, w_fd = os.pipe()
+            sort_proc = subprocess.Popen(
+                sort_cmd,
+                stdin=r_fd,
+                stderr=subprocess.DEVNULL,
+            )
+            os.close(r_fd)  # child process owns the read end
+
+            def _count_and_forward():
+                count = 0
+                interval = max(1, (total_reads or 100_000) // 200)  # ~200 updates
+                with os.fdopen(w_fd, "wb") as pipe_in:
+                    for line in mm2_proc.stdout:
+                        pipe_in.write(line)
+                        if not line.startswith(b"@"):
+                            count += 1
+                            if count % interval == 0:
+                                progress_callback(count, total_reads)
+                progress_callback(count, total_reads)
+
+            counter_thread = threading.Thread(target=_count_and_forward, daemon=True)
+            counter_thread.start()
+            sort_proc.wait()
+            counter_thread.join()
+            if sort_proc.returncode != 0:
+                raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
+        else:
+            sort_proc = subprocess.Popen(
+                sort_cmd, stdin=mm2_proc.stdout, stderr=subprocess.DEVNULL,
+            )
+            sort_proc.wait()
+            if sort_proc.returncode != 0:
+                raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
+
         mm2_proc.wait()
 
         # Index the BAM for random access

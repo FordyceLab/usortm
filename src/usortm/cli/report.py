@@ -386,6 +386,23 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     }
 
 
+# ── Shared SVG constants ───────────────────────────────────────────
+_CHART_W = 340          # chart area width  (px) — all plots share this
+_CHART_H = 200          # chart area height (px)
+_FS_TICK = 11           # font-size for tick labels
+_FS_LABEL = 12          # font-size for axis titles
+
+
+def _svg_wrap(w, h, inner):
+    """Wrap SVG inner elements in a responsive <svg> tag."""
+    return (
+        f'<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
+        + inner
+        + "</svg>"
+    )
+
+
 def _cmap_hex(t: float) -> str:
     """Sample the custom white→yellow→green colormap at t in [0, 1].
 
@@ -424,16 +441,14 @@ def _generate_read_depth_histogram_svg(read_counts: list) -> str:
         bins[idx] += 1
     max_count = max(bins) if any(bins) else 1
 
-    # SVG layout
-    ml, mr, mt, mb = 40, 15, 20, 42
-    chart_w, chart_h = 280, 150
+    ml, mr, mt, mb = 44, 12, 12, 40
+    chart_w, chart_h = _CHART_W, _CHART_H
     svg_w = ml + chart_w + mr
     svg_h = mt + chart_h + mb
 
     bar_w = chart_w / n_bins
     els = []
 
-    # Match plate map color scale: low=0 reads, high=200 reads (saturates above).
     plate_map_color_high = 200.0
     for i, count in enumerate(bins):
         if count == 0:
@@ -447,7 +462,6 @@ def _generate_read_depth_histogram_svg(read_counts: list) -> str:
             f'rx="2" fill="{_cmap_hex(t)}" stroke="#aaa" stroke-width="0.3"/>'
         )
 
-    # Tier threshold lines + rotated labels (avoids overlap at high read depths)
     for threshold, tier_label in [(20, "C"), (50, "B"), (100, "A")]:
         x = ml + (threshold / total_range) * chart_w
         if ml <= x <= ml + chart_w:
@@ -455,16 +469,13 @@ def _generate_read_depth_histogram_svg(read_counts: list) -> str:
                 f'<line x1="{x:.1f}" y1="{mt}" x2="{x:.1f}" y2="{mt + chart_h}" '
                 f'stroke="var(--text-color)" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>'
             )
-            # Rotated label: text-anchor="start" with rotate(-90) around top of line
-            # causes text to extend downward along the line from the top
             els.append(
                 f'<text transform="rotate(-90, {x:.1f}, {mt})" '
                 f'x="{x:.1f}" y="{mt}" '
-                f'text-anchor="start" font-size="10" fill="var(--text-color)" opacity="0.55">'
+                f'text-anchor="start" font-size="{_FS_TICK}" fill="var(--text-color)" opacity="0.55">'
                 f' Tier {tier_label}</text>'
             )
 
-    # X-axis ticks and labels — 5 evenly-spaced labels to avoid crowding
     n_ticks = 5
     for i in range(n_ticks + 1):
         tick_bin = int(i * n_bins / n_ticks)
@@ -474,28 +485,22 @@ def _generate_read_depth_histogram_svg(read_counts: list) -> str:
             f'<line x1="{x:.1f}" y1="{mt + chart_h}" x2="{x:.1f}" y2="{mt + chart_h + 4}" '
             f'stroke="var(--border)" stroke-width="1"/>'
             f'<text x="{x:.1f}" y="{mt + chart_h + 16}" '
-            f'text-anchor="middle" font-size="11" fill="var(--muted)">{label_val}</text>'
+            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{label_val}</text>'
         )
 
-    # X-axis label
     els.append(
         f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
-        f'text-anchor="middle" font-size="11" fill="var(--muted)">Reads per well</text>'
+        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads per well</text>'
     )
-
-    # Y-axis label (rotated)
     els.append(
         f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="11" fill="var(--muted)">Wells</text>'
+        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Wells</text>'
     )
-
-    # Y-axis max value
     els.append(
         f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="11" fill="var(--muted)">{max_count}</text>'
+        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{max_count}</text>'
     )
 
-    # Axes
     els.append(
         f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
         f'stroke="var(--border)" stroke-width="1.5"/>'
@@ -503,16 +508,10 @@ def _generate_read_depth_histogram_svg(read_counts: list) -> str:
         f'stroke="var(--border)" stroke-width="1.5"/>'
     )
 
-    return (
-        f'<svg viewBox="0 0 {svg_w} {svg_h}" width="{svg_w}" height="{svg_h}" '
-        f'xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
-        + "\n".join(els)
-        + "</svg>"
-    )
+    return _svg_wrap(svg_w, svg_h, "\n".join(els))
 
 
-def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
+def _generate_plate_bar_svg(plate_reads: dict) -> str:
     """Generate an inline SVG vertical bar chart for per-plate read counts."""
     if not plate_reads:
         return ""
@@ -522,8 +521,8 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
 
     sorted_plates = sorted(plate_reads.items(), key=lambda x: int(x[0]))
     max_reads = max(plate_reads.values()) or 1
-    ml, mr, mt, mb = 40, 15, 20, 42
-    chart_w, chart_h = 310, 150
+    ml, mr, mt, mb = 44, 12, 20, 40
+    chart_w, chart_h = _CHART_W, _CHART_H
     svg_width = ml + chart_w + mr
     svg_height = mt + chart_h + mb
 
@@ -540,31 +539,25 @@ def _generate_plate_bar_svg(plate_reads: dict[str, int]) -> str:
             f'<rect x="{x:.1f}" y="{y}" width="{bar_w:.1f}" height="{bar_h}" '
             f'rx="3" fill="{fill}" stroke="#aaa" stroke-width="0.3"/>'
             f'<text x="{x_mid:.1f}" y="{max(y - 4, 11)}" '
-            f'text-anchor="middle" font-size="15" fill="var(--muted)">{_fmt_reads(reads)}</text>'
+            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt_reads(reads)}</text>'
             f'<text x="{x_mid:.1f}" y="{mt + chart_h + 16}" '
-            f'text-anchor="middle" font-size="14" fill="var(--muted)">{plate}</text>'
+            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{plate}</text>'
         )
 
     bars.append(
         f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="14" fill="var(--muted)">{_fmt_reads(max_reads)}</text>'
+        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt_reads(max_reads)}</text>'
         f'<text x="{ml + chart_w / 2:.1f}" y="{svg_height - 4}" '
-        f'text-anchor="middle" font-size="14" fill="var(--muted)">Plate</text>'
+        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Plate</text>'
         f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="14" fill="var(--muted)">Reads</text>'
+        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads</text>'
         f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
         f'stroke="var(--border)" stroke-width="1.5"/>'
         f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
         f'stroke="var(--border)" stroke-width="1.5"/>'
     )
 
-    return (
-        f'<svg viewBox="0 0 {svg_width} {svg_height}" width="{svg_width}" height="{svg_height}" '
-        f'xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
-        + "\n".join(bars)
-        + "</svg>"
-    )
+    return _svg_wrap(svg_width, svg_height, "\n".join(bars))
 
 
 def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
@@ -594,8 +587,8 @@ def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
         (count_u, "#d1d5db",        "Untiered (<20 reads)"),
     ]
 
-    cx, cy, R, r = 85, 85, 70, 38
-    svg_w, svg_h = 170, 170
+    cx, cy, R, r = 80, 80, 65, 36
+    svg_w, svg_h = 160, 160
     els: list[str] = []
 
     start_angle = -90.0
@@ -637,12 +630,7 @@ def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
         )
         start_angle = end_angle
 
-    return (
-        f'<svg viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto; max-width:{svg_w}px;">'
-        + "\n".join(els)
-        + "</svg>"
-    )
+    return _svg_wrap(svg_w, svg_h, "\n".join(els))
 
 
 def _generate_read_length_hist_svg(hist_data: dict) -> str:
@@ -661,9 +649,8 @@ def _generate_read_length_hist_svg(hist_data: dict) -> str:
     n_bins = len(counts)
     max_count = max(counts) if any(counts) else 1
 
-    # SVG layout — same dimensions as read depth histogram
-    ml, mr, mt, mb = 40, 15, 20, 42
-    chart_w, chart_h = 280, 150
+    ml, mr, mt, mb = 44, 12, 12, 40
+    chart_w, chart_h = _CHART_W, _CHART_H
     svg_w = ml + chart_w + mr
     svg_h = mt + chart_h + mb
 
@@ -747,13 +734,13 @@ def _generate_read_length_hist_svg(hist_data: dict) -> str:
     # X-axis label
     els.append(
         f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
-        f'text-anchor="middle" font-size="11" fill="var(--muted)">Read Length (bp)</text>'
+        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Read Length (bp)</text>'
     )
 
     # Y-axis label (rotated)
     els.append(
         f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="11" fill="var(--muted)">Reads</text>'
+        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads</text>'
     )
 
     # Y-axis max value
@@ -762,7 +749,7 @@ def _generate_read_length_hist_svg(hist_data: dict) -> str:
 
     els.append(
         f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="11" fill="var(--muted)">{_fmt(max_count)}</text>'
+        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt(max_count)}</text>'
     )
 
     # Axes
@@ -773,13 +760,7 @@ def _generate_read_length_hist_svg(hist_data: dict) -> str:
         f'stroke="var(--border)" stroke-width="1.5"/>'
     )
 
-    return (
-        f'<svg viewBox="0 0 {svg_w} {svg_h}" width="{svg_w}" height="{svg_h}" '
-        f'xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
-        + "\n".join(els)
-        + "</svg>"
-    )
+    return _svg_wrap(svg_w, svg_h, "\n".join(els))
 
 
 def _compute_read_len_hist(fastq_path: str) -> dict:
@@ -822,6 +803,7 @@ def _generate_recovery_curve_svg(
     true_sampling: Optional[float],
     tier_c_pct: Optional[float],
     round_n: int = 1,
+    streakout_pct: Optional[float] = None,
 ) -> str:
     """Generate an inline SVG recovery curve.
 
@@ -838,25 +820,27 @@ def _generate_recovery_curve_svg(
     if not fold_samplings or not coverage_means:
         return ""
 
-    chart_w, chart_h = 150, 150
-    ml, mr, mt, mb = 32, 10, 12, 32
+    chart_w, chart_h = _CHART_W, _CHART_H
+    ml, mr, mt, mb = 44, 12, 12, 40
+    # Reserve space below the chart for a legend row
+    legend_h = 28
     svg_w = ml + chart_w + mr
-    svg_h = mt + chart_h + mb
+    svg_h = mt + chart_h + mb + legend_h
 
     x_max = max(fold_samplings)
     x_min = 0.0
 
-    def _x(fs: float) -> float:
+    def _x(fs):
         return ml + (fs - x_min) / (x_max - x_min) * chart_w
 
-    def _y(pct: float) -> float:
+    def _y(pct):
         return mt + chart_h - (pct / 100.0) * chart_h
 
-    els: list[str] = []
+    els = []
 
-    # Round label in top-left corner of chart area
+    # Round label
     els.append(
-        f'<text x="{ml + 4}" y="{mt + 10}" font-size="9" fill="var(--muted)">Round {round_n}</text>'
+        f'<text x="{ml + 4}" y="{mt + 14}" font-size="{_FS_TICK}" fill="var(--muted)">Round {round_n}</text>'
     )
 
     # Horizontal grid lines + Y-axis tick labels
@@ -866,10 +850,10 @@ def _generate_recovery_curve_svg(
             f'<line x1="{ml}" y1="{gy:.1f}" x2="{ml + chart_w}" y2="{gy:.1f}" '
             f'stroke="var(--border)" stroke-width="0.8" stroke-dasharray="3,3"/>'
             f'<text x="{ml - 4}" y="{gy + 4:.1f}" text-anchor="end" '
-            f'font-size="10" fill="var(--muted)">{pct}</text>'
+            f'font-size="{_FS_TICK}" fill="var(--muted)">{pct}</text>'
         )
 
-    # ±1 std ribbon as polygon — prepend origin to upper, append to lower
+    # +/- 1 std ribbon
     origin_pt = f"{_x(0):.1f},{_y(0):.1f}"
     upper_pts = origin_pt + " " + " ".join(
         f"{_x(fs):.1f},{_y(min(m + s, 100)):.1f}"
@@ -888,7 +872,7 @@ def _generate_recovery_curve_svg(
         f'fill="var(--accent)" opacity="0.15"/>'
     )
 
-    # Mean curve — prepend origin
+    # Mean curve
     mean_pts = origin_pt + " " + " ".join(
         f"{_x(fs):.1f},{_y(m):.1f}"
         for fs, m in zip(fold_samplings, coverage_means)
@@ -898,7 +882,12 @@ def _generate_recovery_curve_svg(
         f'stroke-width="2" stroke-linejoin="round"/>'
     )
 
-    # Actual point or dashed vertical line
+    # -- Legend items (collected, then rendered below chart) --
+    legend_items = [
+        ("var(--accent)", "line", "Simulated mean \u00b1 1\u03c3"),
+    ]
+
+    # Actual point(s) — no inline labels, just the markers
     if true_sampling is not None:
         ax = min(max(_x(true_sampling), ml), ml + chart_w)
         if tier_c_pct is not None:
@@ -906,20 +895,24 @@ def _generate_recovery_curve_svg(
             els.append(
                 f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="5" fill="#22c55e"/>'
             )
-            # Position label above and slightly right, clamping to chart bounds
-            label_x = min(ax + 7, ml + chart_w - 2)
-            label_y = max(ay - 7, mt + 10)
-            els.append(
-                f'<text x="{label_x:.1f}" y="{label_y:.1f}" '
-                f'font-size="9" fill="#22c55e">actual</text>'
-            )
+            legend_items.append(("#22c55e", "circle", f"Observed ({tier_c_pct:.1f}%)"))
+
+            if streakout_pct is not None and streakout_pct > tier_c_pct:
+                sy = _y(min(max(streakout_pct, 0), 100))
+                els.append(
+                    f'<circle cx="{ax:.1f}" cy="{sy:.1f}" r="5" fill="#2563eb"/>'
+                )
+                els.append(
+                    f'<line x1="{ax:.1f}" y1="{ay:.1f}" x2="{ax:.1f}" y2="{sy:.1f}" '
+                    f'stroke="#2563eb" stroke-width="1.5" stroke-dasharray="3,3"/>'
+                )
+                legend_items.append(("#2563eb", "circle", f"+ streak-out ({streakout_pct:.1f}%)"))
         else:
             els.append(
                 f'<line x1="{ax:.1f}" y1="{mt}" x2="{ax:.1f}" y2="{mt + chart_h}" '
                 f'stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>'
-                f'<text x="{ax + 3:.1f}" y="{mt + 12}" '
-                f'font-size="9" fill="var(--muted)">current</text>'
             )
+            legend_items.append(("var(--muted)", "line", "Current sampling"))
 
     # X-axis ticks
     tick_vals = [v for v in (0, 2, 4, 6, 8, 10, 12, 15) if v <= x_max]
@@ -928,18 +921,18 @@ def _generate_recovery_curve_svg(
         els.append(
             f'<line x1="{tx:.1f}" y1="{mt + chart_h}" x2="{tx:.1f}" y2="{mt + chart_h + 4}" '
             f'stroke="var(--border)" stroke-width="1"/>'
-            f'<text x="{tx:.1f}" y="{mt + chart_h + 15}" text-anchor="middle" '
-            f'font-size="10" fill="var(--muted)">{tv}</text>'
+            f'<text x="{tx:.1f}" y="{mt + chart_h + 18}" text-anchor="middle" '
+            f'font-size="{_FS_TICK}" fill="var(--muted)">{tv}</text>'
         )
 
     # Axis labels
     els.append(
-        f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
-        f'text-anchor="middle" font-size="10" fill="var(--muted)">Fold Sampling</text>'
+        f'<text x="{ml + chart_w / 2:.1f}" y="{mt + chart_h + mb - 4}" '
+        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Fold Sampling</text>'
     )
     els.append(
         f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="10" fill="var(--muted)">% Recovered</text>'
+        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">% Recovered</text>'
     )
 
     # Axes
@@ -950,12 +943,25 @@ def _generate_recovery_curve_svg(
         f'stroke="var(--border)" stroke-width="1.5"/>'
     )
 
-    return (
-        f'<svg viewBox="0 0 {svg_w} {svg_h}" xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto; max-width:{svg_w}px;">'
-        + "\n".join(els)
-        + "</svg>"
-    )
+    # Render legend row below chart
+    ly = mt + chart_h + mb + 6
+    lx = ml
+    for color, kind, label in legend_items:
+        if kind == "line":
+            els.append(
+                f'<line x1="{lx}" y1="{ly}" x2="{lx + 18}" y2="{ly}" '
+                f'stroke="{color}" stroke-width="2"/>'
+            )
+        else:
+            els.append(
+                f'<circle cx="{lx + 5}" cy="{ly}" r="4" fill="{color}"/>'
+            )
+        els.append(
+            f'<text x="{lx + 22}" y="{ly + 4}" font-size="{_FS_TICK}" fill="var(--muted)">{label}</text>'
+        )
+        lx += 22 + len(label) * 6.2 + 14  # approximate text width + gap
+
+    return _svg_wrap(svg_w, svg_h, "\n".join(els))
 
 
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
@@ -986,11 +992,28 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     recovery_curve_data = demux_summary.get("recovery_curve")
     if recovery_curve_data:
         tier_c_pct = tiers["C"]["pct"] if tiers else None
+        # Compute coverage including streak-out recoverable variants
+        streakout_pct = None
+        streakout_data_rc = demux_summary.get("streakout", {})
+        so_variants = streakout_data_rc.get("recoverable_variants", [])
+        if so_variants and tiers and library_size:
+            tier_c_count = tiers["C"]["count"]
+            # Count recoverable variants not already in Tier C
+            tier_c_variants = {
+                w["variant"].split("|")[0] for w in well_data
+                if w["reads"] >= 20 and w["consensus_fraction"] > 0.9
+            }
+            new_variants = len(set(so_variants) - tier_c_variants)
+            streakout_pct = min((tier_c_count + new_variants) / library_size * 100, 100.0)
         rcurve_svg = _generate_recovery_curve_svg(
             recovery_curve_data, true_sampling, tier_c_pct,
             round_n=project.get("round", 1),
+            streakout_pct=streakout_pct,
         )
-        recovery_curve_html = f'<div>{rcurve_svg}</div>' if rcurve_svg else ""
+        recovery_curve_html = (
+            f'<div class="chart-card"><h3>Recovery Curve</h3>{rcurve_svg}</div>'
+            if rcurve_svg else ""
+        )
     else:
         recovery_curve_html = ""
 
@@ -1029,12 +1052,12 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         _n_reads = (demux_summary.get("read_len_hist") or {}).get("n_reads", 0)
         _n_reads_note = f" ({_n_reads:,} reads)" if _n_reads else ""
         read_len_col_html = (
-            f'<div class="demux-hist">\n'
-            f'    <h3 class="subsection-title">Input Read Length Distribution{_n_reads_note}</h3>\n'
-            f'    <p class="note" style="margin:0 0 0.5rem;">Dominant peaks labeled &#9650;. '
-            f'Median in red &#9660;. Short-read peaks (&lt;200&nbsp;bp) may reduce mapping efficiency.</p>\n'
-            f'    <div class="read-len-chart">{read_len_hist_svg}</div>\n'
-            f'</div>'
+            f'        <div class="chart-card">\n'
+            f'            <h3>Read Length Distribution{_n_reads_note}</h3>\n'
+            f'            <p class="note" style="margin:0 0 0.5rem;">Peaks labeled &#9650;. '
+            f'Median in red &#9660;.</p>\n'
+            f'            <div class="read-len-chart">{read_len_hist_svg}</div>\n'
+            f'        </div>'
         )
     else:
         read_len_col_html = ""
@@ -1093,50 +1116,52 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     # Tier pie chart
     tier_pie_svg = _generate_tier_pie_svg(tiers, library_size) if tiers else ""
 
-    # Check for plate map files — embed via srcdoc if available
+    # Embed plate maps via srcdoc (inline HTML) so they render correctly
+    # when summary.html is opened as a local file:// URL.  Browsers block
+    # cross-origin iframe src for file:// origins.
     plate_map_section = ""
     pick_plate_iframe = ""
+
+    def _embed_srcdoc(html_path: Path, height: int = 620) -> str:
+        """Embed a local HTML file via srcdoc so it renders on file:// pages.
+
+        Browsers block <iframe src="file://..."> on file:// parent pages (Safari,
+        hardened Chrome). srcdoc embeds the content inline, bypassing that restriction.
+        Relative window.open() URLs in Bokeh data (streakout links) are replaced with
+        absolute file:// paths before embedding so tap-tool navigation still works.
+        """
+        content = html_path.read_text(encoding="utf-8")
+
+        # Absolutize relative streakout URLs baked into Bokeh JS data
+        # They appear as JSON strings: "streakout/well_..."
+        base_uri = html_path.parent.resolve().as_uri()
+        content = content.replace('"streakout/', f'"{base_uri}/streakout/')
+
+        # Escape for double-quoted HTML attribute value
+        content = content.replace("&", "&amp;").replace('"', "&quot;")
+
+        rel = str(html_path.relative_to(project_dir))
+        link = f'<p><a href="../{rel}" target="_blank">Open full size ↗</a></p>'
+        return (
+            link
+            + f'<iframe srcdoc="{content}" width="100%" height="{height}" '
+            f'style="border:none;"></iframe>'
+        )
 
     if project_dir:
         demux_plate_map = project_dir / "demux_output" / "plate_map.html"
         if demux_plate_map.exists():
-            try:
-                raw_html = demux_plate_map.read_text()
-                escaped = _html.escape(raw_html)
-                plate_map_section = f"""
+            plate_map_section = f"""
     <h2>Demux Plate Map</h2>
     <p>Interactive plate map showing per-well read depth and variant composition.</p>
-    <iframe srcdoc="{escaped}" width="100%" height="620"
-            style="border:none;"></iframe>
-"""
-            except Exception:
-                rel_path = "../demux_output/plate_map.html"
-                plate_map_section = f"""
-    <h2>Demux Plate Map</h2>
-    <p>Interactive plate map showing per-well read depth and variant composition.
-       <a href="{rel_path}" target="_blank">Open full size</a></p>
-    <iframe src="{rel_path}" width="100%" height="620"
-            style="border:none;"></iframe>
+    {_embed_srcdoc(demux_plate_map, 620)}
 """
 
         pick_plate_map = project_dir / "pick" / "pick_plate_map.html"
         if not pick_plate_map.exists():
             pick_plate_map = project_dir / "pick_plate_map.html"  # backward compat
         if pick_plate_map.exists():
-            try:
-                raw_html = pick_plate_map.read_text()
-                escaped = _html.escape(raw_html)
-                pick_plate_iframe = (
-                    f'<iframe srcdoc="{escaped}" width="100%" height="780" '
-                    f'style="border:none;"></iframe>'
-                )
-            except Exception:
-                rel_path = "../pick/pick_plate_map.html"
-                pick_plate_iframe = (
-                    f'<p><a href="{rel_path}" target="_blank">Open pick plate map</a></p>'
-                    f'<iframe src="{rel_path}" width="100%" height="780" '
-                    f'style="border:none;"></iframe>'
-                )
+            pick_plate_iframe = _embed_srcdoc(pick_plate_map, 780)
 
     # Pick summary stat box (inline in library section)
     pick_stat_box = ""
@@ -1153,13 +1178,18 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             f'</div>'
         )
 
-    # Library Recovery section — tier chips only
+    # Library Recovery section — tier chips + recovery curve side by side
     library_section = f"""
     <h2>Library Recovery</h2>
-    <div class="stat-grid">
-        {tier_boxes}
+    <div class="recovery-row">
+        <div class="recovery-tiers">
+            <div class="stat-grid" style="margin:0;">
+                {tier_boxes}
+            </div>
+            {tier_note}
+        </div>
+        {recovery_curve_html}
     </div>
-{tier_note}
 """ if tier_boxes else ""
 
     # Hit Picking section — only rendered when pick step is complete
@@ -1351,36 +1381,43 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             color: var(--muted);
             margin-top: 0.5rem;
         }}
-        .read-depth-row {{
-            display: flex;
-            gap: 1.5rem;
-            align-items: flex-start;
-            flex-wrap: nowrap;
+        .chart-card {{
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem 1.25rem 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         }}
-        .read-depth-row > table {{
-            flex: 0 0 auto;
-            width: auto;
-            min-width: 220px;
+        .chart-card h3 {{
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin: 0 0 0.75rem;
         }}
-        .read-depth-row > .bar-chart {{
-            flex: 1 1 0;
-            min-width: 0;
+        .chart-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 1.25rem;
+            margin: 1.25rem 0;
         }}
-        .read-depth-row > .histogram-chart {{
-            flex: 1 1 0;
-            min-width: 0;
+        .chart-grid-wide {{
+            grid-template-columns: 1fr;
         }}
         .subsection-title {{
-            font-size: 1rem;
+            font-size: 0.9rem;
             font-weight: 600;
-            color: var(--text-color);
-            margin: 1.5rem 0 0.25rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin: 0 0 0.5rem;
         }}
         .demux-row {{
             display: flex;
-            gap: 1.5rem;
+            gap: 1.25rem;
             align-items: flex-start;
-            margin: 1.5rem 0;
+            margin: 1.25rem 0;
         }}
         .demux-stat {{
             flex: 0 0 200px;
@@ -1390,12 +1427,11 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             min-width: 0;
         }}
         .read-len-chart {{
-            max-width: 560px;
             margin-top: 0.25rem;
         }}
         .picking-layout {{
             display: flex;
-            gap: 1.5rem;
+            gap: 1.25rem;
             align-items: flex-start;
         }}
         .picking-left {{
@@ -1443,23 +1479,26 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             color: var(--muted);
             font-size: 0.875rem;
         }}
-        .overview-row {{
-            display: flex;
-            flex-wrap: nowrap;
-            gap: 1.5rem;
-            align-items: flex-start;
-            margin: 1rem 0 2rem;
-        }}
         .overview-chips {{
-            flex: 0 0 auto;
             margin: 0;
-            grid-template-columns: repeat(2, minmax(160px, 1fr));
-            max-width: 400px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         }}
-        .overview-recovery {{
-            flex: 0 0 auto;
+        .recovery-row {{
+            display: flex;
+            gap: 1.25rem;
+            align-items: flex-start;
+            margin: 1rem 0;
+        }}
+        .recovery-tiers {{
+            flex: 1 1 0;
             min-width: 0;
-            align-self: center;
+        }}
+        .recovery-tiers .stat-grid {{
+            grid-template-columns: repeat(3, 1fr);
+        }}
+        .recovery-row > .chart-card {{
+            flex: 0 0 420px;
+            max-width: 420px;
         }}
     </style>
 </head>
@@ -1472,71 +1511,51 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <p><strong>Generated:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
 
     <h2>Library Overview</h2>
-    <div class="overview-row">
-        <div class="stat-grid overview-chips">
-            <div class="stat-box">
-                <div class="stat-label">Library Size</div>
-                <div class="stat-value">{project.get('library_size', 'N/A')}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Sequence Length</div>
-                <div class="stat-value">{seq_len_display}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">True Sampling</div>
-                <div class="stat-value">{true_sampling_display}</div>
-                <div class="stat-sub">{true_sampling_note}</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Round</div>
-                <div class="stat-value">{project.get('round', 1)}</div>
-            </div>
+    <div class="stat-grid overview-chips">
+        <div class="stat-box">
+            <div class="stat-label">Library Size</div>
+            <div class="stat-value">{project.get('library_size', 'N/A')}</div>
         </div>
-        <div class="overview-recovery">
-            {recovery_curve_html}
+        <div class="stat-box">
+            <div class="stat-label">Sequence Length</div>
+            <div class="stat-value">{seq_len_display}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">True Sampling</div>
+            <div class="stat-value">{true_sampling_display}</div>
+            <div class="stat-sub">{true_sampling_note}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Input Reads</div>
+            <div class="stat-value">{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Round</div>
+            <div class="stat-value">{project.get('round', 1)}</div>
         </div>
     </div>
 
-    <h2>Demultiplexing Results</h2>
-    <div class="demux-row">
-        <div class="demux-stat">
-            <div class="stat-box">
-                <div class="stat-label">Input Reads</div>
-                <div class="stat-value">{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}</div>
-            </div>
+    <h2>Sequencing &amp; Read Depth</h2>
+    <div class="chart-grid">
+        <div class="chart-card">
+            <h3>Read Depth per Well</h3>
+            {read_depth_histogram_svg}
         </div>
-{read_len_col_html}    </div>
-
-    <h2>Read Depth Statistics</h2>
-    <div class="read-depth-row">
-    <table>
-        <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>Average reads</td>
-                <td>{avg_reads:.0f}</td>
-            </tr>
-            <tr>
-                <td>Maximum reads</td>
-                <td>{max_reads}</td>
-            </tr>
-            <tr>
-                <td>Total wells</td>
-                <td>{len(well_data)}</td>
-            </tr>
-        </tbody>
-    </table>
-    <div class="histogram-chart">
-        {read_depth_histogram_svg}
-    </div>
-    <div class="bar-chart">
-        {plate_bar_svg}
-    </div>
+        <div class="chart-card">
+            <h3>Reads per Plate</h3>
+            {plate_bar_svg}
+        </div>
+{read_len_col_html}
+        <div class="chart-card">
+            <h3>Read Depth Summary</h3>
+            <table style="box-shadow:none; border:none;">
+                <tbody>
+                    <tr><td style="border:none;">Average reads/well</td><td style="border:none; text-align:right; font-weight:600;">{avg_reads:.0f}</td></tr>
+                    <tr><td style="border:none;">Maximum reads</td><td style="border:none; text-align:right; font-weight:600;">{max_reads:,}</td></tr>
+                    <tr><td style="border:none;">Total wells</td><td style="border:none; text-align:right; font-weight:600;">{len(well_data):,}</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 {library_section}
 {plate_map_section}
