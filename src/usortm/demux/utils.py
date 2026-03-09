@@ -104,7 +104,7 @@ def make_index(fasta, minimap2_path=None):
         minimap2_path = find_minimap2()
     mmi = fasta + ".mmi"
     if not os.path.exists(mmi):
-        subprocess.run([minimap2_path, "-d", mmi, fasta], check=True)
+        subprocess.run([minimap2_path, "-d", mmi, fasta], check=True, stderr=subprocess.DEVNULL)
     return mmi
 
 
@@ -165,6 +165,7 @@ def align_and_split_by_strand(
         logger.info("Running minimap2 multi-ref alignment...")
         mm2_cmd = [
             minimap2_path, "-ax", "map-ont",
+            "--secondary=no",   # skip secondary alignments (we discard them anyway)
             "-t", str(threads),
             mmi, fastq,
         ]
@@ -173,47 +174,42 @@ def align_and_split_by_strand(
             "-@", str(threads),
             "-o", bam_path,
         ]
+        stderr_target = subprocess.PIPE if progress_callback is not None else subprocess.DEVNULL
         mm2_proc = subprocess.Popen(
-            mm2_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            mm2_cmd, stdout=subprocess.PIPE, stderr=stderr_target,
         )
 
-        if progress_callback is not None:
-            # Insert a counting thread between minimap2 stdout and samtools
-            # stdin.  Each non-header SAM line is one alignment record.
-            r_fd, w_fd = os.pipe()
-            sort_proc = subprocess.Popen(
-                sort_cmd,
-                stdin=r_fd,
-                stderr=subprocess.DEVNULL,
-            )
-            os.close(r_fd)  # child process owns the read end
+        # Always connect mm2 stdout directly to samtools stdin (no Python relay).
+        sort_proc = subprocess.Popen(
+            sort_cmd, stdin=mm2_proc.stdout, stderr=subprocess.DEVNULL,
+        )
+        mm2_proc.stdout.close()  # let sort_proc own the read end
 
-            def _count_and_forward():
+        if progress_callback is not None:
+            # Parse minimap2 stderr for "mapped N sequences" progress lines.
+            # This avoids routing SAM data through Python, keeping the
+            # mm2→samtools pipe at full kernel speed.
+            _mm2_stderr_re = re.compile(rb"mapped (\d+) sequences")
+
+            def _parse_stderr():
                 count = 0
-                interval = max(1, (total_reads or 100_000) // 200)  # ~200 updates
-                with os.fdopen(w_fd, "wb") as pipe_in:
-                    for line in mm2_proc.stdout:
-                        pipe_in.write(line)
-                        if not line.startswith(b"@"):
-                            count += 1
-                            if count % interval == 0:
-                                progress_callback(count, total_reads)
+                for line in mm2_proc.stderr:
+                    m = _mm2_stderr_re.search(line)
+                    if m:
+                        count = int(m.group(1))
+                        progress_callback(count, total_reads)
+                # Final update with whatever count we saw
                 progress_callback(count, total_reads)
 
-            counter_thread = threading.Thread(target=_count_and_forward, daemon=True)
-            counter_thread.start()
+            stderr_thread = threading.Thread(target=_parse_stderr, daemon=True)
+            stderr_thread.start()
             sort_proc.wait()
-            counter_thread.join()
-            if sort_proc.returncode != 0:
-                raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
+            stderr_thread.join()
         else:
-            sort_proc = subprocess.Popen(
-                sort_cmd, stdin=mm2_proc.stdout, stderr=subprocess.DEVNULL,
-            )
             sort_proc.wait()
-            if sort_proc.returncode != 0:
-                raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
 
+        if sort_proc.returncode != 0:
+            raise subprocess.CalledProcessError(sort_proc.returncode, sort_cmd)
         mm2_proc.wait()
 
         # Index the BAM for random access
