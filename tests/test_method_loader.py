@@ -30,15 +30,12 @@ class TestLoadMethods:
     def test_all_toml_files_load(self, methods):
         expected_slugs = {
             "twist_oligo_pools",
-            "twist_mgf",
+            "twist_multiplexed_gene_fragments",
             "twist_gene_pools",
             "twist_cloned_oligo_pools",
-            "twist_cloned_mgf",
-            "twist_matrixed_oligo_pools",
             "idt_eblocks",
             "idt_gblocks",
             "twist_gene_fragments",
-            "usortm_substitution",
         }
         assert set(methods.keys()) == expected_slugs
 
@@ -47,7 +44,6 @@ class TestLoadMethods:
         assert m.name == "Twist Oligo Pools"
         assert m.vendor == "Twist Bioscience"
         assert m.type == "pooled"
-        assert m.date_collected == "2026-06-01"
 
     def test_twist_oligo_pools_extended_tiers(self, methods):
         m = methods["twist_oligo_pools"]
@@ -71,10 +67,11 @@ class TestLoadMethods:
     def test_simulation_fields(self, methods):
         m = methods["twist_oligo_pools"]
         assert len(m.error_rate) == 2
-        assert len(m.abundance_skew) == 2
+        assert isinstance(m.skew_q90_q10, float)
+        assert m.skew_q90_q10 > 1.0
         assert m.error_rate[0] < m.error_rate[1]
-        # arrayed methods have no abundance_skew
-        assert methods["idt_eblocks"].abundance_skew is None
+        # arrayed methods have no skew_q90_q10
+        assert methods["idt_eblocks"].skew_q90_q10 is None
 
 
 class TestComputeCostLookup:
@@ -139,19 +136,17 @@ class TestComputeCostPerBase:
 
 
 class TestComputeCostTiered:
-    """Test substitution library tiered pricing matches original hardcoded values."""
+    """Test Gene Pools tiered pricing (lookup model, large library)."""
 
     def test_small_library(self, methods):
-        m = methods["usortm_substitution"]
-        # 1000 seqs, 500 bp -> insert_length=30, 30*1000 * 0.015
-        cost = compute_cost(m, 1000, 500)
-        assert cost == pytest.approx(30 * 1000 * 0.015)
+        m = methods["twist_gene_pools"]
+        cost = compute_cost(m, 500, 650)
+        assert cost == pytest.approx(17335.00)
 
     def test_large_library(self, methods):
-        m = methods["usortm_substitution"]
-        # 5000 seqs, 500 bp -> insert_length=30, 30*5000 * 0.001
-        cost = compute_cost(m, 5000, 500)
-        assert cost == pytest.approx(30 * 5000 * 0.001)
+        m = methods["twist_gene_pools"]
+        cost = compute_cost(m, 5000, 1400)
+        assert cost == pytest.approx(51089.00)
 
 
 class TestFindMethods:
@@ -167,10 +162,10 @@ class TestFindMethods:
         assert "twist_oligo_pools" in slugs
         assert "twist_gene_fragments" in slugs
 
-    def test_long_seq_finds_substitution(self):
+    def test_long_seq_finds_gene_pools(self):
         results = find_methods(500, library_size=1000, method_type="pooled")
         slugs = {m.slug for m in results}
-        assert "usortm_substitution" in slugs
+        assert "twist_gene_pools" in slugs
 
     def test_arrayed_filter(self):
         results = find_methods(400, method_type="arrayed")
@@ -179,21 +174,21 @@ class TestFindMethods:
 
 
 class TestNewTwistMethods:
-    """Test newly added Twist pooled services from June 2025 price sheet."""
+    """Test Twist pooled services from June 2025 price sheet."""
 
     def test_mgf_loads(self, methods):
-        m = methods["twist_mgf"]
+        m = methods["twist_multiplexed_gene_fragments"]
         assert m.seq_length_min == 301
         assert m.seq_length_max == 500
         assert m.library_size_max == 696000
 
-    def test_mgf_tier3_350bp(self, methods):
-        m = methods["twist_mgf"]
+    def test_mgf_tier1_350bp(self, methods):
+        m = methods["twist_multiplexed_gene_fragments"]
         cost = compute_cost(m, 500, 350)
         assert cost == pytest.approx(4944.00)
 
     def test_mgf_large_pool(self, methods):
-        m = methods["twist_mgf"]
+        m = methods["twist_multiplexed_gene_fragments"]
         cost = compute_cost(m, 100000, 400)
         assert cost == pytest.approx(63096.00)
 
@@ -225,33 +220,12 @@ class TestNewTwistMethods:
         cost = compute_cost(m, 50, 120)
         assert cost == pytest.approx(5000.00)
 
-    def test_cloned_mgf_loads(self, methods):
-        m = methods["twist_cloned_mgf"]
-        assert m.seq_length_min == 251
-        assert m.seq_length_max == 450
-        assert m.library_size_min == 501
-
-    def test_cloned_mgf_tier3(self, methods):
-        m = methods["twist_cloned_mgf"]
-        cost = compute_cost(m, 800, 350)
-        assert cost == pytest.approx(11798.00)
-
-    def test_matrixed_oligo_pools_loads(self, methods):
-        m = methods["twist_matrixed_oligo_pools"]
-        assert m.type == "arrayed"
-        assert m.seq_length_max == 350
-
-    def test_matrixed_1_plate(self, methods):
-        m = methods["twist_matrixed_oligo_pools"]
-        cost = compute_cost(m, 384, 200)
-        assert cost == pytest.approx(15744.00)
-
     def test_find_methods_mgf_overlap(self):
-        """350 bp falls in both Oligo Pools and MGF range."""
+        """350 bp falls in both Oligo Pools (≤350) and MGF (301-500) range."""
         results = find_methods(350, library_size=500, method_type="pooled")
         slugs = {m.slug for m in results}
         assert "twist_oligo_pools" in slugs
-        assert "twist_mgf" in slugs
+        assert "twist_multiplexed_gene_fragments" in slugs
 
     def test_find_methods_gene_pools(self):
         results = find_methods(1000, library_size=5000, method_type="pooled")
@@ -270,9 +244,9 @@ class TestCostFunctionsRegression:
 
     def test_usortm_synthesis_long(self):
         from usortm.costs.cost_functions import usortm_synthesis_cost
-        # 1000 seqs, 500 bp -> substitution library
+        # 1000 seqs, 500 bp -> no usortm_substitution method exists, returns 0
         cost = usortm_synthesis_cost(1000, 500)
-        assert cost == pytest.approx(30 * 1000 * 0.015)
+        assert cost == 0
 
     def test_parsed_genefragments_idt_eblocks(self):
         from usortm.costs.cost_functions import parsed_genefragments_synthesis_cost

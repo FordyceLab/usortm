@@ -3,7 +3,7 @@ name = "IDT gBlocks"
 vendor = "IDT"
 type = "arrayed"
 date_collected = "2026-01-13"
-notes = ""
+notes = "Collected from IDT website"
 
 [capabilities]
 seq_length_min = 125

@@ -3,7 +3,7 @@ name = "Twist Gene Fragments"
 vendor = "Twist Bioscience"
 type = "arrayed"
 date_collected = "2026-03-06"
-notes = ""
+notes = "From Twist Combined Price Sheet (June 2025)."
 
 [capabilities]
 seq_length_min = 300

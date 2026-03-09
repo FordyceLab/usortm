@@ -21,7 +21,7 @@ class SynthesisMethod:
         "name", "vendor", "type", "date_collected", "notes",
         "seq_length_min", "seq_length_max",
         "library_size_min", "library_size_max",
-        "error_rate", "abundance_skew",
+        "error_rate", "skew_q90_q10",
         "pricing", "slug",
     )
 
@@ -47,11 +47,11 @@ class SynthesisMethod:
             er = [er[0], er[0]]
         self.error_rate = tuple(er)
 
-        # abundance_skew only applies to pooled synthesis
+        # skew_q90_q10: Q90/Q10 abundance ratio; only meaningful for pooled synthesis
         if meta["type"] == "pooled":
-            self.abundance_skew = tuple(sim["abundance_skew"])
+            self.skew_q90_q10 = float(sim["skew_q90_q10"])
         else:
-            self.abundance_skew = None
+            self.skew_q90_q10 = None
 
         self.pricing = data["pricing"]
 

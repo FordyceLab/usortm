@@ -41,10 +41,10 @@ def plan(
         "--fold-sampling", "-f",
         help="Fold oversampling during sorting.",
     ),
-    skew: float = typer.Option(
-        4.0,
+    skew: Optional[float] = typer.Option(
+        None,
         "--skew", "-s",
-        help="Expected library skew (Q90/Q10 ratio).",
+        help="Expected library skew (Q90/Q10 ratio). If omitted, you will be prompted to select a synthesis method.",
     ),
     target_coverage: float = typer.Option(
         0.90,
@@ -106,7 +106,28 @@ def plan(
         console.print(f"[green]✓[/green] Auto-detected sequence length: [cyan]{seq_length} bp[/cyan]")
 
     console.print(f"[green]✓[/green] Loaded [cyan]{library_size}[/cyan] variants from {variants_file.name}")
-    
+
+    # Select synthesis method (determines skew for simulation)
+    synthesis_method_slug = None
+    if skew is None:
+        selected_method = _prompt_synthesis_method(seq_length, library_size)
+        if selected_method is not None:
+            synthesis_method_slug = selected_method.slug
+            if selected_method.skew_q90_q10 is not None:
+                skew = selected_method.skew_q90_q10
+                console.print(
+                    f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
+                    f"(skew {skew:.1f}× Q90/Q10)"
+                )
+            else:
+                skew = 1.0  # arrayed synthesis: uniform
+                console.print(
+                    f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
+                    f"(arrayed synthesis, skew ~1×)"
+                )
+        else:
+            skew = 4.0  # default fallback
+
     # Calculate sorting requirements
     total_wells = int(library_size * fold_sampling)
     n_plates = max(1, (total_wells + 383) // 384)  # Round up
@@ -170,9 +191,16 @@ def plan(
         "Target coverage", f"{target_coverage:.0%}",
     )
     coverage_color = "green" if expected_coverage >= target_coverage else "yellow"
+    skew_label = f"{skew:.1f}× (Q90/Q10)"
+    if synthesis_method_slug:
+        from usortm.costs.method_loader import load_all_methods
+        _all = load_all_methods()
+        _sm = _all.get(synthesis_method_slug)
+        if _sm and _sm.skew_q90_q10 is not None:
+            skew_label = f"{skew:.1f}× Q90/Q10 ({_sm.name})"
     summary_table.add_row(
         "Predicted coverage", f"[{coverage_color}]{expected_coverage:.1%}[/{coverage_color}] (±{coverage_std:.1%})",
-        "Library skew", f"{skew}× (Q90/Q10)",
+        "Library skew", skew_label,
     )
     summary_table.add_row(
         "Total wells", f"{total_wells:,}",
@@ -202,6 +230,7 @@ def plan(
         "seq_length": seq_length,
         "fold_sampling": fold_sampling,
         "skew": skew,
+        "synthesis_method": synthesis_method_slug,
         "target_coverage": target_coverage,
         "expected_coverage": round(expected_coverage, 4),
         "coverage_std": round(coverage_std, 4),
@@ -565,6 +594,53 @@ usortm demux {output_dir.name}/ --fastq <your_data.fastq>
 """
     
     (output_dir / "sorting_instructions.md").write_text(content)
+
+
+def _prompt_synthesis_method(seq_length: int, library_size: int):
+    """Interactively prompt the user to select a synthesis method.
+
+    Filters available methods to those compatible with the given sequence
+    length and library size, then presents a questionary select prompt.
+
+    Args:
+        seq_length: Length of the variable region in bp.
+        library_size: Number of variants in the library.
+
+    Returns:
+        A SynthesisMethod if one was selected, or None to use the default skew.
+    """
+    import questionary
+    from usortm.costs.method_loader import find_methods
+
+    compatible = find_methods(seq_length, library_size=library_size)
+
+    if not compatible:
+        return None
+
+    def _skew_label(m):
+        if m.skew_q90_q10 is None:
+            return "uniform (arrayed)"
+        return f"Q90/Q10 = {m.skew_q90_q10:.1f}×"
+
+    choices = [
+        questionary.Choice(
+            title=f"{m.name}  [{_skew_label(m)}]",
+            value=m,
+        )
+        for m in compatible
+    ]
+    choices.append(questionary.Choice(title="Skip — specify skew manually (--skew)", value=None))
+
+    console.print()
+    try:
+        answer = questionary.select(
+            "Select your pooled synthesis method (used to model library skew):",
+            choices=choices,
+        ).ask()
+    except KeyboardInterrupt:
+        return None
+
+    return answer
 
 
 def _write_default_mask_config(output_dir: Path):
