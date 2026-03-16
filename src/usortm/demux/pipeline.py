@@ -286,6 +286,7 @@ def run_levseq_pipeline(
         fbc_df=fbc_df,
         rbc_df=rbc_df,
         ref_fasta=str(reference) if reference else None,
+        orient_ref_fasta=str(orient_ref) if orient_ref else None,
     )
     pipeline_stats["demux"]["complete_assignments"] = len(read_df)
     pipeline_stats["demux"]["dropped_incomplete"] = pre_filter - len(read_df)
@@ -315,6 +316,33 @@ def run_levseq_pipeline(
             workers=workers,
         )
 
+        # --- Stage 9.5: Reassign refs from consensus (orient-ref mode) ---
+        if orient_ref is not None:
+            _progress("Reassigning variants from consensus sequences...")
+            well_df = utils.reassign_refs_from_consensus(well_df, str(reference))
+
+            # --- Stage 9.6: Re-align consensus to assigned refs ---
+            _progress("Re-aligning consensus to assigned references...")
+            well_df = utils.realign_consensus_to_assigned_refs(
+                well_df, str(ref_dir),
+                minimap2_path=tool_paths["minimap2"],
+                samtools_path=tool_paths["samtools"],
+                workers=workers,
+            )
+
+            # Backfill read_df ref_name from well_df so plate map shows
+            # the reassigned variant instead of the orient-ref name.
+            well_to_ref = dict(zip(
+                well_df["global_well"],
+                well_df["major_ref"],
+            ))
+            if "well_pos" in read_df.columns:
+                read_df["ref_name"] = read_df["well_pos"].map(
+                    lambda w: f"fwd:{well_to_ref[w]}" if w in well_to_ref else None
+                )
+                if "ref_id" in read_df.columns:
+                    read_df["ref_id"] = read_df["well_pos"].map(well_to_ref)
+
         # --- Stage 10: Variant calling ---
         _progress("Calling variants from consensus...")
         well_df = utils.extract_matches(well_df)
@@ -333,6 +361,7 @@ def run_levseq_pipeline(
             minimap2_path=tool_paths["minimap2"],
             samtools_path=tool_paths["samtools"],
             workers=workers,
+            reference_fasta=str(reference) if orient_ref is not None else None,
         )
 
         if candidates:

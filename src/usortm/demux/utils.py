@@ -846,7 +846,7 @@ def _parse_well(w):
     else:
         return None
 
-def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
+def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=None):
     """
     Format merged demux/reference DataFrame.
     Adds readable barcode names, well positions, reference sequences, and lengths.
@@ -886,6 +886,9 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None):
     if ref_fasta is not None:
         from Bio import SeqIO
         ref_seqs = {rec.id: str(rec.seq) for rec in SeqIO.parse(ref_fasta, "fasta")}
+        if orient_ref_fasta is not None:
+            for rec in SeqIO.parse(orient_ref_fasta, "fasta"):
+                ref_seqs.setdefault(rec.id, str(rec.seq))
 
         def get_ref_id(ref_name):
             if pd.isna(ref_name):
@@ -996,25 +999,34 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         Tuple of (well, cigar_str, cons_seq) — values may be None on failure.
     """
     ref_fa = paths["ref_fa"]
+    ref_mmi = paths.get("ref_mmi", ref_fa)
     fq = paths["fq"]
     bam = paths["bam"]
     cons_fa = paths["cons_fa"]
     cons_bam = paths["cons_bam"]
 
     # 1) Align reads to reference, pipe through samtools sort
+    #    Use -t 1 since these are small per-well FASTQs run in parallel.
+    #    Use pre-built .mmi to avoid concurrent index creation races.
+    #    -m 64M limits samtools sort memory to avoid resource exhaustion
+    #    with many concurrent workers.
     try:
         mm2 = subprocess.Popen(
-            [minimap2_path, "-a", ref_fa, fq],
+            [minimap2_path, "-a", "-t", "1", "--secondary=no", ref_mmi, fq],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        subprocess.run(
-            [samtools_path, "sort", "-o", bam],
+        sort_result = subprocess.run(
+            [samtools_path, "sort", "-m", "64M", "-o", bam],
             stdin=mm2.stdout,
-            stderr=subprocess.DEVNULL,
-            check=False,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+        mm2.stdout.close()
         mm2.wait()
+        if sort_result.returncode != 0:
+            print(f"Alignment failed for {well}: samtools sort error: {sort_result.stderr.strip()}")
+            return well, None, None
     except Exception as e:
         print(f"Alignment failed for {well}: {e}")
         return well, None, None
@@ -1025,7 +1037,7 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
             subprocess.run(
                 [samtools_path, "consensus", "-f", "fasta", bam],
                 stdout=cons_out,
-                check=False,
+                check=True,
             )
     except Exception as e:
         print(f"Consensus failed for {well}: {e}")
@@ -1034,17 +1046,21 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
     # 3) Align consensus back to reference
     try:
         mm2 = subprocess.Popen(
-            [minimap2_path, "-a", ref_fa, cons_fa],
+            [minimap2_path, "-a", "-t", "1", "--secondary=no", ref_mmi, cons_fa],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        subprocess.run(
-            [samtools_path, "sort", "-o", cons_bam],
+        sort_result2 = subprocess.run(
+            [samtools_path, "sort", "-m", "64M", "-o", cons_bam],
             stdin=mm2.stdout,
-            stderr=subprocess.DEVNULL,
-            check=False,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+        mm2.stdout.close()
         mm2.wait()
+        if sort_result2.returncode != 0:
+            print(f"Consensus alignment failed for {well}: samtools sort error: {sort_result2.stderr.strip()}")
+            return well, None, None
     except Exception as e:
         print(f"Consensus alignment failed for {well}: {e}")
         return well, None, None
@@ -1066,6 +1082,222 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         print(f"Error processing {well}: {e}")
 
     return well, cigar_str, cons_seq
+
+
+def reassign_refs_from_consensus(well_df, ref_fasta):
+    """Reassign major_ref per well by matching consensus to library references.
+
+    When ``--orient-ref`` is used, every well's ``major_ref`` points to the
+    orient reference.  This function compares each well's consensus sequence
+    against the full variant library and picks the best-matching reference,
+    restoring per-well variant identity.
+
+    Uses numpy for fast vectorized comparison (~800 refs x ~2500 wells).
+
+    Args:
+        well_df: DataFrame from generate_well_df / generate_per_well_consensus
+            with ``cons_seq`` column.
+        ref_fasta: Path to the full multi-entry reference FASTA.
+
+    Returns:
+        Updated well_df with corrected ``major_ref``, ``ref_seq``, ``ref_len``.
+    """
+    from Bio import SeqIO
+
+    ref_records = list(SeqIO.parse(ref_fasta, "fasta"))
+    if not ref_records:
+        return well_df
+
+    ref_ids = [rec.id for rec in ref_records]
+    ref_seqs_str = [str(rec.seq).upper() for rec in ref_records]
+
+    # Build padded reference matrix for vectorized comparison
+    max_ref_len = max(len(s) for s in ref_seqs_str)
+    ref_matrix = np.zeros((len(ref_ids), max_ref_len), dtype=np.uint8)
+    for i, seq in enumerate(ref_seqs_str):
+        arr = np.frombuffer(seq.encode(), dtype=np.uint8)
+        ref_matrix[i, :len(arr)] = arr
+
+    n_reassigned = 0
+    for idx, row in well_df.iterrows():
+        cons = row.get("cons_seq")
+        if not cons or (isinstance(cons, float) and pd.isna(cons)):
+            continue
+
+        cons_upper = cons.upper()
+        cons_arr = np.frombuffer(cons_upper.encode(), dtype=np.uint8)
+
+        # Pad or truncate to match ref_matrix width
+        if len(cons_arr) < max_ref_len:
+            padded = np.zeros(max_ref_len, dtype=np.uint8)
+            padded[:len(cons_arr)] = cons_arr
+        else:
+            padded = cons_arr[:max_ref_len]
+
+        # Vectorized: count matches against all refs at once
+        matches = np.sum(ref_matrix == padded, axis=1)
+        best_idx = int(np.argmax(matches))
+
+        best_ref = ref_ids[best_idx]
+        best_seq = ref_seqs_str[best_idx]
+
+        well_df.at[idx, "major_ref"] = best_ref
+        well_df.at[idx, "ref_seq"] = best_seq
+        well_df.at[idx, "ref_len"] = len(best_seq)
+        well_df.at[idx, "major_freq"] = float(matches[best_idx]) / len(best_seq)
+        n_reassigned += 1
+
+    logger.info("Reassigned %d wells to library variants from consensus", n_reassigned)
+    return well_df
+
+
+def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
+                               minimap2_path, samtools_path):
+    """Align a single consensus sequence against a reference and return CIGAR.
+
+    Args:
+        well: Well identifier string.
+        cons_seq: Consensus sequence string.
+        ref_fa: Path to reference FASTA.
+        ref_mmi: Path to minimap2 index (or ref_fa as fallback).
+        tmp_dir: Directory for temporary files.
+        minimap2_path: Path to minimap2 binary.
+        samtools_path: Path to samtools binary.
+
+    Returns:
+        Tuple of (well, cigar_str) — cigar_str may be None on failure.
+    """
+    cons_fa = os.path.join(tmp_dir, f"{well}_recons.fasta")
+    cons_bam = os.path.join(tmp_dir, f"{well}_recons.bam")
+
+    with open(cons_fa, "w") as f:
+        f.write(f">{well}_consensus\n{cons_seq}\n")
+
+    try:
+        mm2 = subprocess.Popen(
+            [minimap2_path, "-a", "-t", "1", ref_mmi, cons_fa],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            [samtools_path, "sort", "-o", cons_bam],
+            stdin=mm2.stdout,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        mm2.wait()
+    except Exception as e:
+        print(f"Re-alignment failed for {well}: {e}")
+        return well, None
+
+    cigar_str = None
+    try:
+        with pysam.AlignmentFile(cons_bam, "rb") as bamfile:
+            for read in bamfile:
+                if not read.is_unmapped:
+                    cigar_str = read.cigarstring
+                    break
+    except Exception as e:
+        print(f"CIGAR extraction failed for {well}: {e}")
+
+    return well, cigar_str
+
+
+def realign_consensus_to_assigned_refs(
+    well_df, reference_dir,
+    minimap2_path=None, samtools_path=None, workers=4,
+):
+    """Re-align consensus sequences against their newly assigned references.
+
+    After ``reassign_refs_from_consensus`` swaps ``major_ref`` / ``ref_seq`` /
+    ``ref_len`` to the best-matching library variant, the CIGAR string is still
+    from the original orient-ref alignment.  This function re-aligns each well's
+    consensus to the correct reference so ``extract_matches`` sees a CIGAR that
+    matches ``ref_len``.
+
+    Args:
+        well_df: DataFrame with ``cons_seq``, ``major_ref``, and ``global_well``.
+        reference_dir: Directory containing ``single_ref_fastas/`` subdirectory.
+        minimap2_path: Path to minimap2 binary. Auto-detected if None.
+        samtools_path: Path to samtools binary. Auto-detected if None.
+        workers: Number of parallel threads.
+
+    Returns:
+        Updated well_df with corrected ``CIGAR`` column.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if minimap2_path is None:
+        minimap2_path = find_minimap2()
+    if samtools_path is None:
+        samtools_path = find_samtools()
+
+    single_fasta_dir = os.path.join(reference_dir, "single_ref_fastas")
+    tmp_dir = os.path.join(reference_dir, "realign_tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    # Collect wells that need re-alignment
+    tasks = []
+    for _, row in well_df.iterrows():
+        cons = row.get("cons_seq")
+        if not cons or (isinstance(cons, float) and pd.isna(cons)):
+            continue
+        well = row["global_well"]
+        major_ref = row["major_ref"]
+        if ":" in str(major_ref):
+            major_ref = major_ref.split(":")[-1]
+
+        ref_fa = os.path.join(single_fasta_dir, f"{major_ref}.fasta")
+        if not os.path.exists(ref_fa):
+            continue
+        ref_mmi = ref_fa + ".mmi"
+        if not os.path.exists(ref_mmi):
+            ref_mmi = ref_fa
+        tasks.append((well, cons, ref_fa, ref_mmi))
+
+    if not tasks:
+        return well_df
+
+    # Pre-build any missing minimap2 indexes
+    seen_refs = set()
+    for _, _, ref_fa, ref_mmi in tasks:
+        if ref_mmi == ref_fa and ref_fa not in seen_refs:
+            mmi = ref_fa + ".mmi"
+            subprocess.run(
+                [minimap2_path, "-d", mmi, ref_fa],
+                stderr=subprocess.DEVNULL, check=False,
+            )
+            seen_refs.add(ref_fa)
+            # Update tasks to use newly built index
+    if seen_refs:
+        tasks = [
+            (w, c, rf, rf + ".mmi" if rf in seen_refs else rm)
+            for w, c, rf, rm in tasks
+        ]
+
+    print(f"Re-aligning {len(tasks)} consensus sequences to assigned refs ({workers} workers)...")
+    results = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _realign_single_consensus, well, cons, ref_fa, ref_mmi,
+                tmp_dir, minimap2_path, samtools_path,
+            ): well
+            for well, cons, ref_fa, ref_mmi in tasks
+        }
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            well, cigar = future.result()
+            if cigar is not None:
+                results[well] = cigar
+
+    # Apply updated CIGARs
+    n_updated = 0
+    for well, cigar in results.items():
+        well_df.loc[well_df["global_well"] == well, "CIGAR"] = cigar
+        n_updated += 1
+
+    logger.info("Re-aligned CIGAR for %d / %d wells", n_updated, len(tasks))
+    return well_df
 
 
 def generate_per_well_consensus(
@@ -1134,8 +1366,40 @@ def generate_per_well_consensus(
     if "cons_seq" not in well_df.columns:
         well_df["cons_seq"] = None
 
-    # Pre-compute paths for all wells that have summary data
+    # Pre-index all reference FASTAs so parallel workers don't race on
+    # index creation.  Also build minimap2 .mmi indexes for each unique
+    # reference to avoid repeated indexing.
+    unique_refs = set()
     well_set = set(well_df["global_well"].values)
+    for well in all_wells:
+        if well not in well_set:
+            continue
+        mr = well_df.loc[well_df["global_well"] == well, "major_ref"].iloc[0]
+        if ":" in mr:
+            mr = mr.split(":")[-1]
+        unique_refs.add(mr)
+
+    ref_mmi_map = {}
+    for ref_name in unique_refs:
+        ref_fa = os.path.join(single_fasta_reference_dir, f"{ref_name}.fasta")
+        if os.path.exists(ref_fa):
+            # samtools faidx (for samtools consensus)
+            fai = ref_fa + ".fai"
+            if not os.path.exists(fai):
+                subprocess.run(
+                    [samtools_path, "faidx", ref_fa],
+                    stderr=subprocess.DEVNULL, check=False,
+                )
+            # minimap2 index (avoids per-call re-indexing)
+            mmi = ref_fa + ".mmi"
+            if not os.path.exists(mmi):
+                subprocess.run(
+                    [minimap2_path, "-d", mmi, ref_fa],
+                    stderr=subprocess.DEVNULL, check=False,
+                )
+            ref_mmi_map[ref_name] = mmi
+
+    # Pre-compute paths for all wells that have summary data
     well_paths = {}
     for well in all_wells:
         if well not in well_set:
@@ -1143,8 +1407,11 @@ def generate_per_well_consensus(
         major_ref = well_df.loc[well_df["global_well"] == well, "major_ref"].iloc[0]
         if ":" in major_ref:
             major_ref = major_ref.split(":")[-1]
+        ref_fa = os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta")
+        mmi = ref_mmi_map.get(major_ref, ref_fa)
         well_paths[well] = {
-            "ref_fa": os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta"),
+            "ref_fa": ref_fa,
+            "ref_mmi": mmi,
             "fq": os.path.join(well_fastqs_dir, f"{well}.fastq"),
             "bam": os.path.join(well_consensus_dir, f"{well}.bam"),
             "cons_fa": os.path.join(well_consensus_dir, f"{well}_consensus.fasta"),
@@ -1186,9 +1453,9 @@ def extract_matches(well_df):
 
         status = ""
         
-        if cigar == None:
+        if cigar is None or ref_len is None or pd.isna(ref_len):
             status = "Error"
-        
+
         else:
             # 1) Check for perfect matches
             if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
