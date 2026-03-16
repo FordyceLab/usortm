@@ -9,6 +9,7 @@ import json
 import typer
 from rich.table import Table
 from rich.panel import Panel
+from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TextColumn
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
@@ -69,6 +70,16 @@ def pick(
         False,
         "--compact/--no-compact",
         help="Pack recovered hits into adjacent wells; omit empty placeholders for unrecovered variants.",
+    ),
+    pileups: bool = typer.Option(
+        True,
+        "--pileups/--no-pileups",
+        help="Generate per-well pileup HTML visualizations (disable to speed up pick).",
+    ),
+    workers: int = typer.Option(
+        4,
+        "--workers", "-w",
+        help="Number of parallel workers for pileup generation.",
     ),
 ):
     """
@@ -138,7 +149,23 @@ def pick(
         console.print(f"[green]\u2713[/green] Loaded {len(target_variants)} target variants")
 
     # Load library ordering from variants file (if available)
-    library_order = _load_library_order(project)
+    library_order, lib_path_tried = _load_library_order(project, project_dir=project_dir)
+    if library_order is not None:
+        console.print(f"[green]\u2713[/green] Library order loaded ({len(library_order)} variants)")
+    else:
+        if lib_path_tried:
+            console.print(
+                f"[yellow]Warning:[/yellow] Library variants file not found: {lib_path_tried}"
+            )
+            console.print(
+                "  Empty placeholders for unrecovered variants will not be inserted.\n"
+                "  Copy your variants CSV to the project directory as 'variants.csv' to enable ordering."
+            )
+        else:
+            console.print(
+                "[yellow]Warning:[/yellow] No library variants file configured. "
+                "Empty placeholders will not be inserted."
+            )
 
     # Generate pick list
     pick_list = _generate_pick_list(
@@ -161,12 +188,56 @@ def pick(
     pick_dir = project_dir / "pick"
     pick_dir.mkdir(exist_ok=True)
 
+    integra_dir = pick_dir / "Integra ASSIST Input"
+    integra_dir.mkdir(exist_ok=True)
+
     output_file = output
     if output_file is None:
-        output_file = pick_dir / "hitlist.csv"
+        output_file = integra_dir / "hitlist_integra_assist.csv"
 
     # Save pick list in Integra ASSIST PLUS format
     _save_pick_list(pick_list, output_file, volume)
+
+    # Write README for the Integra ASSIST Input folder
+    _write_integra_readme(integra_dir, output_file, volume, target_format)
+
+    # Generate per-well pileup HTMLs for picked hits
+    pileup_url_map: dict = {}
+    if pileups:
+        try:
+            from usortm.demux.streakout import generate_pick_pileups
+
+            demux_output_dir = project_dir / "demux_output"
+            n_hits = len([h for h in pick_list if not h.get("empty")])
+
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                console=console,
+                transient=False,
+            ) as progress:
+                task_id = progress.add_task(
+                    f"Generating pileups ({workers} workers)...", total=n_hits
+                )
+
+                def _on_progress(well_pos: str, success: bool):
+                    label = well_pos if success else f"{well_pos} [yellow](skipped)[/yellow]"
+                    progress.update(task_id, advance=1, description=f"Pileup: {label}")
+
+                pileup_url_map = generate_pick_pileups(
+                    pick_list=pick_list,
+                    demux_output_dir=str(demux_output_dir),
+                    output_dir=str(pick_dir),
+                    workers=workers,
+                    progress_callback=_on_progress,
+                )
+
+            n_pileups = sum(len(v) for v in pileup_url_map.values())
+            console.print(f"[green]\u2713[/green] {n_pileups} pileup HTMLs saved to {pick_dir / 'pileup'}")
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/yellow] Could not generate pileup HTMLs: {e}")
 
     # Generate interactive pick plate map (Bokeh is optional)
     try:
@@ -177,6 +248,7 @@ def pick(
             pick_list, str(pick_map_path),
             title="Pick Plate Map",
             target_format=target_format,
+            pileup_url_map=pileup_url_map,
         )
         console.print(
             f"[green]\u2713[/green] Pick plate map saved to {pick_map_path}"
@@ -232,6 +304,7 @@ def pick(
 
     console.print("[green]✓[/green] Pick list generated!")
     console.print(f"  Output: {output_file}")
+    console.print(f"  README: {output_file.parent / 'README.txt'}")
     console.print()
     console.print("[bold]Next step:[/bold]")
     console.print(f"  [cyan]usortm report {project_dir}/[/cyan]  → Generate final report")
@@ -257,32 +330,53 @@ def _load_well_assignments(assignments_file: Path) -> list:
     return well_data
 
 
-def _load_library_order(project: dict) -> Optional[dict]:
+def _load_library_order(
+    project: dict,
+    project_dir: Optional[Path] = None,
+) -> tuple[Optional[dict], Optional[Path]]:
     """Load variant ordering from the library/variants CSV.
 
-    Returns a dict mapping variant name to its row index (0-based) in the
-    original CSV, or None if the file isn't available.
+    Returns ``(order_dict, path_used)`` where *order_dict* maps variant name
+    to its 0-based row index in the CSV, or ``(None, tried_path)`` when the
+    file cannot be found/read.  *tried_path* is the absolute path that was
+    attempted so callers can surface a useful warning.
     """
-    variants_path = project.get("library_file") or project.get("variants_file")
-    if not variants_path:
-        return None
+    variants_path_str = project.get("library_file") or project.get("variants_file")
 
-    variants_path = Path(variants_path)
-    if not variants_path.exists():
-        return None
+    candidates: list[Path] = []
+    if variants_path_str:
+        candidates.append(Path(variants_path_str))
+    # Fallback: look for a variants.csv next to the project state file
+    if project_dir:
+        candidates.append(project_dir / "variants.csv")
+
+    tried: Optional[Path] = candidates[0] if candidates else None
+    resolved: Optional[Path] = None
+    for candidate in candidates:
+        if candidate.exists():
+            resolved = candidate
+            break
+
+    if resolved is None:
+        return None, tried
 
     order = {}
     try:
-        with open(variants_path, newline="") as f:
+        with open(resolved, newline="") as f:
             reader = csv.DictReader(f)
             for idx, row in enumerate(reader):
-                name = row.get("Name") or row.get("name") or row.get("variant")
+                name = (
+                    row.get("Name")
+                    or row.get("name")
+                    or row.get("variant")
+                    or row.get("variant_name")
+                )
                 if name:
                     order[name] = idx
     except Exception:
-        return None
+        return None, resolved
 
-    return order if order else None
+    return (order if order else None), resolved
 
 
 def _load_targets(targets_file: Path) -> set:
@@ -423,6 +517,49 @@ def _assign_target_wells(pick_list: list, target_format: int, fill_order: str):
         if well_index >= rows * cols:
             target_plate += 1
             well_index = 0
+
+
+def _write_integra_readme(
+    integra_dir: Path,
+    hitlist_file: Path,
+    volume: float,
+    target_format: int,
+):
+    """Write a README.txt explaining how to use the Integra ASSIST PLUS input file."""
+    readme_path = integra_dir / "README.txt"
+    content = f"""\
+Integra ASSIST PLUS — Hit-Picking Input
+========================================
+
+File: {hitlist_file.name}
+
+This semicolon-delimited CSV is formatted for direct import into the
+Integra ASSIST PLUS liquid handling robot software.
+
+Columns
+-------
+  SampleID       Variant name
+  SourcePlateID  Source plate number (from demultiplexing)
+  SourceWell     Source well position (e.g. A1)
+  TargetPlateID  Destination plate number
+  TargetWell     Destination well position
+  TransferVolume Transfer volume in µL (0 = empty well, robot skips)
+
+Settings used
+-------------
+  Transfer volume : {volume:.1f} µL
+  Target format   : {target_format}-well plate
+
+Notes
+-----
+  • Wells with TransferVolume = 0 are unrecovered library variants preserved
+    to maintain the library layout on the target plate.  The Integra ASSIST
+    PLUS will skip these wells automatically.
+  • Load source plates in the order indicated by SourcePlateID.
+  • Verify tip type and labware definitions match your plate format before
+    running the protocol.
+"""
+    readme_path.write_text(content)
 
 
 def _save_pick_list(pick_list: list, output_file: Path, volume: float):

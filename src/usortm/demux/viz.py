@@ -420,7 +420,8 @@ def _well_tier(reads, cons_frac):
 
 
 def make_pick_plate_map_bokeh(pick_list, target_format=384,
-                               min_reads=100, well_size=26, plot_width=800):
+                               min_reads=100, well_size=26, plot_width=800,
+                               pileup_url_map=None):
     """Create an interactive Bokeh plate map for a cherry-pick list.
 
     Each well shows the picked variant with hover details including source
@@ -469,17 +470,30 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         plates = [0]
 
     TIER_COLORS = _tier_colors(min_reads)
+    _pileup_map = pileup_url_map or {}
 
     def fill_plate(p):
         merged = full_layout.copy()
-        sub = pd.DataFrame([
-            {
+        plate_pileups = _pileup_map.get(str(p), {})
+        sub_rows = []
+        for h in pick_list:
+            if h["_plate"] != p:
+                continue
+            has_pileup = h.get("target_well", "") in plate_pileups
+            pileup_url = plate_pileups.get(h.get("target_well", ""), "")
+            pileup_hint = (
+                '<div style="font-size:11px;color:#2563eb;margin-top:2px;">'
+                '→ Click to view pileup</div>'
+                if pileup_url else ""
+            )
+            sub_rows.append({
                 "row": h["_row"],
                 "col": h["_col"],
                 "variant": h["variant"],
                 "source": f"{h['source_plate']}:{h['source_well']}",
                 "reads": h["reads"],
                 "cons_frac": h["consensus_fraction"],
+                "pileup_url": pileup_url,
                 "tooltip": (
                     f"<b>{h['target_well']}</b><br/>"
                     f"{h['variant']}<br/>"
@@ -487,13 +501,14 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
                     f"Reads: {h['reads']:,}<br/>"
                     f"Consensus: {h['consensus_fraction']:.0%}<br/>"
                     f"Tier: {_well_tier(h['reads'], h['consensus_fraction']) or 'N/A'}"
+                    f"{pileup_hint}"
                 ),
-            }
-            for h in pick_list if h["_plate"] == p
-        ])
+            })
+        sub = pd.DataFrame(sub_rows)
         if len(sub) > 0:
             merged = merged.merge(
-                sub[["row", "col", "variant", "source", "reads", "cons_frac", "tooltip"]],
+                sub[["row", "col", "variant", "source", "reads", "cons_frac",
+                     "tooltip", "pileup_url"]],
                 on=["row", "col"], how="left",
             )
         else:
@@ -502,12 +517,14 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
             merged["reads"] = 0
             merged["cons_frac"] = 0.0
             merged["tooltip"] = "empty"
+            merged["pileup_url"] = ""
         merged["plate"] = p
         merged["variant"] = merged["variant"].fillna("")
         merged["source"] = merged["source"].fillna("")
         merged["reads"] = merged["reads"].fillna(0)
         merged["cons_frac"] = merged["cons_frac"].fillna(0)
         merged["tooltip"] = merged["tooltip"].fillna("empty")
+        merged["pileup_url"] = merged["pileup_url"].fillna("")
         merged["tier"] = merged.apply(
             lambda r: _well_tier(r["reads"], r["cons_frac"]), axis=1
         )
@@ -531,15 +548,26 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         tools="reset",
         title=f"Pick Plate {start_plate}",
     )
-    fig_obj.scatter(
+    well_renderer = fig_obj.scatter(
         "col", "RowCat", size=well_size, source=src, marker="square",
         fill_color="tier_color",
         line_color="darkgray", line_width=1.2,
+        nonselection_fill_alpha=1.0, nonselection_line_alpha=1.0,
     )
-    fig_obj.add_tools(HoverTool(tooltips=TOOLTIPS))
+    fig_obj.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
+    fig_obj.add_tools(TapTool(renderers=[well_renderer]))
+    src.selected.js_on_change("indices", CustomJS(args=dict(src=src), code="""
+        const indices = src.selected.indices;
+        if (indices.length > 0) {
+            const url = src.data['pileup_url'][indices[0]];
+            if (url && url.length > 0) {
+                window.open(url, '_blank');
+            }
+        }
+        src.selected.indices = [];
+    """))
     fig_obj.xaxis.ticker = list(range(1, n_cols + 1))
     fig_obj.grid.grid_line_color = None
-
 
     if len(plates) > 1:
         btn_group = RadioButtonGroup(
@@ -566,18 +594,20 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
 
 
 def save_pick_plate_map_html(pick_list, output_path, title="Pick Plate Map",
-                              **kwargs):
+                              pileup_url_map=None, **kwargs):
     """Generate a pick plate map and save as standalone HTML.
 
     Args:
         pick_list: Pick list from ``pick.py._generate_pick_list()``.
         output_path: Path to write the HTML file.
         title: HTML page title.
+        pileup_url_map: Optional nested dict ``{plate: {well: url}}`` mapping
+            target wells to their pileup HTML paths (relative to the HTML file).
         **kwargs: Forwarded to :func:`make_pick_plate_map_bokeh`.
     """
     from pathlib import Path
 
-    layout = make_pick_plate_map_bokeh(pick_list, **kwargs)
+    layout = make_pick_plate_map_bokeh(pick_list, pileup_url_map=pileup_url_map, **kwargs)
     html = file_html(layout, INLINE, title)
     html = _inject_usortm_theme(html)
     Path(output_path).write_text(html)

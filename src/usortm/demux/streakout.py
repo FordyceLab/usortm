@@ -35,6 +35,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import pysam
 from Bio.Seq import Seq
@@ -184,6 +185,328 @@ def _group_consensus(reads_fastq: str, ref_fasta: str, work_dir: str,
 
 
 # ---------------------------------------------------------------------------
+# Orient-ref mode helpers
+# ---------------------------------------------------------------------------
+
+def _parse_mpileup_bases(bases_str: str, ref_base: str) -> dict:
+    """Count ACGT bases from a samtools mpileup base column."""
+    counts = {"A": 0, "C": 0, "G": 0, "T": 0}
+    ref_base = ref_base.upper()
+    i = 0
+    while i < len(bases_str):
+        c = bases_str[i]
+        if c in ".,":
+            if ref_base in counts:
+                counts[ref_base] += 1
+        elif c.upper() in "ACGT":
+            counts[c.upper()] += 1
+        elif c == "^":
+            i += 1  # skip mapping-quality char
+        elif c in "+-":
+            i += 1
+            num_str = ""
+            while i < len(bases_str) and bases_str[i].isdigit():
+                num_str += bases_str[i]
+                i += 1
+            if num_str:
+                i += int(num_str) - 1
+        i += 1
+    return counts
+
+
+def _find_bimodal_positions(
+    bam_path: str,
+    samtools_path: str,
+    min_depth: int = 10,
+    min_minor_frac: float = 0.15,
+    max_minor_frac: float = 0.85,
+) -> list:
+    """Return positions with bimodal allele frequencies from samtools mpileup.
+
+    Reads the whole BAM without requiring an index.  Returns a list of
+    ``(chrom, pos_1based, ref_base, major_base, minor_base, minor_frac)``
+    tuples sorted by closeness to 0.5 (most informative first).
+    """
+    try:
+        result = subprocess.run(
+            [samtools_path, "mpileup", "--no-BAQ", "-Q", "10", bam_path],
+            capture_output=True, text=True, check=False,
+        )
+    except Exception:
+        return []
+
+    bimodal = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 5:
+            continue
+        try:
+            chrom, pos, ref_base = parts[0], int(parts[1]), parts[2].upper()
+            depth = int(parts[3])
+        except (ValueError, IndexError):
+            continue
+        if depth < min_depth:
+            continue
+
+        counts = _parse_mpileup_bases(parts[4], ref_base)
+        total = sum(counts.values())
+        if total < min_depth:
+            continue
+
+        sorted_bases = sorted(counts.items(), key=lambda x: -x[1])
+        if len(sorted_bases) < 2 or sorted_bases[1][1] == 0:
+            continue
+
+        minor_frac = sorted_bases[1][1] / total
+        if min_minor_frac <= minor_frac <= max_minor_frac:
+            bimodal.append((
+                chrom, pos, ref_base,
+                sorted_bases[0][0], sorted_bases[1][0],
+                minor_frac,
+            ))
+
+    # Most balanced (closest to 0.5) first
+    bimodal.sort(key=lambda x: abs(x[5] - 0.5))
+    return bimodal
+
+
+def _split_reads_by_haplotype(
+    bam_path: str,
+    bimodal_positions: list,
+    well_reads_df,
+    min_group_reads: int,
+):
+    """Split reads into 2 haplotype groups at the most informative bimodal position.
+
+    Fetches all reads from the BAM without requiring an index and groups them
+    by their allele at the position closest to 50% minor-allele frequency.
+
+    Returns ``(group_a_df, group_b_df)`` or ``None`` if either group is too small.
+    """
+    if not bimodal_positions:
+        return None
+
+    chrom, pos_1based, _ref_base, _major_base, minor_base, _ = bimodal_positions[0]
+    pos_0based = pos_1based - 1
+
+    minor_names: set = set()
+    major_names: set = set()
+
+    try:
+        with pysam.AlignmentFile(bam_path, "rb", check_sq=False) as bam:
+            for read in bam.fetch(until_eof=True):
+                if read.is_unmapped or read.is_secondary or read.is_supplementary:
+                    continue
+                if read.reference_start > pos_0based or (read.reference_end or 0) <= pos_0based:
+                    continue
+                for qpos, rpos in read.get_aligned_pairs(matches_only=True):
+                    if rpos == pos_0based:
+                        base = read.query_sequence[qpos].upper()
+                        if base == minor_base:
+                            minor_names.add(read.query_name)
+                        else:
+                            major_names.add(read.query_name)
+                        break
+    except Exception:
+        return None
+
+    if len(minor_names) < min_group_reads or len(major_names) < min_group_reads:
+        return None
+
+    group_a = well_reads_df[well_reads_df["read_name"].isin(minor_names)]
+    group_b = well_reads_df[well_reads_df["read_name"].isin(major_names)]
+    return group_a, group_b
+
+
+def _assign_and_classify_group(
+    cons_seq: Optional[str],
+    ref_ids: list,
+    ref_seqs_str: list,
+    ref_matrix,
+) -> tuple:
+    """Find best library variant for a consensus and classify it.
+
+    Returns ``(ref_id, ref_seq, ref_len, status)``.
+    """
+    if cons_seq is None:
+        return None, None, None, "Error"
+
+    max_ref_len = ref_matrix.shape[1]
+    cons_upper = cons_seq.upper()
+    cons_arr = np.frombuffer(cons_upper.encode(), dtype=np.uint8)
+    padded = np.zeros(max_ref_len, dtype=np.uint8)
+    padded[: min(len(cons_arr), max_ref_len)] = cons_arr[:max_ref_len]
+    matches = np.sum(ref_matrix == padded, axis=1)
+    best_idx = int(np.argmax(matches))
+
+    ref_id = ref_ids[best_idx]
+    ref_seq = ref_seqs_str[best_idx]
+    ref_len = len(ref_seq)
+
+    # Classify by direct comparison (avoids a second subprocess round-trip)
+    cons_up = cons_upper
+    ref_up = ref_seq.upper()
+    if cons_up == ref_up:
+        status = "Perfect Match"
+    elif len(cons_up) != ref_len:
+        status = "Partial Match"
+    else:
+        try:
+            status = (
+                "Silent Mutation"
+                if Seq.translate(ref_seq) == Seq.translate(cons_seq)
+                else "Other Error"
+            )
+        except Exception:
+            status = "Other Error"
+
+    return ref_id, ref_seq, ref_len, status
+
+
+def detect_streakout_candidates_orient_ref(
+    well_df,
+    read_df,
+    reference_dir: str,
+    reference_fasta: str,
+    output_dir: str,
+    minimap2_path: str,
+    samtools_path: str,
+    min_well_reads: int = 50,
+    min_group_reads: int = 5,
+    workers: int = 4,
+) -> list:
+    """Streak-out detection for orient-ref mode.
+
+    Standard detection (group by ref_name) is blind when all reads share the
+    same orient reference.  This function instead:
+
+    1. Runs ``samtools mpileup`` on each well's existing BAM to find positions
+       with bimodal allele frequencies (15–85 % minor allele).
+    2. Splits reads into 2 haplotype groups at the most informative position.
+    3. Generates a consensus per group (aligned to the orient ref, which is
+       ≥99 % identical to the true variant).
+    4. Assigns each consensus to the best library variant via numpy similarity.
+    5. Flags wells where 2+ groups produce a correct consensus.
+
+    No index on the per-well BAMs is required.
+    """
+    ref_records = list(SeqIO.parse(reference_fasta, "fasta"))
+    if not ref_records:
+        return []
+
+    ref_ids = [r.id for r in ref_records]
+    ref_seqs_str = [str(r.seq).upper() for r in ref_records]
+    max_ref_len = max(len(s) for s in ref_seqs_str)
+    ref_matrix = np.zeros((len(ref_ids), max_ref_len), dtype=np.uint8)
+    for i, seq in enumerate(ref_seqs_str):
+        arr = np.frombuffer(seq.encode(), dtype=np.uint8)
+        ref_matrix[i, : len(arr)] = arr
+
+    single_ref_dir = os.path.join(reference_dir, "single_ref_fastas")
+    well_bam_dir = os.path.join(output_dir, "wells", "consensus")
+
+    candidate_wells = well_df[well_df["depth"] >= min_well_reads]
+    if candidate_wells.empty:
+        return []
+
+    logger.info(
+        "Screening %d wells for streak-out candidates (orient-ref mode, depth >= %d)",
+        len(candidate_wells), min_well_reads,
+    )
+
+    from tqdm import tqdm
+
+    def _process(row):
+        wp = row["global_well"]
+        bam_path = os.path.join(well_bam_dir, f"{wp}.bam")
+        if not os.path.exists(bam_path):
+            return None
+
+        bimodal = _find_bimodal_positions(bam_path, samtools_path)
+        if not bimodal:
+            return None
+
+        well_reads = read_df[read_df["well_pos"] == wp]
+        if well_reads.empty:
+            return None
+
+        split = _split_reads_by_haplotype(bam_path, bimodal, well_reads, min_group_reads)
+        if split is None:
+            return None
+
+        plate = str(int(row["plate"]))
+        well = str(row["well"])
+        depth = int(row["depth"])
+        orient_ref_name = str(row["major_ref"])
+        orient_fa = os.path.join(single_ref_dir, f"{orient_ref_name}.fasta")
+        if not os.path.exists(orient_fa):
+            return None
+
+        group_results = []
+        for group_df in split:
+            if len(group_df) < min_group_reads:
+                continue
+            with tempfile.TemporaryDirectory() as tmp:
+                fq_path = os.path.join(tmp, "group.fastq")
+                with open(fq_path, "w") as fh:
+                    for _, r in group_df.iterrows():
+                        fh.write(
+                            f"@{r['read_name']}\n{r['read_seq']}\n+\n{r['read_qual']}\n"
+                        )
+                _cigar, cons_seq = _group_consensus(
+                    fq_path, orient_fa, tmp, minimap2_path, samtools_path,
+                )
+
+            ref_id, ref_seq, ref_len, status = _assign_and_classify_group(
+                cons_seq, ref_ids, ref_seqs_str, ref_matrix,
+            )
+            if ref_id is None:
+                continue
+
+            frac = len(group_df) / depth
+            group_results.append({
+                "variant": ref_id,
+                "reads": len(group_df),
+                "frac": round(frac, 4),
+                "status": status,
+                "is_major": (ref_id == orient_ref_name),
+            })
+
+        correct_groups = [g for g in group_results if _is_correct(g["status"])]
+        if len(correct_groups) < 2:
+            return None
+
+        recoverable = [g["variant"] for g in correct_groups if not g["is_major"]]
+        top_frac = max((g["frac"] for g in group_results), default=1.0)
+        return {
+            "plate": plate,
+            "well": well,
+            "global_well": wp,
+            "total_reads": depth,
+            "top_frac": round(top_frac, 4),
+            "groups": sorted(group_results, key=lambda g: -g["frac"]),
+            "recoverable_variants": recoverable,
+        }
+
+    candidates = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_process, row): row["global_well"]
+            for _, row in candidate_wells.iterrows()
+        }
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            try:
+                result = future.result()
+                if result is not None:
+                    candidates.append(result)
+            except Exception as exc:
+                logger.warning("Streakout check failed: %s", exc)
+
+    candidates.sort(key=lambda c: c["global_well"])
+    return candidates
+
+
+# ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
 
@@ -278,10 +601,15 @@ def detect_streakout_candidates(
     min_group_reads: int = 5,
     max_top_frac: float = 0.9,
     workers: int = 4,
+    reference_fasta: str = None,
 ) -> list[dict]:
     """Detect wells with multiple correctly-assembled subpopulations.
 
-    For each well where ``major_freq < max_top_frac`` and
+    When *reference_fasta* is provided (orient-ref mode), dispatches to
+    :func:`detect_streakout_candidates_orient_ref` which uses pileup
+    bimodality instead of ref_name grouping.
+
+    Otherwise, for each well where ``major_freq < max_top_frac`` and
     ``depth >= min_well_reads``, groups reads by reference, generates a
     per-group consensus, and checks whether 2+ groups produce a correct
     consensus (Perfect Match or Silent Mutation).
@@ -290,13 +618,14 @@ def detect_streakout_candidates(
         well_df: Per-well summary DataFrame (from ``generate_well_df``).
         read_df: Per-read DataFrame (from ``format_df``).
         reference_dir: Directory containing ``single_ref_fastas/`` subdirectory.
-        output_dir: Pipeline output directory (unused in detection, reserved).
+        output_dir: Pipeline output directory.
         minimap2_path: Path to minimap2 binary. Auto-detected if None.
         samtools_path: Path to samtools binary. Auto-detected if None.
         min_well_reads: Minimum total reads in a well to consider.
         min_group_reads: Minimum reads in a group to attempt consensus.
         max_top_frac: Maximum dominant fraction to flag as potential mixed well.
         workers: Number of parallel workers.
+        reference_fasta: Full library FASTA (required for orient-ref mode).
 
     Returns:
         List of candidate dicts, one per streak-out well.
@@ -305,6 +634,22 @@ def detect_streakout_candidates(
         minimap2_path = find_minimap2()
     if samtools_path is None:
         samtools_path = find_samtools()
+
+    # Orient-ref mode: all reads share the same ref_name, so we use
+    # pileup bimodality instead of ref_name grouping.
+    if reference_fasta is not None:
+        return detect_streakout_candidates_orient_ref(
+            well_df=well_df,
+            read_df=read_df,
+            reference_dir=reference_dir,
+            reference_fasta=reference_fasta,
+            output_dir=output_dir,
+            minimap2_path=minimap2_path,
+            samtools_path=samtools_path,
+            min_well_reads=min_well_reads,
+            min_group_reads=min_group_reads,
+            workers=workers,
+        )
 
     # Filter candidate wells
     mask = (well_df["major_freq"] < max_top_frac) & (well_df["depth"] >= min_well_reads)
@@ -476,6 +821,7 @@ def _build_pileup_grid(
     ref_len: int,
     minimap2_path: str,
     samtools_path: str,
+    ref_index: str = None,
 ) -> list[list[tuple[str, bool]]]:
     """Align group reads and build a character grid for pileup display.
 
@@ -491,10 +837,11 @@ def _build_pileup_grid(
             for _, r in group_reads.iterrows():
                 fq.write(f"@{r['read_name']}\n{r['read_seq']}\n+\n{r['read_qual']}\n")
 
-        # Align
+        # Align (use pre-built .mmi index if available)
+        mm2_ref = ref_index if ref_index else ref_fasta
         try:
             mm2 = subprocess.Popen(
-                [minimap2_path, "-a", "--MD", ref_fasta, fq_path],
+                [minimap2_path, "-a", "--MD", "--secondary=no", mm2_ref, fq_path],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             subprocess.run(
@@ -656,7 +1003,11 @@ def _render_pileup_html(well_pos: str, candidate: dict,
 
     body = '\n<hr class="group-sep">\n'.join(sections_html)
 
-    recoverable_list = ", ".join(candidate["recoverable_variants"]) or "None"
+    recoverable_list = ", ".join(candidate["recoverable_variants"])
+    recoverable_line = (
+        f' &middot; Recoverable: {_html.escape(recoverable_list)}'
+        if recoverable_list else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -875,8 +1226,7 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
 <h1>{_html.escape(title)}</h1>
 <div class="well-meta">
     {candidate["total_reads"]} total reads &middot;
-    Top fraction: {candidate["top_frac"]:.0%} &middot;
-    Recoverable: {_html.escape(recoverable_list)}
+    Top fraction: {candidate["top_frac"]:.0%}{recoverable_line}
 </div>
 <div class="legend">
     <span style="font-weight:600;">Legend:</span>
@@ -903,3 +1253,228 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
 </script>
 </body>
 </html>"""
+
+
+# ---------------------------------------------------------------------------
+# Pick pileup generation
+# ---------------------------------------------------------------------------
+
+def _generate_one_pick_pileup(
+    well_pos: str,
+    source_plate: str,
+    source_well: str,
+    variant: str,
+    reads: int,
+    consensus_fraction: float,
+    well_reads: pd.DataFrame,
+    single_ref_dir: str,
+    output_path: str,
+    minimap2_path: str,
+    samtools_path: str,
+    ref_index: str = None,
+) -> Optional[str]:
+    """Generate a pileup HTML for one picked well.
+
+    Returns *output_path* on success, or None if the reference FASTA is
+    missing or alignment produces no rows.
+    """
+    ref_fasta = os.path.join(single_ref_dir, f"{variant}.fasta")
+    if not os.path.exists(ref_fasta):
+        logger.warning("Pick pileup: ref FASTA not found for %s (%s)", variant, ref_fasta)
+        return None
+
+    ref_record = next(SeqIO.parse(ref_fasta, "fasta"), None)
+    if ref_record is None:
+        return None
+    ref_seq = str(ref_record.seq)
+    ref_len = len(ref_seq)
+
+    pileup_rows = _build_pileup_grid(
+        well_reads, ref_fasta, ref_seq, ref_len,
+        minimap2_path, samtools_path, ref_index=ref_index,
+    )
+
+    candidate_info = {
+        "plate": source_plate,
+        "well": source_well,
+        "total_reads": reads,
+        "top_frac": consensus_fraction,
+        "recoverable_variants": [],
+        "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
+    }
+
+    group_sections = [{
+        "ref_id": variant,
+        "n_reads": reads,
+        "frac": consensus_fraction,
+        "status": "",
+        "is_recoverable": False,
+        "ref_seq": ref_seq,
+        "pileup_rows": pileup_rows,
+    }]
+
+    html = _render_pileup_html(well_pos, candidate_info, group_sections)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as fh:
+        fh.write(html)
+    return output_path
+
+
+def generate_pick_pileups(
+    pick_list: list,
+    demux_output_dir: str,
+    output_dir: str,
+    workers: int = 4,
+    minimap2_path: str = None,
+    samtools_path: str = None,
+    progress_callback=None,
+) -> dict:
+    """Generate per-well pileup HTMLs for all picked (non-empty) hits.
+
+    Reads are sourced from ``read_df.csv`` in *demux_output_dir*.
+    One HTML is written per unique source well to
+    ``<output_dir>/pileup/well_{plate}_{well}.html``.
+
+    Args:
+        pick_list: List of hit dicts from ``pick._generate_pick_list()``.
+            Must include ``source_plate``, ``source_well``, ``variant``,
+            ``reads``, ``consensus_fraction`` keys.  Empty placeholder
+            entries (``empty=True``) are skipped.
+        demux_output_dir: Path to the ``demux_output/`` directory produced
+            by ``usortm demux``.
+        output_dir: Directory where pileup HTMLs are written
+            (``<output_dir>/pileup/``).
+        workers: Number of parallel alignment workers.
+        minimap2_path: Path to minimap2 binary; auto-detected if None.
+        samtools_path: Path to samtools binary; auto-detected if None.
+
+    Returns:
+        Nested dict ``{str(target_plate): {target_well: relative_url}}``
+        where *relative_url* is relative to *output_dir*
+        (e.g. ``"pileup/well_1_A3.html"``).
+    """
+    if minimap2_path is None:
+        minimap2_path = find_minimap2()
+    if samtools_path is None:
+        samtools_path = find_samtools()
+
+    # Load per-read sequences from demux output
+    read_df_path = os.path.join(demux_output_dir, "read_df.csv")
+    if not os.path.exists(read_df_path):
+        logger.warning("generate_pick_pileups: read_df.csv not found at %s", read_df_path)
+        return {}
+
+    read_df = pd.read_csv(read_df_path, dtype={"plate": str})
+
+    single_ref_dir = os.path.join(demux_output_dir, "reference_fasta", "single_ref_fastas")
+    if not os.path.isdir(single_ref_dir):
+        logger.warning(
+            "generate_pick_pileups: single_ref_fastas not found at %s", single_ref_dir
+        )
+        return {}
+
+    pileup_dir = os.path.join(output_dir, "pileup")
+    os.makedirs(pileup_dir, exist_ok=True)
+
+    # Deduplicate by source well (one hit per unique source plate+well)
+    seen: set[tuple] = set()
+    tasks: list[dict] = []
+    for hit in pick_list:
+        if hit.get("empty"):
+            continue
+        sp = str(hit["source_plate"])
+        sw = hit["source_well"]
+        if not sp or not sw:
+            continue
+        key = (sp, sw)
+        if key in seen:
+            continue
+        seen.add(key)
+        well_pos = f"{sp}{sw}"
+        tasks.append({
+            "well_pos": well_pos,
+            "source_plate": sp,
+            "source_well": sw,
+            "variant": hit["variant"],
+            "reads": hit["reads"],
+            "consensus_fraction": hit["consensus_fraction"],
+            "target_plate": str(hit.get("target_plate", "")),
+            "target_well": hit.get("target_well", ""),
+        })
+
+    # Build lookup: well_pos → reads DataFrame
+    read_df["well_pos"] = read_df["well_pos"].astype(str)
+    well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
+
+    # Pre-build minimap2 .mmi indexes per unique variant (avoids re-indexing per well)
+    unique_variants = {t["variant"] for t in tasks}
+    mmi_dir = os.path.join(pileup_dir, ".mmi_cache")
+    os.makedirs(mmi_dir, exist_ok=True)
+    variant_mmi: dict[str, str] = {}
+    for variant in unique_variants:
+        ref_fasta = os.path.join(single_ref_dir, f"{variant}.fasta")
+        if not os.path.exists(ref_fasta):
+            continue
+        mmi_path = os.path.join(mmi_dir, f"{variant}.mmi")
+        try:
+            subprocess.run(
+                [minimap2_path, "-d", mmi_path, ref_fasta],
+                stderr=subprocess.DEVNULL, check=True,
+            )
+            variant_mmi[variant] = mmi_path
+        except Exception as exc:
+            logger.debug("Failed to pre-build index for %s: %s", variant, exc)
+
+    # Result: target_plate → {target_well → relative pileup URL}
+    url_map: dict[str, dict[str, str]] = {}
+
+    def _run(task: dict):
+        well_pos = task["well_pos"]
+        well_reads = well_reads_map.get(well_pos, pd.DataFrame())
+        if well_reads.empty:
+            logger.debug("No reads found for well %s in read_df", well_pos)
+            return None, task
+
+        fname = f"well_{task['source_plate']}_{task['source_well']}.html"
+        out_path = os.path.join(pileup_dir, fname)
+        result = _generate_one_pick_pileup(
+            well_pos=well_pos,
+            source_plate=task["source_plate"],
+            source_well=task["source_well"],
+            variant=task["variant"],
+            reads=task["reads"],
+            consensus_fraction=task["consensus_fraction"],
+            well_reads=well_reads,
+            single_ref_dir=single_ref_dir,
+            output_path=out_path,
+            minimap2_path=minimap2_path,
+            samtools_path=samtools_path,
+            ref_index=variant_mmi.get(task["variant"]),
+        )
+        return result, task
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_run, t): t for t in tasks}
+        for fut in as_completed(futures):
+            try:
+                result, task = fut.result()
+            except Exception as exc:
+                logger.warning("Pick pileup failed for %s: %s", futures[fut]["well_pos"], exc)
+                if progress_callback:
+                    progress_callback(futures[fut]["well_pos"], success=False)
+                continue
+            if progress_callback:
+                progress_callback(task["well_pos"], success=result is not None)
+            if result is None:
+                continue
+            tp = task["target_plate"]
+            tw = task["target_well"]
+            if tp and tw:
+                rel_url = f"pileup/well_{task['source_plate']}_{task['source_well']}.html"
+                url_map.setdefault(tp, {})[tw] = rel_url
+
+    # Clean up pre-built indexes
+    import shutil
+    shutil.rmtree(mmi_dir, ignore_errors=True)
+
+    return url_map
