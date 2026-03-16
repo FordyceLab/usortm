@@ -81,6 +81,11 @@ def pick(
         "--workers", "-w",
         help="Number of parallel workers for pileup generation.",
     ),
+    include_flank_errors: bool = typer.Option(
+        False,
+        "--include-flank-errors/--exclude-flank-errors",
+        help="Include wells with flanking region mismatches in pick list.",
+    ),
 ):
     """
     Generate hit-picking list from demultiplexing results.
@@ -177,6 +182,7 @@ def pick(
         library_order=library_order,
         tier=tier,
         compact=compact,
+        include_flank_errors=include_flank_errors,
     )
 
     if len(pick_list) == 0:
@@ -318,14 +324,18 @@ def _load_well_assignments(assignments_file: Path) -> list:
     with open(assignments_file, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            well_data.append({
+            entry = {
                 "plate": row["plate"],
                 "well": row["well"],
                 "variant": row["variant"].split("|")[0],  # strip legacy |cons_check suffix
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
                 "cons_check": row.get("cons_check", ""),
-            })
+            }
+            fc = row.get("flank_check", "")
+            if fc:
+                entry["flank_check"] = fc
+            well_data.append(entry)
 
     return well_data
 
@@ -401,6 +411,7 @@ def _generate_pick_list(
     library_order: Optional[dict] = None,
     tier: Optional[str] = None,
     compact: bool = False,
+    include_flank_errors: bool = False,
 ) -> list:
     """Generate pick list from well data.
 
@@ -429,6 +440,15 @@ def _generate_pick_list(
             if w["reads"] >= thresh["min_reads"]
             and w["consensus_fraction"] > thresh["min_consensus"]
         ]
+
+    # Exclude wells with flanking region errors (unless overridden)
+    if not include_flank_errors:
+        has_any_flank_data = any(w.get("flank_check") for w in sorted_wells)
+        if has_any_flank_data:
+            sorted_wells = [
+                w for w in sorted_wells
+                if not w.get("flank_check") or w["flank_check"] == "OK"
+            ]
 
     for well in sorted_wells:
         variant = well["variant"]

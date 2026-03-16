@@ -1439,9 +1439,62 @@ def generate_per_well_consensus(
 
     return well_df
 
-def extract_matches(well_df):
-    """Extract reference matches using consensus CIGAR string
+def parse_vector_fasta(vector_fasta_path: str) -> tuple:
+    """Parse a vector FASTA to extract 5' and 3' flanking sequences.
+
+    The vector FASTA should contain a single entry where the variable region
+    is replaced with X characters (case-insensitive).
+
+    Args:
+        vector_fasta_path: Path to vector FASTA file.
+
+    Returns:
+        Tuple of (flank_5p, flank_3p) sequences flanking the X region.
+
+    Raises:
+        ValueError: If zero or multiple X regions are found, or if the
+            FASTA does not contain exactly one entry.
     """
+    record = SeqIO.read(vector_fasta_path, "fasta")
+    seq = str(record.seq)
+
+    x_regions = list(re.finditer(r"[Xx]+", seq))
+    if len(x_regions) == 0:
+        raise ValueError(
+            f"No variable region (X characters) found in vector FASTA: "
+            f"{vector_fasta_path}"
+        )
+    if len(x_regions) > 1:
+        raise ValueError(
+            f"Multiple X regions found in vector FASTA ({len(x_regions)} "
+            f"regions). Expected exactly one contiguous run of X characters."
+        )
+
+    match = x_regions[0]
+    flank_5p = seq[: match.start()]
+    flank_3p = seq[match.end() :]
+    return flank_5p, flank_3p
+
+
+def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
+                    consensus_dir: str = None):
+    """Extract reference matches using consensus CIGAR string.
+
+    When flank lengths are provided (from --vector-fasta), also checks
+    flanking regions for mismatches using the consensus BAM alignment.
+
+    Args:
+        well_df: Per-well DataFrame with CIGAR, ref_len, ref_seq, cons_seq.
+        flank_5p_len: Length of the 5' flanking region (0 = no flank check).
+        flank_3p_len: Length of the 3' flanking region (0 = no flank check).
+        consensus_dir: Path to consensus BAM directory (required when flanks
+            are provided).
+
+    Returns:
+        Updated well_df with cons_check column (and flank_check,
+        flank_5p_mismatches, flank_3p_mismatches when flanks are provided).
+    """
+    has_flanks = (flank_5p_len > 0 or flank_3p_len > 0) and consensus_dir
 
     for index, row in well_df.iterrows():
         # Get CIGAR string, reference length
@@ -1452,31 +1505,177 @@ def extract_matches(well_df):
         cons_seq = row['cons_seq']
 
         status = ""
-        
-        if cigar is None or ref_len is None or pd.isna(ref_len):
-            status = "Error"
 
+        if has_flanks:
+            # Use aligned pairs from consensus BAM for per-position analysis
+            flank_result = _check_flanking_regions(
+                well, ref_len, flank_5p_len, flank_3p_len, consensus_dir,
+            )
+            status = flank_result["cons_check"]
+            well_df.at[index, "flank_check"] = flank_result["flank_check"]
+            well_df.at[index, "flank_5p_mismatches"] = flank_result["flank_5p_mismatches"]
+            well_df.at[index, "flank_3p_mismatches"] = flank_result["flank_3p_mismatches"]
         else:
-            # 1) Check for perfect matches
-            if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
-                if int(cigar[:-1]) == int(ref_len):
-                    status = "Perfect Match"
-                else:
-                    status = "Partial Match"
+            # Original CIGAR-based logic
+            if cigar is None or ref_len is None or pd.isna(ref_len):
+                status = "Error"
             else:
-                status = "Other Error"        
-                
-                # 2) Check for silent mutations
-                # Translate each sequence
-                if len(cons_seq) == ref_len:
-                    if Seq.translate(ref_seq) == Seq.translate(cons_seq):
-                        status = "Silent Mutation"
+                # 1) Check for perfect matches
+                if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
+                    if int(cigar[:-1]) == int(ref_len):
+                        status = "Perfect Match"
+                    else:
+                        status = "Partial Match"
                 else:
-                    status = "Error"
+                    status = "Other Error"
+
+                    # 2) Check for silent mutations
+                    # Translate each sequence
+                    if len(cons_seq) == ref_len:
+                        if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                            status = "Silent Mutation"
+                    else:
+                        status = "Error"
 
         well_df.at[index, "cons_check"] = status
 
     return well_df
+
+
+def _check_flanking_regions(
+    well: str,
+    variable_len,
+    flank_5p_len: int,
+    flank_3p_len: int,
+    consensus_dir: str,
+) -> dict:
+    """Analyse flanking and variable regions from a consensus BAM.
+
+    Uses pysam ``get_aligned_pairs(with_seq=True)`` for per-position
+    comparison against the full-length reference (flanks + variable).
+
+    Returns:
+        Dict with keys: cons_check, flank_check, flank_5p_mismatches,
+        flank_3p_mismatches.
+    """
+    result = {
+        "cons_check": "Error",
+        "flank_check": "No alignment",
+        "flank_5p_mismatches": 0,
+        "flank_3p_mismatches": 0,
+    }
+
+    cons_bam = os.path.join(consensus_dir, f"{well}_consensus_align.bam")
+    if not os.path.exists(cons_bam):
+        return result
+
+    try:
+        with pysam.AlignmentFile(cons_bam, "rb") as bam:
+            reads = list(bam.fetch())
+            if not reads:
+                return result
+            read = reads[0]
+    except Exception:
+        return result
+
+    if read.is_unmapped:
+        return result
+
+    # Get aligned pairs: list of (query_pos, ref_pos, ref_base)
+    pairs = read.get_aligned_pairs(with_seq=True)
+
+    if variable_len is None or pd.isna(variable_len):
+        return result
+
+    variable_len = int(variable_len)
+    total_ref_len = flank_5p_len + variable_len + flank_3p_len
+
+    # Count mismatches in each region
+    flank_5p_mm = 0
+    flank_3p_mm = 0
+    var_mismatches = 0
+    var_matches = 0
+    var_indels = 0
+
+    query_seq = read.query_sequence
+
+    for qpos, rpos, ref_base in pairs:
+        if rpos is None:
+            # Insertion in query (no ref position)
+            if qpos is not None:
+                # Determine which region this insertion is associated with
+                # (based on surrounding ref positions — skip for simplicity)
+                pass
+            continue
+
+        if rpos < flank_5p_len:
+            # 5' flank region
+            if qpos is None:
+                # Deletion
+                flank_5p_mm += 1
+            elif ref_base is not None and ref_base.islower():
+                # Lowercase ref_base = mismatch in pysam
+                flank_5p_mm += 1
+        elif rpos < flank_5p_len + variable_len:
+            # Variable region
+            if qpos is None:
+                var_indels += 1
+            elif ref_base is not None and ref_base.islower():
+                var_mismatches += 1
+            else:
+                var_matches += 1
+        else:
+            # 3' flank region
+            if qpos is None:
+                flank_3p_mm += 1
+            elif ref_base is not None and ref_base.islower():
+                flank_3p_mm += 1
+
+    # Determine variable region status (same categories as CIGAR logic)
+    if var_mismatches == 0 and var_indels == 0 and var_matches == variable_len:
+        cons_check = "Perfect Match"
+    elif var_indels == 0 and var_matches + var_mismatches == variable_len:
+        # Same length — check for silent mutations
+        # Extract variable-region subsequences for translation check
+        var_query_bases = []
+        var_ref_bases = []
+        for qpos, rpos, ref_base in pairs:
+            if rpos is not None and flank_5p_len <= rpos < flank_5p_len + variable_len:
+                if qpos is not None and ref_base is not None:
+                    var_query_bases.append(query_seq[qpos])
+                    var_ref_bases.append(ref_base.upper())
+        if len(var_query_bases) == variable_len and len(var_ref_bases) == variable_len:
+            try:
+                q_protein = Seq("".join(var_query_bases)).translate()
+                r_protein = Seq("".join(var_ref_bases)).translate()
+                if q_protein == r_protein:
+                    cons_check = "Silent Mutation"
+                else:
+                    cons_check = "Other Error"
+            except Exception:
+                cons_check = "Other Error"
+        else:
+            cons_check = "Other Error"
+    else:
+        cons_check = "Error"
+
+    # Determine flank status
+    has_5p = flank_5p_mm > 0
+    has_3p = flank_3p_mm > 0
+    if has_5p and has_3p:
+        flank_check = "5'+3' mismatch"
+    elif has_5p:
+        flank_check = "5' mismatch"
+    elif has_3p:
+        flank_check = "3' mismatch"
+    else:
+        flank_check = "OK"
+
+    result["cons_check"] = cons_check
+    result["flank_check"] = flank_check
+    result["flank_5p_mismatches"] = flank_5p_mm
+    result["flank_3p_mismatches"] = flank_3p_mm
+    return result
 
 def export_reference_map(df, 
                          filename):

@@ -541,6 +541,88 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           </tbody>
         </table>
 
+        <h2>Flanking Region Checking</h2>
+
+        <p>
+          uSort-M amplicons span from T7 promoter to T7 terminator, covering both the
+          variable sequence and flanking constant regions that encode tags (SNAP, eGFP,
+          CLIP, His, etc.). By default, the demux pipeline only checks the variable
+          sequence region. The <code>--vector-fasta</code> option enables mismatch
+          detection in the flanking regions adjacent to the variable sequence.
+        </p>
+
+        <h3>When to Use</h3>
+        <p>
+          Use <code>--vector-fasta</code> when your amplicons include encoded tags
+          adjacent to the variable region and you need to verify those tags are intact.
+          A correct variable sequence with a broken tag is unusable.
+        </p>
+
+        <h3>Preparing the Vector FASTA</h3>
+        <p>
+          Create a single-entry FASTA file where the variable region is replaced with
+          <code>X</code> characters. The sequences before and after the X region are
+          the 5' and 3' flanking regions, respectively.
+        </p>
+        <div class="code-container">
+          <pre><code>&gt;my_vector
+ATTGCTCGATSNAPTAG<span style="color:var(--color-accent,#4096E3)">XXXXXXXXXXXX</span>HISTAGCTAGATG</code></pre>
+        </div>
+        <p>
+          Only one contiguous run of X characters is allowed. The FASTA must contain
+          exactly one entry.
+        </p>
+
+        <h3>Usage</h3>
+        <div class="code-container">
+          <pre><code>usortm demux my_project/ -f reads.fastq -r ref.fasta --vector-fasta vector.fasta</code></pre>
+        </div>
+
+        <h3>Output</h3>
+        <p>
+          When <code>--vector-fasta</code> is provided, the following columns are added
+          to <code>well_assignments.csv</code> and <code>well_df.csv</code>:
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Column</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>flank_check</code></td>
+              <td>
+                Flanking region status: <code>OK</code>, <code>5' mismatch</code>,
+                <code>3' mismatch</code>, <code>5'+3' mismatch</code>, or
+                <code>No alignment</code>
+              </td>
+            </tr>
+            <tr>
+              <td><code>flank_5p_mismatches</code></td>
+              <td>Number of mismatches in the 5' flanking region (in <code>well_df.csv</code> only)</td>
+            </tr>
+            <tr>
+              <td><code>flank_3p_mismatches</code></td>
+              <td>Number of mismatches in the 3' flanking region (in <code>well_df.csv</code> only)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          The CLI summary will also display a flanking region breakdown after the
+          demultiplexing summary table.
+        </p>
+
+        <h3>Pick Integration</h3>
+        <p>
+          When flanking data is present, <code>usortm pick</code> excludes wells with
+          flanking errors by default. Use <code>--include-flank-errors</code> to override:
+        </p>
+        <div class="code-container">
+          <pre><code>usortm pick my_project/ --include-flank-errors</code></pre>
+        </div>
+
         <h2>Quality Control</h2>
 
         <h3>Expected Metrics</h3>

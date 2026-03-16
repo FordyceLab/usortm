@@ -106,6 +106,7 @@ def run_levseq_pipeline(
     mask_config: Optional[dict] = None,
     subsample: Optional[int] = None,
     orient_ref: Optional[Path] = None,
+    vector_fasta: Optional[Path] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -296,10 +297,16 @@ def run_levseq_pipeline(
     well_df = utils.generate_well_df(read_df)
 
     # --- Stage 9: Per-well consensus ---
+    flank_5p = None
+    flank_3p = None
     if reference is not None:
         _progress("Generating per-well consensus sequences...")
         ref_dir = output_dir / "reference_fasta"
-        _prepare_single_ref_fastas(reference, ref_dir)
+        if vector_fasta is not None:
+            flank_5p, flank_3p = utils.parse_vector_fasta(str(vector_fasta))
+            _prepare_full_length_ref_fastas(reference, ref_dir, flank_5p, flank_3p)
+        else:
+            _prepare_single_ref_fastas(reference, ref_dir)
         # When using --orient-ref, all reads map to the orient ref.
         # Ensure its sequence is available in single_ref_fastas/ so
         # the per-well consensus step can find it.
@@ -345,7 +352,16 @@ def run_levseq_pipeline(
 
         # --- Stage 10: Variant calling ---
         _progress("Calling variants from consensus...")
-        well_df = utils.extract_matches(well_df)
+        if vector_fasta is not None and flank_5p is not None:
+            consensus_dir = str(output_dir / "wells" / "consensus")
+            well_df = utils.extract_matches(
+                well_df,
+                flank_5p_len=len(flank_5p),
+                flank_3p_len=len(flank_3p),
+                consensus_dir=consensus_dir,
+            )
+        else:
+            well_df = utils.extract_matches(well_df)
 
         # --- Stage 10.5: Streak-out candidate detection ---
         _progress("Screening for streak-out candidates...")
@@ -445,6 +461,41 @@ def _prepare_single_ref_fastas(
         SeqIO.write([record], str(out_path), "fasta")
 
 
+def _prepare_full_length_ref_fastas(
+    multi_ref_fasta: Path,
+    output_dir: Path,
+    flank_5p: str,
+    flank_3p: str,
+) -> None:
+    """Build full-length reference FASTAs by prepending/appending flanks.
+
+    Each entry in the multi-entry reference FASTA (variable-only sequences)
+    is wrapped with the 5' and 3' flanking sequences from the vector
+    template and written to output_dir/single_ref_fastas/<id>.fasta.
+
+    Args:
+        multi_ref_fasta: Path to multi-entry reference FASTA (variable-only).
+        output_dir: Parent directory. Files go into single_ref_fastas/ subdirectory.
+        flank_5p: 5' flanking sequence to prepend.
+        flank_3p: 3' flanking sequence to append.
+    """
+    from Bio.SeqRecord import SeqRecord
+    from Bio.Seq import Seq as BioSeq
+
+    single_dir = Path(output_dir) / "single_ref_fastas"
+    single_dir.mkdir(parents=True, exist_ok=True)
+
+    for record in SeqIO.parse(str(multi_ref_fasta), "fasta"):
+        full_seq = flank_5p + str(record.seq) + flank_3p
+        full_record = SeqRecord(
+            BioSeq(full_seq),
+            id=record.id,
+            description=record.description,
+        )
+        out_path = single_dir / f"{record.id}.fasta"
+        SeqIO.write([full_record], str(out_path), "fasta")
+
+
 def _translate_to_cli_format(
     read_df: pd.DataFrame,
     well_df: pd.DataFrame,
@@ -515,7 +566,7 @@ def _translate_to_cli_format(
         if pd.isna(depth):
             depth = 0
 
-        well_assignments[key] = {
+        entry = {
             "plate": plate,
             "well": well,
             "reads": int(depth),
@@ -523,6 +574,13 @@ def _translate_to_cli_format(
             "consensus_fraction": float(row.get("major_freq", 0.0)),
             "cons_check": cons_check_val,
         }
+
+        # Include flanking check if available
+        _fc = row.get("flank_check")
+        if _fc is not None and pd.notna(_fc):
+            entry["flank_check"] = str(_fc)
+
+        well_assignments[key] = entry
 
     # Compute actual sequence length stats from ref_len column
     seq_len_stats = {}

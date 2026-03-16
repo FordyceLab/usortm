@@ -93,6 +93,15 @@ def demux(
             "reference but still assigned to variants from --reference."
         ),
     ),
+    vector_fasta: Optional[Path] = typer.Option(
+        None,
+        "--vector-fasta",
+        help=(
+            "Vector FASTA with X's marking the variable region. "
+            "Enables flanking region mismatch detection for encoded tags "
+            "(e.g. SNAP, eGFP, His) adjacent to the variable sequence."
+        ),
+    ),
     mask_config_file: Optional[str] = typer.Option(
         None,
         "--mask-config",
@@ -243,6 +252,7 @@ def demux(
             mask_config=mask_config,
             subsample=subsample,
             orient_ref=orient_ref,
+            vector_fasta=vector_fasta,
         )
 
         progress.update(task, description="Done!", completed=True)
@@ -355,6 +365,21 @@ def demux(
         )
         console.print(f"  Output: {demux_output / 'streakout'}/")
         console.print()
+
+    # Flanking region summary (when --vector-fasta was used)
+    if vector_fasta is not None:
+        flank_counts: dict[str, int] = {}
+        for data in results.get("well_assignments", {}).values():
+            fc = data.get("flank_check", "")
+            if fc:
+                flank_counts[fc] = flank_counts.get(fc, 0) + 1
+        if flank_counts:
+            console.print("[bold]Flanking region check:[/bold]")
+            for label in ["OK", "5' mismatch", "3' mismatch", "5'+3' mismatch", "No alignment"]:
+                count = flank_counts.get(label, 0)
+                if count > 0:
+                    console.print(f"  {label}: {count:,} wells")
+            console.print()
 
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
@@ -526,6 +551,7 @@ def _run_demux(
     mask_config: dict = None,
     subsample: Optional[int] = None,
     orient_ref: Optional[Path] = None,
+    vector_fasta: Optional[Path] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -572,6 +598,7 @@ def _run_demux(
             mask_config=mask_config,
             subsample=subsample,
             orient_ref=orient_ref,
+            vector_fasta=vector_fasta,
         )
     else:
         raise NotImplementedError(
@@ -700,18 +727,28 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         json.dump(summary, f, indent=2)
 
     # Save well assignments CSV
+    # Determine if flanking data is present
+    has_flanks = any(
+        "flank_check" in data
+        for data in results["well_assignments"].values()
+    )
+    header = ["plate", "well", "reads", "variant", "consensus_fraction", "cons_check"]
+    if has_flanks:
+        header.append("flank_check")
+
     with open(output_dir / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "plate", "well", "reads", "variant", "consensus_fraction", "cons_check"
-        ])
+        writer.writerow(header)
 
         for well_id, data in results["well_assignments"].items():
-            writer.writerow([
+            row = [
                 data["plate"],
                 data["well"],
                 data["reads"],
                 data["variant"],
                 data["consensus_fraction"],
                 data.get("cons_check", ""),
-            ])
+            ]
+            if has_flanks:
+                row.append(data.get("flank_check", ""))
+            writer.writerow(row)
