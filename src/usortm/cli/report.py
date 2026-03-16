@@ -112,8 +112,12 @@ def report(
         generated_files.append(final_mapping_file)
 
         missing_variants_file = report_dir / "missing_variants.csv"
-        _save_missing_variants(project, well_data, missing_variants_file)
+        _save_missing_variants(project, well_data, missing_variants_file, project_dir)
         generated_files.append(missing_variants_file)
+
+        library_recovery_file = report_dir / "library_recovery.csv"
+        _save_library_recovery(project, well_data, library_recovery_file, project_dir)
+        generated_files.append(library_recovery_file)
 
     if format in ["json", "all"]:
         # Generate JSON report
@@ -256,43 +260,161 @@ def _save_final_mapping(well_data: list, output_file: Path):
             ])
 
 
-def _save_missing_variants(project: dict, well_data: list, output_file: Path):
-    """Save list of variants not recovered."""
-    # Get expected variants from project
-    expected_variants = set()
+_TIER_THRESHOLDS: dict[str, dict] = {
+    "A": {"min_reads": 100, "min_consensus": 0.9},
+    "B": {"min_reads": 50,  "min_consensus": 0.9},
+    "C": {"min_reads": 20,  "min_consensus": 0.9},
+}
+_TIER_ORDER = ["A", "B", "C"]  # highest to lowest
+
+
+def _resolve_library_variants(project: dict, project_dir: Path = None) -> list[str]:
+    """Return ordered list of variant names from the library CSV.
+
+    Returns an empty list if the file cannot be found or read.
+    """
     library_file = project.get("library_file") or project.get("variants_file")
-
+    candidates = []
     if library_file:
-        library_path = Path(library_file)
-        if library_path.exists():
-            try:
-                with open(library_path, newline="") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        if "Name" in row:
-                            expected_variants.add(row["Name"])
-                        elif "name" in row:
-                            expected_variants.add(row["name"])
-                        elif "variant" in row:
-                            expected_variants.add(row["variant"])
-            except:
-                pass  # If we can't read it, skip
+        candidates.append(Path(library_file))
+    if project_dir:
+        candidates.append(Path(project_dir) / "variants.csv")
 
-    # Get recovered variants (strip legacy |cons_check suffix)
-    recovered_variants = set(w["variant"].split("|")[0] for w in well_data)
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            names: list[str] = []
+            with open(candidate, newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    name = (
+                        row.get("Name")
+                        or row.get("name")
+                        or row.get("variant")
+                        or row.get("variant_name")
+                    )
+                    if name:
+                        names.append(name)
+            return names
+        except Exception:
+            pass
+    return []
 
-    # Find missing variants
-    missing_variants = expected_variants - recovered_variants
+
+def _best_tier(reads: int, cons_frac: float) -> str:
+    """Return the highest tier letter the well qualifies for, or ''."""
+    for t in _TIER_ORDER:
+        th = _TIER_THRESHOLDS[t]
+        if reads >= th["min_reads"] and cons_frac > th["min_consensus"]:
+            return t
+    return ""
+
+
+def _classify_variants(
+    library_names: list[str],
+    well_data: list,
+    pick_tier: str,
+) -> list[dict]:
+    """Classify every library variant as recovered / passed / missing.
+
+    Args:
+        library_names: Ordered variant names from the library CSV.
+        well_data: List of well dicts with 'variant', 'reads',
+            'consensus_fraction' keys.
+        pick_tier: The tier used for picking (e.g. 'A', 'B', 'C').
+
+    Returns:
+        List of dicts with keys: name, tier, status.
+        ``tier`` is the best tier achieved ('' if none).
+        ``status`` is one of:
+          - 'recovered'  — meets pick_tier threshold
+          - 'passed'     — has data but below pick_tier threshold
+          - 'missing'    — no wells meet any tier threshold
+    """
+    pick_tier = (pick_tier or "A").upper()
+    pick_tier_rank = _TIER_ORDER.index(pick_tier) if pick_tier in _TIER_ORDER else 0
+
+    # Best tier per variant across all wells
+    best: dict[str, str] = {}
+    for w in well_data:
+        name = w["variant"].split("|")[0]
+        t = _best_tier(w["reads"], w["consensus_fraction"])
+        if t:
+            prev = best.get(name, "")
+            if not prev or _TIER_ORDER.index(t) < _TIER_ORDER.index(prev):
+                best[name] = t
+
+    rows: list[dict] = []
+    for name in library_names:
+        t = best.get(name, "")
+        if not t:
+            status = "missing"
+        elif _TIER_ORDER.index(t) <= pick_tier_rank:
+            status = "recovered"
+        else:
+            status = "passed"
+        rows.append({"name": name, "tier": t, "status": status})
+    return rows
+
+
+def _save_missing_variants(
+    project: dict,
+    well_data: list,
+    output_file: Path,
+    project_dir: Path = None,
+):
+    """Save list of variants not recovered at the pick tier threshold."""
+    library_names = _resolve_library_variants(project, project_dir)
+    pick_tier = (
+        project.get("workflow_steps", {}).get("pick", {}).get("tier") or "A"
+    ).upper()
 
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["variant", "status"])
 
-        if len(expected_variants) == 0:
+        if not library_names:
             writer.writerow(["N/A", "No library file found in project"])
-        else:
-            for variant in sorted(missing_variants):
-                writer.writerow([variant, "missing"])
+            return
+
+        rows = _classify_variants(library_names, well_data, pick_tier)
+        for r in rows:
+            if r["status"] == "missing":
+                writer.writerow([r["name"], "missing"])
+
+
+def _save_library_recovery(
+    project: dict,
+    well_data: list,
+    output_file: Path,
+    project_dir: Path = None,
+):
+    """Save per-variant recovery table with tier and status columns.
+
+    Columns: Name, Tier, Status
+      - Tier   — best picking tier achieved (A/B/C), blank if none
+      - Status — recovered | passed | missing
+        recovered: meets the pick tier threshold
+        passed:    has data but below the pick tier threshold
+        missing:   no wells meet any tier threshold
+    """
+    library_names = _resolve_library_variants(project, project_dir)
+    pick_tier = (
+        project.get("workflow_steps", {}).get("pick", {}).get("tier") or "A"
+    ).upper()
+
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Name", "Tier", "Status"])
+
+        if not library_names:
+            writer.writerow(["N/A", "", "No library file found in project"])
+            return
+
+        rows = _classify_variants(library_names, well_data, pick_tier)
+        for r in rows:
+            writer.writerow([r["name"], r["tier"], r["status"]])
 
 
 def _save_json_report(project: dict, demux_summary: dict, well_data: list, output_file: Path):
@@ -386,21 +508,19 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     }
 
 
-# ── Shared SVG constants ───────────────────────────────────────────
-_CHART_W = 340          # chart area width  (px) — all plots share this
-_CHART_H = 200          # chart area height (px)
-_FS_TICK = 11           # font-size for tick labels
-_FS_LABEL = 12          # font-size for axis titles
-
-
-def _svg_wrap(w, h, inner):
-    """Wrap SVG inner elements in a responsive <svg> tag."""
-    return (
-        f'<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" '
-        f'style="font-family:sans-serif; overflow:visible; width:100%; height:auto;">'
-        + inner
-        + "</svg>"
-    )
+def _style_figure(fig):
+    """Apply consistent dashboard styling to a Bokeh figure."""
+    fig.background_fill_color = None  # transparent — inherits card bg
+    fig.border_fill_color = None
+    fig.outline_line_color = None
+    fig.toolbar_location = None  # clean look, no toolbar clutter
+    fig.axis.axis_label_text_font_size = "12px"
+    fig.axis.major_label_text_font_size = "11px"
+    fig.axis.axis_label_text_color = "#6b7280"
+    fig.axis.major_label_text_color = "#6b7280"
+    fig.axis.axis_line_color = "#e5e7eb"
+    fig.grid.grid_line_color = "#e5e7eb"
+    fig.grid.grid_line_alpha = 0.5
 
 
 def _cmap_hex(t: float) -> str:
@@ -425,147 +545,114 @@ def _cmap_hex(t: float) -> str:
     return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
 
 
-def _generate_read_depth_histogram_svg(read_counts: list) -> str:
-    """Generate an inline SVG histogram of per-well read depths with tier markers."""
+def _make_read_depth_bokeh(read_counts: list):
+    """Build a Bokeh histogram of per-well read depths with tier threshold lines."""
+    from bokeh.plotting import figure as bokeh_figure
+    from bokeh.models import ColumnDataSource, HoverTool, Span, Label
+
     if not read_counts:
-        return ""
+        return None
 
     max_val = max(read_counts)
     n_bins = 25
     bin_size = max(1, (max_val + n_bins) // n_bins)
-    total_range = bin_size * n_bins
 
     bins = [0] * n_bins
     for r in read_counts:
         idx = min(int(r / bin_size), n_bins - 1)
         bins[idx] += 1
-    max_count = max(bins) if any(bins) else 1
-
-    ml, mr, mt, mb = 44, 12, 12, 40
-    chart_w, chart_h = _CHART_W, _CHART_H
-    svg_w = ml + chart_w + mr
-    svg_h = mt + chart_h + mb
-
-    bar_w = chart_w / n_bins
-    els = []
 
     plate_map_color_high = 200.0
-    for i, count in enumerate(bins):
-        if count == 0:
-            continue
-        x = ml + i * bar_w
-        h = max(1, int((count / max_count) * chart_h))
-        y = mt + chart_h - h
-        t = min(((i + 0.5) * bin_size) / plate_map_color_high, 1.0)
-        els.append(
-            f'<rect x="{x:.1f}" y="{y}" width="{max(bar_w - 1, 1):.1f}" height="{h}" '
-            f'rx="2" fill="{_cmap_hex(t)}" stroke="#aaa" stroke-width="0.3"/>'
-        )
+    lefts = [i * bin_size for i in range(n_bins)]
+    rights = [(i + 1) * bin_size for i in range(n_bins)]
+    colors = [_cmap_hex(min(((i + 0.5) * bin_size) / plate_map_color_high, 1.0))
+              for i in range(n_bins)]
 
+    source = ColumnDataSource(data=dict(
+        left=lefts, right=rights, top=bins, bottom=[0] * n_bins, color=colors,
+        bin_label=[f"{l}\u2013{r}" for l, r in zip(lefts, rights)],
+        count=bins,
+    ))
+
+    fig = bokeh_figure(
+        width=420, height=280,
+        x_axis_label="Reads per well", y_axis_label="Wells",
+        sizing_mode="stretch_width",
+    )
+    fig.quad(left="left", right="right", top="top", bottom="bottom",
+             source=source, fill_color="color", line_color="#aaaaaa", line_width=0.3)
+
+    fig.add_tools(HoverTool(tooltips=[("Range", "@bin_label"), ("Wells", "@count")]))
+
+    # Tier threshold lines
     for threshold, tier_label in [(20, "C"), (50, "B"), (100, "A")]:
-        x = ml + (threshold / total_range) * chart_w
-        if ml <= x <= ml + chart_w:
-            els.append(
-                f'<line x1="{x:.1f}" y1="{mt}" x2="{x:.1f}" y2="{mt + chart_h}" '
-                f'stroke="var(--text-color)" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>'
-            )
-            els.append(
-                f'<text transform="rotate(-90, {x:.1f}, {mt})" '
-                f'x="{x:.1f}" y="{mt}" '
-                f'text-anchor="start" font-size="{_FS_TICK}" fill="var(--text-color)" opacity="0.55">'
-                f' Tier {tier_label}</text>'
-            )
+        if threshold <= max_val:
+            fig.add_layout(Span(
+                location=threshold, dimension="height",
+                line_color="#6b7280", line_width=1, line_dash="dashed", line_alpha=0.5,
+            ))
+            fig.add_layout(Label(
+                x=threshold, y=max(bins) * 0.95,
+                text=f" Tier {tier_label}",
+                text_font_size="10px", text_color="#6b7280", text_alpha=0.7,
+            ))
 
-    n_ticks = 5
-    for i in range(n_ticks + 1):
-        tick_bin = int(i * n_bins / n_ticks)
-        x = ml + tick_bin * bar_w
-        label_val = tick_bin * bin_size
-        els.append(
-            f'<line x1="{x:.1f}" y1="{mt + chart_h}" x2="{x:.1f}" y2="{mt + chart_h + 4}" '
-            f'stroke="var(--border)" stroke-width="1"/>'
-            f'<text x="{x:.1f}" y="{mt + chart_h + 16}" '
-            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{label_val}</text>'
-        )
-
-    els.append(
-        f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
-        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads per well</text>'
-    )
-    els.append(
-        f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Wells</text>'
-    )
-    els.append(
-        f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{max_count}</text>'
-    )
-
-    els.append(
-        f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-        f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-    )
-
-    return _svg_wrap(svg_w, svg_h, "\n".join(els))
+    _style_figure(fig)
+    return fig
 
 
-def _generate_plate_bar_svg(plate_reads: dict) -> str:
-    """Generate an inline SVG vertical bar chart for per-plate read counts."""
+def _make_plate_bar_bokeh(plate_reads: dict):
+    """Build a Bokeh vertical bar chart for per-plate read counts."""
+    from bokeh.plotting import figure as bokeh_figure
+    from bokeh.models import ColumnDataSource, HoverTool, LabelSet
+
     if not plate_reads:
-        return ""
+        return None
 
-    def _fmt_reads(n: int) -> str:
+    def _fmt(n: int) -> str:
         return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:,}"
 
     sorted_plates = sorted(plate_reads.items(), key=lambda x: int(x[0]))
-    max_reads = max(plate_reads.values()) or 1
-    ml, mr, mt, mb = 44, 12, 20, 40
-    chart_w, chart_h = _CHART_W, _CHART_H
-    svg_width = ml + chart_w + mr
-    svg_height = mt + chart_h + mb
+    plates = [str(p) for p, _ in sorted_plates]
+    reads = [r for _, r in sorted_plates]
+    max_reads = max(reads) or 1
+    colors = [_cmap_hex(r / max_reads) for r in reads]
+    labels = [_fmt(r) for r in reads]
 
-    slot_w = chart_w / len(sorted_plates)
-    bar_w = max(min(slot_w * 0.65, 36), 6)
-    bars = []
-    for i, (plate, reads) in enumerate(sorted_plates):
-        x_mid = ml + (i + 0.5) * slot_w
-        bar_h = max(int((reads / max_reads) * chart_h), 2)
-        x = x_mid - (bar_w / 2)
-        y = mt + chart_h - bar_h
-        fill = _cmap_hex(reads / max_reads)
-        bars.append(
-            f'<rect x="{x:.1f}" y="{y}" width="{bar_w:.1f}" height="{bar_h}" '
-            f'rx="3" fill="{fill}" stroke="#aaa" stroke-width="0.3"/>'
-            f'<text x="{x_mid:.1f}" y="{max(y - 4, 11)}" '
-            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt_reads(reads)}</text>'
-            f'<text x="{x_mid:.1f}" y="{mt + chart_h + 16}" '
-            f'text-anchor="middle" font-size="{_FS_TICK}" fill="var(--muted)">{plate}</text>'
-        )
+    source = ColumnDataSource(data=dict(
+        plates=plates, reads=reads, color=colors, label=labels,
+    ))
 
-    bars.append(
-        f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt_reads(max_reads)}</text>'
-        f'<text x="{ml + chart_w / 2:.1f}" y="{svg_height - 4}" '
-        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Plate</text>'
-        f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads</text>'
-        f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-        f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
+    fig = bokeh_figure(
+        x_range=plates,
+        width=420, height=280,
+        x_axis_label="Plate", y_axis_label="Reads",
+        sizing_mode="stretch_width",
     )
+    fig.vbar(x="plates", top="reads", width=0.65, source=source,
+             fill_color="color", line_color="#aaaaaa", line_width=0.3)
 
-    return _svg_wrap(svg_width, svg_height, "\n".join(bars))
+    fig.add_layout(LabelSet(
+        x="plates", y="reads", text="label", source=source,
+        text_font_size="11px", text_color="#6b7280",
+        text_align="center", y_offset=4,
+    ))
+
+    fig.add_tools(HoverTool(tooltips=[("Plate", "@plates"), ("Reads", "@reads{,}")]))
+
+    _style_figure(fig)
+    fig.xgrid.grid_line_color = None
+    return fig
 
 
-def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
-    """Generate an inline SVG donut chart showing tier + untiered breakdown."""
+def _make_tier_donut_bokeh(tiers: dict, library_size: int):
+    """Build a Bokeh donut chart showing tier + untiered breakdown."""
+    from bokeh.plotting import figure as bokeh_figure
+    from bokeh.models import ColumnDataSource, HoverTool, Label
     import math
 
     if not tiers or not library_size:
-        return ""
+        return None
 
     tier_a = tiers["A"]["count"]
     tier_b = tiers["B"]["count"]
@@ -578,7 +665,7 @@ def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
 
     total = count_a + count_b + count_c + count_u
     if total == 0:
-        return ""
+        return None
 
     segments = [
         (count_a, _cmap_hex(0.90), "Tier A (\u2265100 reads)"),
@@ -587,94 +674,104 @@ def _generate_tier_pie_svg(tiers: dict, library_size: int) -> str:
         (count_u, "#d1d5db",        "Untiered (<20 reads)"),
     ]
 
-    cx, cy, R, r = 80, 80, 65, 36
-    svg_w, svg_h = 160, 160
-    els: list[str] = []
-
-    start_angle = -90.0
+    starts, ends, colors, labels, counts, pcts = [], [], [], [], [], []
+    angle = math.pi / 2  # start at 12 o'clock
     for count, color, label in segments:
         if count == 0:
             continue
-        fraction = count / total
-        end_angle = start_angle + fraction * 360.0
+        frac = count / total
+        end = angle - frac * 2 * math.pi
+        starts.append(angle)
+        ends.append(end)
+        colors.append(color)
+        labels.append(label)
+        counts.append(count)
+        pcts.append(f"{frac * 100:.1f}%")
+        angle = end
 
-        sa = math.radians(start_angle)
-        ea = math.radians(end_angle)
+    source = ColumnDataSource(data=dict(
+        start=starts, end=ends, color=colors,
+        label=labels, count=counts, pct=pcts,
+    ))
 
-        ox1 = cx + R * math.cos(sa)
-        oy1 = cy + R * math.sin(sa)
-        ox2 = cx + R * math.cos(ea)
-        oy2 = cy + R * math.sin(ea)
-        ix1 = cx + r * math.cos(ea)
-        iy1 = cy + r * math.sin(ea)
-        ix2 = cx + r * math.cos(sa)
-        iy2 = cy + r * math.sin(sa)
+    fig = bokeh_figure(
+        width=200, height=200,
+        x_range=(-1.3, 1.3), y_range=(-1.3, 1.3),
+        sizing_mode="fixed",
+        match_aspect=True,
+    )
+    fig.annular_wedge(
+        x=0, y=0, inner_radius=0.55, outer_radius=1.0,
+        start_angle="start", end_angle="end",
+        fill_color="color", line_color="white", line_width=1.5,
+        source=source, direction="clock",
+    )
 
-        large = 1 if fraction > 0.5 else 0
-        pct = fraction * 100
-        title_txt = f"{label}: {count:,} ({pct:.1f}%)"
+    # Center text: total recovered count
+    fig.add_layout(Label(
+        x=0, y=0.08, text=str(tier_c),
+        text_font_size="18px", text_font_style="bold",
+        text_color="#6b7280", text_align="center", text_baseline="middle",
+    ))
+    fig.add_layout(Label(
+        x=0, y=-0.18, text="recovered",
+        text_font_size="9px", text_color="#6b7280",
+        text_align="center", text_baseline="middle",
+    ))
 
-        path_d = (
-            f"M {ox1:.2f},{oy1:.2f} "
-            f"A {R},{R} 0 {large},1 {ox2:.2f},{oy2:.2f} "
-            f"L {ix1:.2f},{iy1:.2f} "
-            f"A {r},{r} 0 {large},0 {ix2:.2f},{iy2:.2f} Z"
-        )
-        els.append(
-            f'<path d="{path_d}" fill="{color}" stroke="var(--card-bg)" stroke-width="1.5" '
-            f'style="cursor:pointer;" '
-            f'onmouseover="this.style.opacity=\'0.8\'" '
-            f'onmouseout="this.style.opacity=\'1\'">'
-            f'<title>{title_txt}</title>'
-            f'</path>'
-        )
-        start_angle = end_angle
+    fig.add_tools(HoverTool(tooltips=[
+        ("Tier", "@label"), ("Count", "@count{,}"), ("", "@pct"),
+    ]))
 
-    return _svg_wrap(svg_w, svg_h, "\n".join(els))
+    _style_figure(fig)
+    fig.axis.visible = False
+    fig.grid.visible = False
+    return fig
 
 
-def _generate_read_length_hist_svg(hist_data: dict) -> str:
-    """Generate an inline SVG histogram of input read lengths.
+def _make_read_length_bokeh(hist_data: dict):
+    """Build a Bokeh histogram of input read lengths with peak/median markers.
 
     Args:
         hist_data: Dict with bin_size, counts (list of 50 ints), median, n_reads.
     """
+    from bokeh.plotting import figure as bokeh_figure
+    from bokeh.models import ColumnDataSource, HoverTool, Label
+
     if not hist_data or not hist_data.get("counts"):
-        return ""
+        return None
 
     counts = hist_data["counts"]
     bin_size = hist_data.get("bin_size", 1)
     median_bp = hist_data.get("median", 0)
-
     n_bins = len(counts)
     max_count = max(counts) if any(counts) else 1
 
-    ml, mr, mt, mb = 44, 12, 12, 40
-    chart_w, chart_h = _CHART_W, _CHART_H
-    svg_w = ml + chart_w + mr
-    svg_h = mt + chart_h + mb
-
-    bar_w = chart_w / n_bins
-    els: list[str] = []
-
-    # Reference read length for colormap (500 bp = saturated)
     ref_len = 500.0
-    for i, count in enumerate(counts):
-        if count == 0:
-            continue
-        x = ml + i * bar_w
-        h = max(1, int((count / max_count) * chart_h))
-        y = mt + chart_h - h
-        mid_len = (i + 0.5) * bin_size
-        t = min(mid_len / ref_len, 1.0)
-        els.append(
-            f'<rect x="{x:.1f}" y="{y}" width="{max(bar_w - 1, 1):.1f}" height="{h}" '
-            f'rx="2" fill="{_cmap_hex(t)}" stroke="#aaa" stroke-width="0.3"/>'
-        )
+    lefts = [i * bin_size for i in range(n_bins)]
+    rights = [(i + 1) * bin_size for i in range(n_bins)]
+    colors = [_cmap_hex(min(((i + 0.5) * bin_size) / ref_len, 1.0))
+              for i in range(n_bins)]
 
-    # Find local maxima (peaks): bins[i] > bins[i-1] and > bins[i+1] by >5% of max
-    peaks: list[tuple[int, int]] = []
+    source = ColumnDataSource(data=dict(
+        left=lefts, right=rights, top=counts, bottom=[0] * n_bins, color=colors,
+        bin_label=[f"{l}\u2013{r} bp" for l, r in zip(lefts, rights)],
+        count=counts,
+    ))
+
+    fig = bokeh_figure(
+        width=420, height=280,
+        x_axis_label="Read Length (bp)", y_axis_label="Reads",
+        sizing_mode="stretch_width",
+    )
+    fig.quad(left="left", right="right", top="top", bottom="bottom",
+             source=source, fill_color="color", line_color="#aaaaaa", line_width=0.3)
+
+    fig.add_tools(HoverTool(tooltips=[("Range", "@bin_label"), ("Count", "@count{,}")]))
+
+    # Peak annotations
     threshold_5pct = max_count * 0.05
+    peaks: list[tuple[int, int]] = []
     for i in range(1, n_bins - 1):
         if (counts[i] > counts[i - 1] and
                 counts[i] > counts[i + 1] and
@@ -682,85 +779,37 @@ def _generate_read_length_hist_svg(hist_data: dict) -> str:
                 counts[i] - counts[i + 1] > threshold_5pct):
             peaks.append((i, counts[i]))
 
-    # Annotate top 1-2 peaks with an upward triangle, suppressing any that
-    # fall within 3 bins of the median to avoid label overlap.
+    median_bin = min(int(median_bp / bin_size), n_bins - 1) if median_bp > 0 else -100
     peaks_sorted = sorted(peaks, key=lambda p: p[1], reverse=True)[:2]
-    _median_bin_pre = min(int(median_bp / bin_size), n_bins - 1) if median_bp > 0 else -100
     peaks_to_annotate = [
-        (b, c) for b, c in peaks_sorted
-        if abs(b - _median_bin_pre) > 3
+        (b, c) for b, c in peaks_sorted if abs(b - median_bin) > 3
     ]
     for peak_bin, peak_count in peaks_to_annotate:
-        px = ml + (peak_bin + 0.5) * bar_w
-        ph = max(1, int((peak_count / max_count) * chart_h))
-        py = mt + chart_h - ph - 8
         peak_bp = int((peak_bin + 0.5) * bin_size)
-        els.append(
-            f'<polygon points="{px:.1f},{py:.0f} {px - 5:.1f},{py + 8:.0f} {px + 5:.1f},{py + 8:.0f}" '
-            f'fill="var(--text-color)" opacity="0.5"/>'
-            f'<text x="{px:.1f}" y="{py - 3:.0f}" text-anchor="middle" '
-            f'font-size="9" fill="var(--text-color)" opacity="0.65">{peak_bp}bp</text>'
+        fig.inverted_triangle(
+            x=[peak_bp], y=[peak_count * 1.06], size=8,
+            color="#6b7280", alpha=0.6,
         )
+        fig.add_layout(Label(
+            x=peak_bp, y=peak_count * 1.10, text=f"{peak_bp}bp",
+            text_font_size="9px", text_color="#6b7280", text_alpha=0.7,
+            text_align="center",
+        ))
 
-    # Median marker: red inverted triangle + label
+    # Median marker
     if median_bp > 0:
-        median_bin = min(int(median_bp / bin_size), n_bins - 1)
-        median_count = counts[median_bin]
-        mx = ml + (median_bp / bin_size) * bar_w
-        mx = max(ml, min(ml + chart_w, mx))
-        mh = max(1, int((median_count / max_count) * chart_h))
-        my = mt + chart_h - mh - 8
-        # Inverted triangle (pointing down)
-        els.append(
-            f'<polygon points="{mx:.1f},{my + 8:.0f} {mx - 5:.1f},{my:.0f} {mx + 5:.1f},{my:.0f}" '
-            f'fill="#ef4444" opacity="0.85"/>'
-            f'<text x="{mx:.1f}" y="{my - 3:.0f}" text-anchor="middle" '
-            f'font-size="9" fill="#ef4444">med {median_bp}bp</text>'
+        med_count = counts[min(int(median_bp / bin_size), n_bins - 1)]
+        fig.inverted_triangle(
+            x=[median_bp], y=[med_count * 1.06], size=8,
+            color="#ef4444", alpha=0.85,
         )
+        fig.add_layout(Label(
+            x=median_bp, y=med_count * 1.10, text=f"med {median_bp}bp",
+            text_font_size="9px", text_color="#ef4444", text_align="center",
+        ))
 
-    # X-axis ticks — 5 evenly spaced
-    n_ticks = 5
-    for i in range(n_ticks + 1):
-        tick_bin = int(i * n_bins / n_ticks)
-        x = ml + tick_bin * bar_w
-        label_val = tick_bin * bin_size
-        els.append(
-            f'<line x1="{x:.1f}" y1="{mt + chart_h}" x2="{x:.1f}" y2="{mt + chart_h + 4}" '
-            f'stroke="var(--border)" stroke-width="1"/>'
-            f'<text x="{x:.1f}" y="{mt + chart_h + 16}" '
-            f'text-anchor="middle" font-size="11" fill="var(--muted)">{label_val}</text>'
-        )
-
-    # X-axis label
-    els.append(
-        f'<text x="{ml + chart_w / 2:.1f}" y="{svg_h - 4}" '
-        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Read Length (bp)</text>'
-    )
-
-    # Y-axis label (rotated)
-    els.append(
-        f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Reads</text>'
-    )
-
-    # Y-axis max value
-    def _fmt(n: int) -> str:
-        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
-
-    els.append(
-        f'<text x="{ml - 4}" y="{mt + 5}" '
-        f'text-anchor="end" font-size="{_FS_TICK}" fill="var(--muted)">{_fmt(max_count)}</text>'
-    )
-
-    # Axes
-    els.append(
-        f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-        f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-    )
-
-    return _svg_wrap(svg_w, svg_h, "\n".join(els))
+    _style_figure(fig)
+    return fig
 
 
 def _compute_read_len_hist(fastq_path: str) -> dict:
@@ -798,170 +847,117 @@ def _compute_read_len_hist(fastq_path: str) -> dict:
     }
 
 
-def _generate_recovery_curve_svg(
+def _make_recovery_curve_bokeh(
     curve_data: dict,
     true_sampling: Optional[float],
     tier_c_pct: Optional[float],
     round_n: int = 1,
     streakout_pct: Optional[float] = None,
-) -> str:
-    """Generate an inline SVG recovery curve.
+):
+    """Build a Bokeh recovery curve with confidence ribbon.
 
     Args:
         curve_data:    Dict with fold_samplings, coverage_means, coverage_stds.
         true_sampling: Actual fold sampling (x-position of the real point).
         tier_c_pct:    Actual Tier-C coverage % (y-position), or None.
-        round_n:       Sort round number (shown in top-left corner label).
+        round_n:       Sort round number (shown in corner label).
+        streakout_pct: Coverage % including streak-out recoverable variants.
     """
+    from bokeh.plotting import figure as bokeh_figure
+    from bokeh.models import (
+        ColumnDataSource, HoverTool, Band, Label, Span,
+        Legend, LegendItem,
+    )
+
     fold_samplings = curve_data.get("fold_samplings", [])
     coverage_means = curve_data.get("coverage_means", [])
     coverage_stds = curve_data.get("coverage_stds", [])
 
     if not fold_samplings or not coverage_means:
-        return ""
+        return None
 
-    chart_w, chart_h = _CHART_W, _CHART_H
-    ml, mr, mt, mb = 44, 12, 12, 40
-    # Reserve space below the chart for a legend row
-    legend_h = 28
-    svg_w = ml + chart_w + mr
-    svg_h = mt + chart_h + mb + legend_h
+    # Prepend origin so the curve starts at (0, 0)
+    fs = [0.0] + list(fold_samplings)
+    means = [0.0] + list(coverage_means)
+    stds = [0.0] + list(coverage_stds)
 
-    x_max = max(fold_samplings)
-    x_min = 0.0
+    upper = [min(m + s, 100) for m, s in zip(means, stds)]
+    lower = [max(m - s, 0) for m, s in zip(means, stds)]
 
-    def _x(fs):
-        return ml + (fs - x_min) / (x_max - x_min) * chart_w
+    source = ColumnDataSource(data=dict(
+        x=fs, y=means, upper=upper, lower=lower,
+    ))
 
-    def _y(pct):
-        return mt + chart_h - (pct / 100.0) * chart_h
-
-    els = []
-
-    # Round label
-    els.append(
-        f'<text x="{ml + 4}" y="{mt + 14}" font-size="{_FS_TICK}" fill="var(--muted)">Round {round_n}</text>'
+    fig = bokeh_figure(
+        width=420, height=300,
+        x_axis_label="Fold Sampling", y_axis_label="% Recovered",
+        sizing_mode="stretch_width",
     )
 
-    # Horizontal grid lines + Y-axis tick labels
-    for pct in (25, 50, 75, 100):
-        gy = _y(pct)
-        els.append(
-            f'<line x1="{ml}" y1="{gy:.1f}" x2="{ml + chart_w}" y2="{gy:.1f}" '
-            f'stroke="var(--border)" stroke-width="0.8" stroke-dasharray="3,3"/>'
-            f'<text x="{ml - 4}" y="{gy + 4:.1f}" text-anchor="end" '
-            f'font-size="{_FS_TICK}" fill="var(--muted)">{pct}</text>'
-        )
-
-    # +/- 1 std ribbon
-    origin_pt = f"{_x(0):.1f},{_y(0):.1f}"
-    upper_pts = origin_pt + " " + " ".join(
-        f"{_x(fs):.1f},{_y(min(m + s, 100)):.1f}"
-        for fs, m, s in zip(fold_samplings, coverage_means, coverage_stds)
-    )
-    lower_pts = " ".join(
-        f"{_x(fs):.1f},{_y(max(m - s, 0)):.1f}"
-        for fs, m, s in zip(
-            reversed(fold_samplings),
-            reversed(coverage_means),
-            reversed(coverage_stds),
-        )
-    ) + f" {_x(0):.1f},{_y(0):.1f}"
-    els.append(
-        f'<polygon points="{upper_pts} {lower_pts}" '
-        f'fill="var(--accent)" opacity="0.15"/>'
-    )
+    # Confidence ribbon
+    fig.add_layout(Band(
+        base="x", lower="lower", upper="upper", source=source,
+        fill_color="#2563eb", fill_alpha=0.15, line_color=None,
+    ))
 
     # Mean curve
-    mean_pts = origin_pt + " " + " ".join(
-        f"{_x(fs):.1f},{_y(m):.1f}"
-        for fs, m in zip(fold_samplings, coverage_means)
-    )
-    els.append(
-        f'<polyline points="{mean_pts}" fill="none" stroke="var(--accent)" '
-        f'stroke-width="2" stroke-linejoin="round"/>'
-    )
+    line_r = fig.line("x", "y", source=source,
+                      line_color="#2563eb", line_width=2)
 
-    # -- Legend items (collected, then rendered below chart) --
-    legend_items = [
-        ("var(--accent)", "line", "Simulated mean \u00b1 1\u03c3"),
-    ]
+    fig.add_tools(HoverTool(
+        renderers=[line_r],
+        tooltips=[("Fold sampling", "@x{0.1f}"), ("Coverage", "@y{0.1f}%")],
+    ))
 
-    # Actual point(s) — no inline labels, just the markers
+    legend_items = [LegendItem(label="Simulated mean \u00b1 1\u03c3", renderers=[line_r])]
+
+    # Observed data point(s)
     if true_sampling is not None:
-        ax = min(max(_x(true_sampling), ml), ml + chart_w)
         if tier_c_pct is not None:
-            ay = _y(min(max(tier_c_pct, 0), 100))
-            els.append(
-                f'<circle cx="{ax:.1f}" cy="{ay:.1f}" r="5" fill="#22c55e"/>'
+            obs_r = fig.circle(
+                [true_sampling], [tier_c_pct], size=10, color="#22c55e",
             )
-            legend_items.append(("#22c55e", "circle", f"Observed ({tier_c_pct:.1f}%)"))
+            legend_items.append(LegendItem(
+                label=f"Observed ({tier_c_pct:.1f}%)", renderers=[obs_r],
+            ))
 
             if streakout_pct is not None and streakout_pct > tier_c_pct:
-                sy = _y(min(max(streakout_pct, 0), 100))
-                els.append(
-                    f'<circle cx="{ax:.1f}" cy="{sy:.1f}" r="5" fill="#2563eb"/>'
+                so_r = fig.circle(
+                    [true_sampling], [streakout_pct], size=10, color="#2563eb",
                 )
-                els.append(
-                    f'<line x1="{ax:.1f}" y1="{ay:.1f}" x2="{ax:.1f}" y2="{sy:.1f}" '
-                    f'stroke="#2563eb" stroke-width="1.5" stroke-dasharray="3,3"/>'
+                fig.segment(
+                    x0=[true_sampling], y0=[tier_c_pct],
+                    x1=[true_sampling], y1=[streakout_pct],
+                    line_color="#2563eb", line_width=1.5, line_dash="dashed",
                 )
-                legend_items.append(("#2563eb", "circle", f"+ streak-out ({streakout_pct:.1f}%)"))
+                legend_items.append(LegendItem(
+                    label=f"+ streak-out ({streakout_pct:.1f}%)", renderers=[so_r],
+                ))
         else:
-            els.append(
-                f'<line x1="{ax:.1f}" y1="{mt}" x2="{ax:.1f}" y2="{mt + chart_h}" '
-                f'stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>'
-            )
-            legend_items.append(("var(--muted)", "line", "Current sampling"))
+            fig.add_layout(Span(
+                location=true_sampling, dimension="height",
+                line_color="#6b7280", line_width=1.5, line_dash="dashed",
+                line_alpha=0.6,
+            ))
 
-    # X-axis ticks
-    tick_vals = [v for v in (0, 2, 4, 6, 8, 10, 12, 15) if v <= x_max]
-    for tv in tick_vals:
-        tx = _x(tv)
-        els.append(
-            f'<line x1="{tx:.1f}" y1="{mt + chart_h}" x2="{tx:.1f}" y2="{mt + chart_h + 4}" '
-            f'stroke="var(--border)" stroke-width="1"/>'
-            f'<text x="{tx:.1f}" y="{mt + chart_h + 18}" text-anchor="middle" '
-            f'font-size="{_FS_TICK}" fill="var(--muted)">{tv}</text>'
-        )
+    # Round label
+    fig.add_layout(Label(
+        x=70, y=10, text=f"Round {round_n}",
+        text_font_size="11px", text_color="#6b7280",
+        x_units="screen", y_units="screen",
+    ))
 
-    # Axis labels
-    els.append(
-        f'<text x="{ml + chart_w / 2:.1f}" y="{mt + chart_h + mb - 4}" '
-        f'text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">Fold Sampling</text>'
+    legend = Legend(
+        items=legend_items, location="bottom_center", orientation="horizontal",
+        label_text_font_size="10px", label_text_color="#6b7280",
+        border_line_color=None, background_fill_alpha=0,
     )
-    els.append(
-        f'<text x="{-(mt + chart_h / 2):.1f}" y="13" '
-        f'transform="rotate(-90)" text-anchor="middle" font-size="{_FS_LABEL}" fill="var(--muted)">% Recovered</text>'
-    )
+    fig.add_layout(legend, "below")
 
-    # Axes
-    els.append(
-        f'<line x1="{ml}" y1="{mt}" x2="{ml}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-        f'<line x1="{ml}" y1="{mt + chart_h}" x2="{ml + chart_w}" y2="{mt + chart_h}" '
-        f'stroke="var(--border)" stroke-width="1.5"/>'
-    )
-
-    # Render legend row below chart
-    ly = mt + chart_h + mb + 6
-    lx = ml
-    for color, kind, label in legend_items:
-        if kind == "line":
-            els.append(
-                f'<line x1="{lx}" y1="{ly}" x2="{lx + 18}" y2="{ly}" '
-                f'stroke="{color}" stroke-width="2"/>'
-            )
-        else:
-            els.append(
-                f'<circle cx="{lx + 5}" cy="{ly}" r="4" fill="{color}"/>'
-            )
-        els.append(
-            f'<text x="{lx + 22}" y="{ly + 4}" font-size="{_FS_TICK}" fill="var(--muted)">{label}</text>'
-        )
-        lx += 22 + len(label) * 6.2 + 14  # approximate text width + gap
-
-    return _svg_wrap(svg_w, svg_h, "\n".join(els))
+    _style_figure(fig)
+    fig.y_range.start = 0
+    fig.y_range.end = 105
+    return fig
 
 
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
@@ -1005,25 +1001,19 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             }
             new_variants = len(set(so_variants) - tier_c_variants)
             streakout_pct = min((tier_c_count + new_variants) / library_size * 100, 100.0)
-        rcurve_svg = _generate_recovery_curve_svg(
+        recovery_fig = _make_recovery_curve_bokeh(
             recovery_curve_data, true_sampling, tier_c_pct,
             round_n=project.get("round", 1),
             streakout_pct=streakout_pct,
         )
-        recovery_curve_html = (
-            f'<div class="chart-card"><h3>Recovery Curve</h3>{rcurve_svg}</div>'
-            if rcurve_svg else ""
-        )
     else:
-        recovery_curve_html = ""
+        recovery_fig = None
 
     # Per-plate read totals for bar chart
     plate_reads: dict[str, int] = {}
     for w in well_data:
         p = w["plate"]
         plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
-    plate_bar_svg = _generate_plate_bar_svg(plate_reads)
-    read_depth_histogram_svg = _generate_read_depth_histogram_svg(read_counts)
 
     # Read length histogram — backfill from FASTQ if not cached in demux_summary
     if not demux_summary.get("read_len_hist") and project_dir:
@@ -1037,7 +1027,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                     _hist = _compute_read_len_hist(str(_fq))
                     if _hist:
                         demux_summary["read_len_hist"] = _hist
-                        # Cache back so subsequent reports skip recomputation
                         _dsf = project_dir / "demux_output" / "demux_summary.json"
                         with open(_dsf, "w") as _f:
                             json.dump(demux_summary, _f, indent=2)
@@ -1045,18 +1034,59 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                     pass
                 break
 
-    read_len_hist_svg = _generate_read_length_hist_svg(
-        demux_summary.get("read_len_hist") or {}
-    )
-    if read_len_hist_svg:
+    # Build Bokeh figures for all charts
+    depth_fig = _make_read_depth_bokeh(read_counts)
+    plate_fig = _make_plate_bar_bokeh(plate_reads)
+    read_len_fig = _make_read_length_bokeh(demux_summary.get("read_len_hist") or {})
+    donut_fig = _make_tier_donut_bokeh(tiers, library_size) if tiers else None
+
+    # Collect non-None figures and generate Bokeh components
+    from bokeh.embed import components as bokeh_components
+    from bokeh.resources import INLINE as BOKEH_INLINE
+
+    _chart_figs: dict = {}
+    for _key, _fig in [("depth", depth_fig), ("plate", plate_fig),
+                        ("read_len", read_len_fig), ("donut", donut_fig),
+                        ("recovery", recovery_fig)]:
+        if _fig is not None:
+            _chart_figs[_key] = _fig
+
+    if _chart_figs:
+        _keys = list(_chart_figs.keys())
+        _bokeh_script, _bokeh_div_list = bokeh_components(
+            [_chart_figs[k] for k in _keys]
+        )
+        _bokeh_divs = dict(zip(_keys, _bokeh_div_list))
+    else:
+        _bokeh_script = ""
+        _bokeh_divs = {}
+
+    _bokeh_js = BOKEH_INLINE.render_js() if _chart_figs else ""
+    _bokeh_css = BOKEH_INLINE.render_css() if _chart_figs else ""
+
+    # Build chart HTML from Bokeh divs
+    read_depth_div = _bokeh_divs.get("depth", "")
+    plate_bar_div = _bokeh_divs.get("plate", "")
+    read_len_div = _bokeh_divs.get("read_len", "")
+    donut_div = _bokeh_divs.get("donut", "")
+    recovery_div = _bokeh_divs.get("recovery", "")
+
+    if recovery_div:
+        recovery_curve_html = (
+            f'<div class="chart-card"><h3>Recovery Curve</h3>{recovery_div}</div>'
+        )
+    else:
+        recovery_curve_html = ""
+
+    if read_len_div:
         _n_reads = (demux_summary.get("read_len_hist") or {}).get("n_reads", 0)
         _n_reads_note = f" ({_n_reads:,} reads)" if _n_reads else ""
         read_len_col_html = (
             f'        <div class="chart-card">\n'
             f'            <h3>Read Length Distribution{_n_reads_note}</h3>\n'
-            f'            <p class="note" style="margin:0 0 0.5rem;">Peaks labeled &#9650;. '
+            f'            <p class="note" style="margin:0 0 0.5rem;">Peaks labeled &#9660;. '
             f'Median in red &#9660;.</p>\n'
-            f'            <div class="read-len-chart">{read_len_hist_svg}</div>\n'
+            f'            <div class="read-len-chart">{read_len_div}</div>\n'
             f'        </div>'
         )
     else:
@@ -1113,9 +1143,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         if tiers else ""
     )
 
-    # Tier pie chart
-    tier_pie_svg = _generate_tier_pie_svg(tiers, library_size) if tiers else ""
-
     # Embed plate maps via srcdoc (inline HTML) so they render correctly
     # when summary.html is opened as a local file:// URL.  Browsers block
     # cross-origin iframe src for file:// origins.
@@ -1132,10 +1159,13 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         """
         content = html_path.read_text(encoding="utf-8")
 
-        # Absolutize relative streakout URLs baked into Bokeh JS data
-        # They appear as JSON strings: "streakout/well_..."
+        # Absolutize relative URLs baked into Bokeh JS data so tap-tool
+        # navigation works when the content is embedded via srcdoc (the
+        # srcdoc iframe inherits the parent page's base URL, not the
+        # original file's directory).
         base_uri = html_path.parent.resolve().as_uri()
-        content = content.replace('"streakout/', f'"{base_uri}/streakout/')
+        for rel_prefix in ("streakout/", "pileup/"):
+            content = content.replace(f'"{rel_prefix}', f'"{base_uri}/{rel_prefix}')
 
         # Escape for double-quoted HTML attribute value
         content = content.replace("&", "&amp;").replace('"', "&quot;")
@@ -1196,8 +1226,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     pick_completed = pick_state.get("completed", False)
     if pick_completed:
         pie_block = (
-            f'<div class="pie-container" style="margin-top:1rem;">{tier_pie_svg}</div>'
-            if tier_pie_svg else ""
+            f'<div class="pie-container" style="margin-top:1rem;">{donut_div}</div>'
+            if donut_div else ""
         )
         if pick_plate_iframe:
             hitpick_section = f"""
@@ -1265,6 +1295,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.95">
     <title>uSort-M Report</title>
+    {_bokeh_css}
+    {_bokeh_js}
     <style>
         :root {{
             --bg: #fafafa;
@@ -1539,11 +1571,11 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     <div class="chart-grid">
         <div class="chart-card">
             <h3>Read Depth per Well</h3>
-            {read_depth_histogram_svg}
+            {read_depth_div}
         </div>
         <div class="chart-card">
             <h3>Reads per Plate</h3>
-            {plate_bar_svg}
+            {plate_bar_div}
         </div>
 {read_len_col_html}
         <div class="chart-card">
@@ -1565,6 +1597,8 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         <p>Generated by <strong>uSort-M</strong> | <a href="https://github.com/FordyceLab/usortm">GitHub</a></p>
     </div>
 
+    {_bokeh_script}
+
     <script>
     (function() {{
         var toggle = document.getElementById('themeToggle');
@@ -1573,6 +1607,27 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         if (stored === 'dark') {{
             document.documentElement.setAttribute('data-theme', 'dark');
             icon.textContent = '\u263e';
+        }}
+        function updateBokehTheme() {{
+            if (!window.Bokeh || !window.Bokeh.documents) return;
+            var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+            var c = dark
+                ? {{muted: '#94a3b8', border: '#334155'}}
+                : {{muted: '#6b7280', border: '#e5e7eb'}};
+            try {{
+                window.Bokeh.documents.forEach(function(doc) {{
+                    doc._all_models.forEach(function(m) {{
+                        if (m.axis_label_text_color !== undefined) {{
+                            m.axis_label_text_color = c.muted;
+                            m.major_label_text_color = c.muted;
+                            m.axis_line_color = c.border;
+                        }}
+                        if (m.grid_line_color !== undefined) {{
+                            m.grid_line_color = c.border;
+                        }}
+                    }});
+                }});
+            }} catch(e) {{}}
         }}
         toggle.addEventListener('click', function() {{
             var current = document.documentElement.getAttribute('data-theme');
@@ -1585,7 +1640,9 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                 localStorage.setItem('usortm-theme', 'dark');
                 icon.textContent = '\u263e';
             }}
+            setTimeout(updateBokehTheme, 50);
         }});
+        window.addEventListener('load', updateBokehTheme);
     }})();
     </script>
 </body>
