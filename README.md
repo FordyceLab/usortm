@@ -29,15 +29,15 @@ pip install -e ".[all]"
 
 ### External Tools (for demultiplexing)
 
-The `usortm demux` command requires these tools to be installed separately:
+The `usortm demux` command requires these tools installed separately:
 
-| Tool | Min Version | Purpose | Install |
-|------|-------------|---------|---------|
-| [dorado](https://github.com/nanoporetech/dorado) | 1.3+ | Barcode demultiplexing | [GitHub releases](https://github.com/nanoporetech/dorado/releases) |
-| [minimap2](https://github.com/lh3/minimap2) | 2.20+ | Reference alignment | `brew install minimap2` or `conda install minimap2` |
-| [samtools](https://github.com/samtools/samtools) | 1.16+ | BAM processing & consensus | `brew install samtools` or `conda install samtools` |
+| Tool | Min Version | Purpose | macOS | Linux |
+|------|-------------|---------|-------|-------|
+| [dorado](https://github.com/nanoporetech/dorado) | 1.3+ | Barcode demultiplexing | [GitHub releases](https://github.com/nanoporetech/dorado/releases) (`.zip`) | [GitHub releases](https://github.com/nanoporetech/dorado/releases) (`.tar.gz`) |
+| [minimap2](https://github.com/lh3/minimap2) | 2.20+ | Reference alignment | `brew install minimap2` | `apt/dnf install minimap2` |
+| [samtools](https://github.com/samtools/samtools) | 1.16+ | BAM processing & consensus | `brew install samtools` | `apt/dnf install samtools` |
 
-`usortm` auto-discovers dorado in common locations (`~/Downloads/dorado-*/bin/`, `~/.dorado/bin/`). You can also set `DORADO_PATH`, `MINIMAP2_PATH`, or `SAMTOOLS_PATH` environment variables.
+Windows users should run inside WSL2 (Ubuntu) and use the Linux instructions. `usortm` auto-discovers dorado in `~/Downloads/dorado-*/bin/` and `~/.dorado/bin/`; set `DORADO_PATH`, `MINIMAP2_PATH`, or `SAMTOOLS_PATH` to override.
 
 ## Quick Start
 
