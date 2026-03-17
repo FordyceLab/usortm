@@ -102,6 +102,16 @@
         <img src="images/Thumbnail.png" alt="uSort-M">
         <h1>uSort-M</h1>
       </a>
+      <div class="sidebar-search" id="site-search-wrapper">
+        <div class="search-input-wrap">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M14 14l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <input type="text" id="site-search-input" placeholder="Search docs…" autocomplete="off" spellcheck="false" aria-label="Search documentation">
+        </div>
+        <div class="search-results" id="site-search-results"></div>
+      </div>
       <ul class="sidebar-nav">
         <li><a href="index.html">Overview</a></li>
         <li><a href="getting-started.html">Getting Started</a></li>
@@ -251,7 +261,10 @@
           <span class="mmix-hint" id="mmixHint">384 wells × 1 plate + 10% excess = <strong>423 rxns</strong></span>
         </div>
 
-        <p><strong>Master mix (7 µL per reaction; includes 10% excess):</strong></p>
+        <ol>
+          <li>Prepare PCR master mix for plates</li>
+        </ol>
+        <!-- <p><strong>Master mix (7 µL per reaction; includes 10% excess):</strong></p> -->
         <table>
           <thead>
             <tr>
@@ -417,6 +430,7 @@
           <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
           <li><strong>Liquid handler workflow</strong> (minimize tips; do not change tips for each 384 or 96-well equivalent to prevent cross-contamination):
             <ol>
+              <!-- Pick up from last number in above list -->
               <li>Add <strong>2 µL</strong> LevSeq barcodes to the PCR plate.</li>
               <li>Set tip volume to <strong>10 µL</strong>; resuspend cultures in the sort plate by mixing.</li>
               <li>Add <strong>10 µL</strong> cultures to glycerol plate and mix.</li>
@@ -790,5 +804,6 @@ plate_2,A02,TCGATCGATCGA</code></pre>
       updateThemeUI(theme);
     })();
   </script>
+  <script src="search.js"></script>
 </body>
 </html>
