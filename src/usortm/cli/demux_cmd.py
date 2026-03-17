@@ -266,7 +266,6 @@ def demux(
     if streakout_info.get("candidates", 0) > 0:
         streakout_csv = demux_output / "streakout" / "streakout_candidates.csv"
         if streakout_csv.exists():
-            import csv as csv_mod
             with open(streakout_csv) as _sf:
                 for row in csv.DictReader(_sf):
                     streakout_wells.add(f"{row['plate']}_{row['well']}")

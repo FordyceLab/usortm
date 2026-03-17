@@ -1532,7 +1532,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
                     # 2) Check for silent mutations
                     # Translate each sequence
                     if len(cons_seq) == ref_len:
-                        if Seq.translate(ref_seq) == Seq.translate(cons_seq):
+                        if Seq(ref_seq).translate() == Seq(cons_seq).translate():
                             status = "Silent Mutation"
                     else:
                         status = "Error"
