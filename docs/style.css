@@ -539,8 +539,17 @@ table {
 th, td {
   text-align: left;
   padding: 0.5rem 0.75rem;
-  border: 0.5px solid #cfd6df;
+  border-right: 0.5px solid #cfd6df;
+  border-bottom: 0.5px solid #cfd6df;
   white-space: nowrap;
+}
+
+th:last-child, td:last-child {
+  border-right: none;
+}
+
+tr:last-child th, tr:last-child td {
+  border-bottom: none;
 }
 
 th {
