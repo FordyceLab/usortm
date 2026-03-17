@@ -243,9 +243,55 @@
     });
   }
 
+  // ── Mobile nav toggle ───────────────────────────────────────────────────────
+  function initNavToggle() {
+    var sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'nav-toggle';
+    btn.setAttribute('aria-label', 'Toggle navigation');
+    btn.innerHTML =
+      '<svg class="icon-open" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">' +
+        '<path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+      '</svg>' +
+      '<svg class="icon-close" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">' +
+        '<path d="M4 4l12 12M16 4L4 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+      '</svg>';
+
+    var header = sidebar.querySelector('.sidebar-header');
+    if (header) {
+      header.insertAdjacentElement('afterend', btn);
+    } else {
+      sidebar.insertBefore(btn, sidebar.firstChild);
+    }
+
+    function close() { sidebar.classList.remove('nav-open'); }
+
+    btn.addEventListener('click', function () {
+      sidebar.classList.toggle('nav-open');
+    });
+
+    // Close when a nav link is clicked
+    sidebar.querySelectorAll('.sidebar-nav a').forEach(function (a) {
+      a.addEventListener('click', close);
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') close();
+    });
+
+    // Close on click outside sidebar
+    document.addEventListener('click', function (e) {
+      if (!sidebar.contains(e.target)) close();
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     injectHeadingIds();
     initSearch();
+    initNavToggle();
   });
 
 })();
