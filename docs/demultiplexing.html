@@ -544,8 +544,10 @@ T203Y;2;C5;0;C1;5.0</code></pre>
         <h2>Flanking Region Checking</h2>
 
         <p>
-          uSort-M amplicons cover both the variable sequence and flanking constant
-          regions that encode tags (SNAP, eGFP, CLIP, His, etc.). By default, the
+          Because long read sequencing is capable of processing very long amplicons,
+          it is often desirable to amplify from distant priming sites that flank 
+          the variable region, such as a promoter/terminator pair to ensure coverage
+          of the entire expression cassette. By default, the
           demux pipeline only checks the variable sequence region. The
           <code>--vector-fasta</code> option enables mismatch detection in the
           flanking regions adjacent to the variable sequence.
@@ -566,7 +568,7 @@ T203Y;2;C5;0;C1;5.0</code></pre>
         </p>
         <div class="code-container">
           <pre><code>&gt;my_vector
-ATTGCTCGATSNAPTAG<span style="color:var(--color-accent,#4096E3)">XXXXXXXXXXXX</span>HISTAGCTAGATG</code></pre>
+...ATTGCTC<span style="color:var(--color-accent,#4096E3)">XXXXXXXXXXXX</span>CTAGATG...</code></pre>
         </div>
         <p>
           Only one contiguous run of X characters is allowed. The FASTA must contain

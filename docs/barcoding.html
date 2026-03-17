@@ -233,23 +233,185 @@
 
         <h3>2. Barcoding PCR setup (10 µL total reaction)</h3>
 
-        <p><strong>Master mix (7 µL per reaction; include 10% excess):</strong></p>
+        <div class="mmix-calc-wrapper">
+          <span class="mmix-calc-label">Plates to prepare:</span>
+          <div class="mmix-ticker">
+            <button class="mmix-btn" id="mmixMinus" aria-label="Decrease">−</button>
+            <input
+              type="number"
+              id="mmixPlates"
+              class="mmix-input"
+              value="1"
+              min="1"
+              max="99"
+              step="1"
+            />
+            <button class="mmix-btn" id="mmixPlus" aria-label="Increase">+</button>
+          </div>
+          <span class="mmix-hint" id="mmixHint">384 wells × 1 plate + 10% excess = <strong>423 rxns</strong></span>
+        </div>
+
+        <p><strong>Master mix (7 µL per reaction; includes 10% excess):</strong></p>
         <table>
           <thead>
             <tr>
               <th>Component</th>
-              <th>Volume per rxn (µL)</th>
+              <th>Per rxn (µL)</th>
+              <th class="mmix-total-col" id="mmixTotalHeader">Total (µL) <span class="mmix-rxn-badge" id="mmixBadge">423 rxns</span></th>
             </tr>
           </thead>
           <tbody>
-            <tr><td>Q5 Polymerase</td><td>0.1</td></tr>
-            <tr><td>Q5 5X Buffer</td><td>2.0</td></tr>
-            <tr><td>10 mM dNTPs</td><td>0.2</td></tr>
-            <tr><td>DMSO</td><td>0.4</td></tr>
-            <tr><td>H₂O</td><td>4.3</td></tr>
-            <tr><td><strong>Total</strong></td><td><strong>7.0</strong></td></tr>
+            <tr><td>Q5 Polymerase</td><td>0.1</td><td class="mmix-total-cell" id="mmix0"></td></tr>
+            <tr><td>Q5 5X Buffer</td><td>2.0</td><td class="mmix-total-cell" id="mmix1"></td></tr>
+            <tr><td>10 mM dNTPs</td><td>0.2</td><td class="mmix-total-cell" id="mmix2"></td></tr>
+            <tr><td>DMSO</td><td>0.4</td><td class="mmix-total-cell" id="mmix3"></td></tr>
+            <tr><td>H₂O</td><td>4.3</td><td class="mmix-total-cell" id="mmix4"></td></tr>
+            <tr>
+              <td><strong>Total</strong></td>
+              <td><strong>7.0</strong></td>
+              <td class="mmix-total-cell mmix-total-row" id="mmix5"></td>
+            </tr>
           </tbody>
         </table>
+
+        <style>
+          .mmix-calc-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+          }
+          .mmix-calc-label {
+            font-weight: 600;
+            font-size: 0.9em;
+            white-space: nowrap;
+            color: var(--color-text);
+          }
+          .mmix-ticker {
+            display: flex;
+            align-items: center;
+            border: 2px solid var(--color-border, #e5e5e5);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: border-color 0.2s, box-shadow 0.2s;
+          }
+          .mmix-ticker:focus-within {
+            border-color: #4096E3;
+            box-shadow: 0 0 0 3px rgba(64,150,227,0.15);
+          }
+          .mmix-btn {
+            width: 34px;
+            height: 34px;
+            border: none;
+            background: var(--color-sidebar, #f5f5f5);
+            color: var(--color-text, #333);
+            font-size: 1.2em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s;
+            line-height: 1;
+            padding: 0;
+          }
+          .mmix-btn:hover {
+            background: #4096E3;
+            color: white;
+          }
+          .mmix-btn:active {
+            background: #2563eb;
+            color: white;
+          }
+          .mmix-input {
+            width: 52px;
+            text-align: center;
+            border: none;
+            border-left: 1px solid var(--color-border, #e5e5e5);
+            border-right: 1px solid var(--color-border, #e5e5e5);
+            background: var(--color-card-bg, white);
+            color: var(--color-text, #333);
+            font-size: 0.95em;
+            font-weight: 600;
+            padding: 6px 0;
+            outline: none;
+            -moz-appearance: textfield;
+          }
+          .mmix-input::-webkit-inner-spin-button,
+          .mmix-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+          .mmix-hint {
+            font-size: 0.82em;
+            color: var(--color-muted, #888);
+            font-style: italic;
+          }
+          .mmix-total-col {
+            color: #4096E3;
+            white-space: nowrap;
+          }
+          .mmix-rxn-badge {
+            display: inline-block;
+            background: rgba(64,150,227,0.12);
+            color: #4096E3;
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-size: 0.78em;
+            font-weight: 600;
+            margin-left: 4px;
+            vertical-align: middle;
+          }
+          .mmix-total-cell {
+            color: #4096E3;
+            font-weight: 600;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+          }
+          .mmix-total-row {
+            border-top: 2px solid var(--color-border, #e5e5e5);
+          }
+          [data-theme="dark"] .mmix-btn {
+            background: #1e293b;
+            color: #e2e8f0;
+          }
+          [data-theme="dark"] .mmix-btn:hover {
+            background: #4096E3;
+            color: white;
+          }
+        </style>
+
+        <script>
+          (function () {
+            const WELLS_PER_PLATE = 384;
+            const EXCESS = 1.10;
+            const PER_RXN = [0.1, 2.0, 0.2, 0.4, 4.3, 7.0];
+            const cells = PER_RXN.map((_, i) => document.getElementById('mmix' + i));
+            const badge = document.getElementById('mmixBadge');
+            const hint  = document.getElementById('mmixHint');
+            const input = document.getElementById('mmixPlates');
+            const minus = document.getElementById('mmixMinus');
+            const plus  = document.getElementById('mmixPlus');
+
+            function formatVol(v) {
+              return (Math.round(v * 10) / 10).toFixed(1);
+            }
+
+            function update() {
+              const n = Math.max(1, parseInt(input.value, 10) || 1);
+              input.value = n;
+              const rawRxns = WELLS_PER_PLATE * n * EXCESS;
+              const rxnsDisplay = Math.round(rawRxns);
+              badge.textContent = rxnsDisplay.toLocaleString() + ' rxns';
+              hint.innerHTML = `384 wells × ${n} plate${n !== 1 ? 's' : ''} + 10% excess = <strong>${rxnsDisplay.toLocaleString()} rxns</strong>`;
+              PER_RXN.forEach((vol, i) => {
+                cells[i].textContent = formatVol(vol * rawRxns);
+              });
+              minus.disabled = n <= 1;
+            }
+
+            minus.addEventListener('click', () => { input.value = Math.max(1, (parseInt(input.value) || 1) - 1); update(); });
+            plus.addEventListener('click',  () => { input.value = (parseInt(input.value) || 1) + 1; update(); });
+            input.addEventListener('input', update);
+
+            update(); // initialise
+          })();
+        </script>
 
         <ol>
           <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
@@ -265,6 +427,29 @@
         </ol>
 
         <h3>3. Thermocycler program (touchdown)</h3>
+
+        <div class="ext-calc-wrapper">
+          <label for="ampliconLength" class="ext-calc-label">
+            Amplicon length (bp):
+          </label>
+          <div class="ext-calc-input-row">
+            <input
+              type="number"
+              id="ampliconLength"
+              class="ext-calc-input"
+              placeholder="e.g. 1500"
+              min="100"
+              max="20000"
+              step="100"
+            />
+            <span class="ext-calc-hint" id="extHint">Enter length to calculate extension times</span>
+          </div>
+        </div>
+
+        <p class="ext-calc-note">
+          <strong>Note:</strong> Adjust extension time based on expected amplicon length.
+          Highlighted cells (<span class="ext-highlight-inline">20 sec/kb</span>) update automatically when a length is entered above.
+        </p>
 
         <table>
         <thead>
@@ -293,7 +478,7 @@
           </tr>
           <tr>
             <td>72</td>
-            <td>20 sec/kb</td>
+            <td class="ext-cell" id="extCell1">20 sec/kb</td>
           </tr>
 
           <tr>
@@ -307,7 +492,7 @@
           </tr>
           <tr>
             <td>72</td>
-            <td>20 sec/kb</td>
+            <td class="ext-cell" id="extCell2">20 sec/kb</td>
           </tr>
 
           <tr>
@@ -326,6 +511,128 @@
         <div class="callout">
           <strong>Note:</strong> Touchdown step decreases from 65°C to 55°C over 10 cycles (ΔT = −1°C/cycle). PCR takes ~1 hour. During PCR, measure ODs of sort plates and store glycerol stocks at −80°C.
         </div>
+
+        <style>
+          .ext-calc-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+          }
+          .ext-calc-label {
+            font-weight: 600;
+            font-size: 0.9em;
+            white-space: nowrap;
+            color: var(--color-text);
+          }
+          .ext-calc-input-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .ext-calc-input {
+            width: 120px;
+            padding: 6px 10px;
+            border: 2px solid var(--color-border, #e5e5e5);
+            border-radius: 6px;
+            font-size: 0.9em;
+            background: var(--color-card-bg, white);
+            color: var(--color-text, #333);
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+          }
+          .ext-calc-input:focus {
+            border-color: #f97316;
+            box-shadow: 0 0 0 3px rgba(249,115,22,0.15);
+          }
+          .ext-calc-hint {
+            font-size: 0.82em;
+            color: var(--color-muted, #888);
+            font-style: italic;
+            transition: opacity 0.2s;
+          }
+          .ext-calc-note {
+            font-size: 0.88em;
+            color: var(--color-muted, #666);
+            margin-bottom: 10px;
+          }
+          .ext-highlight-inline {
+            background: #fff3e0;
+            border: 1.5px solid #f97316;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #c2410c;
+          }
+          .ext-cell {
+            background: #fff3e0;
+            border: 2px solid #f97316 !important;
+            color: #c2410c;
+            font-weight: 600;
+            transition: background 0.25s, color 0.25s;
+          }
+          .ext-cell.updated {
+            background: #ffedd5;
+            color: #9a3412;
+          }
+          [data-theme="dark"] .ext-cell {
+            background: rgba(249,115,22,0.15);
+            color: #fb923c;
+            border-color: #f97316 !important;
+          }
+          [data-theme="dark"] .ext-highlight-inline {
+            background: rgba(249,115,22,0.15);
+            color: #fb923c;
+          }
+        </style>
+
+        <script>
+          (function () {
+            const input = document.getElementById('ampliconLength');
+            const hint  = document.getElementById('extHint');
+            const cells = [
+              document.getElementById('extCell1'),
+              document.getElementById('extCell2'),
+            ];
+
+            function formatExtTime(bp) {
+              const secs = Math.ceil(bp / 1000 * 20);
+              if (secs >= 60) {
+                const m = Math.floor(secs / 60);
+                const s = secs % 60;
+                return s > 0 ? `${m} min ${s} sec` : `${m} min`;
+              }
+              return `${secs} sec`;
+            }
+
+            function update() {
+              const raw = input.value.trim();
+              const bp  = parseInt(raw, 10);
+
+              if (!raw || isNaN(bp) || bp <= 0) {
+                cells.forEach(c => {
+                  c.textContent = '20 sec/kb';
+                  c.classList.remove('updated');
+                });
+                hint.textContent = 'Enter length to calculate extension times';
+                hint.style.color = '';
+                return;
+              }
+
+              const label = formatExtTime(bp);
+              cells.forEach(c => {
+                c.textContent = label;
+                c.classList.add('updated');
+              });
+              hint.textContent = `${bp.toLocaleString()} bp → ${Math.ceil(bp / 1000 * 20)} sec (20 sec/kb)`;
+              hint.style.color = '#f97316';
+            }
+
+            input.addEventListener('input', update);
+          })();
+        </script>
 
         <h3>4. Pooling + cleanup</h3>
         <ol>
