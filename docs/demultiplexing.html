@@ -557,12 +557,28 @@ T203Y;2;C5;0;C1;5.0</code></pre>
 
         <p>
           Because long read sequencing is capable of processing very long amplicons,
-          it is often desirable to amplify from distant priming sites that flank 
+          it is often desirable to amplify from distant priming sites that flank
           the variable region, such as a promoter/terminator pair to ensure coverage
           of the entire expression cassette. By default, the
           demux pipeline only checks the variable sequence region. The
           <code>--vector-fasta</code> option enables mismatch detection in the
           flanking regions adjacent to the variable sequence.
+        </p>
+
+        <h3>Automatic Read Orientation</h3>
+        <p>
+          When <code>--vector-fasta</code> is provided, the pipeline also
+          <strong>automatically builds an orientation reference</strong> from the
+          conserved backbone flanking regions. This replaces the default multi-ref
+          alignment in Stage 1 with a fast single-reference alignment, which is
+          functionally equivalent to passing <code>--orient-ref</code> manually.
+          Variant assignment is then deferred to Stage 6 (consensus-based
+          reassignment), producing identical results with significantly less
+          alignment time for large libraries.
+        </p>
+        <p>
+          If you explicitly pass <code>--orient-ref</code>, that reference takes
+          priority and the auto-generated backbone reference is not used.
         </p>
 
         <h3>When to Use</h3>

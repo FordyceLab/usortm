@@ -99,7 +99,10 @@ def demux(
         help=(
             "Vector FASTA with X's marking the variable region. "
             "Enables flanking region mismatch detection for encoded tags "
-            "(e.g. SNAP, eGFP, His) adjacent to the variable sequence."
+            "(e.g. SNAP, eGFP, His) adjacent to the variable sequence. "
+            "Also auto-generates an orientation reference from the "
+            "conserved backbone, replacing the slow multi-ref alignment "
+            "(equivalent to --orient-ref but automatic)."
         ),
     ),
     mask_config_file: Optional[str] = typer.Option(

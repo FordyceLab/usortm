@@ -16,7 +16,7 @@ direction-resolved FASTQ to Dorado.
 import gzip
 import logging
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import pandas as pd
 from Bio import SeqIO
@@ -193,6 +193,12 @@ def run_levseq_pipeline(
     if read_len_hist:
         pipeline_stats["read_len_hist"] = read_len_hist
 
+    # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
+    flank_5p = None
+    flank_3p = None
+    if vector_fasta is not None:
+        flank_5p, flank_3p = utils.parse_vector_fasta(str(vector_fasta))
+
     # --- Stage 3: Multi-ref alignment + strand split ---
     # This must happen BEFORE barcode demux because NB13-NB96 and
     # RB13-RB96 are reverse complements.  Aligning to the library
@@ -201,10 +207,20 @@ def run_levseq_pipeline(
     ref_map = None
     oriented_fq = str(fastq)  # default: use raw FASTQ if no reference
 
+    # Auto-orient against vector backbone when --vector-fasta is provided
+    # and no explicit --orient-ref was given.
+    if orient_ref is None and vector_fasta is not None and reference is not None:
+        _progress("Building orientation reference from vector backbone...")
+        orient_dir = output_dir / "alignment"
+        orient_dir.mkdir(parents=True, exist_ok=True)
+        auto_orient = orient_dir / "vector_orient_ref.fasta"
+        _build_orient_ref_from_flanks(flank_5p, flank_3p, auto_orient)
+        orient_ref = auto_orient
+
     if reference is not None:
-        # When --orient-ref is provided, align against that single
-        # reference for fast orientation.  Otherwise fall back to the
-        # full multi-ref library.
+        # When --orient-ref is provided (or auto-generated from vector),
+        # align against that single reference for fast orientation.
+        # Otherwise fall back to the full multi-ref library.
         align_ref = str(orient_ref) if orient_ref is not None else str(reference)
         if orient_ref is not None:
             _progress("Orienting reads against single reference...")
@@ -297,13 +313,10 @@ def run_levseq_pipeline(
     well_df = utils.generate_well_df(read_df)
 
     # --- Stage 9: Per-well consensus ---
-    flank_5p = None
-    flank_3p = None
     if reference is not None:
         _progress("Generating per-well consensus sequences...")
         ref_dir = output_dir / "reference_fasta"
         if vector_fasta is not None:
-            flank_5p, flank_3p = utils.parse_vector_fasta(str(vector_fasta))
             _prepare_full_length_ref_fastas(reference, ref_dir, flank_5p, flank_3p)
         else:
             _prepare_single_ref_fastas(reference, ref_dir)
@@ -422,7 +435,7 @@ def run_levseq_pipeline(
 def _build_barcode_name_dfs(
     n_fbc: int = 96,
     n_rbc: int = 4,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Build barcode name-mapping DataFrames for utils.format_df().
 
     Args:
@@ -459,6 +472,23 @@ def _prepare_single_ref_fastas(
     for record in SeqIO.parse(str(multi_ref_fasta), "fasta"):
         out_path = single_dir / f"{record.id}.fasta"
         SeqIO.write([record], str(out_path), "fasta")
+
+
+def _build_orient_ref_from_flanks(
+    flank_5p: str,
+    flank_3p: str,
+    output_path: Path,
+    variable_len: int = 300,
+) -> None:
+    """Build a single-entry orientation reference from vector flanking regions.
+
+    Creates a FASTA with: flank_5p + N*variable_len + flank_3p
+    minimap2 ignores the N spacer and anchors on the conserved flanking regions.
+    """
+    seq = flank_5p + ("N" * variable_len) + flank_3p
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(f">orient_ref\n{seq}\n")
 
 
 def _prepare_full_length_ref_fastas(
