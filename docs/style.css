@@ -594,6 +594,7 @@ pre {
   line-height: 1.6;
   border: 1px solid var(--color-code-border);
   position: relative;
+  max-width: 88%;
 }
 
 /* Add subtle shadow for light mode */
