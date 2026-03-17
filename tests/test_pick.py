@@ -10,6 +10,11 @@ from usortm.cli import app
 runner = CliRunner()
 
 
+def _hitlist_path(project_dir):
+    """Return the default hitlist output path."""
+    return project_dir / "pick" / "Integra ASSIST Input" / "hitlist_integra_assist.csv"
+
+
 @pytest.fixture
 def mock_project_dir(tmp_path):
     """Create a mock project directory with demux results."""
@@ -70,7 +75,7 @@ def test_pick_basic(mock_project_dir):
     assert "Hit Picking" in result.stdout
 
     # Check output file was created
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     assert hitlist.exists()
 
     # Read and validate output
@@ -94,7 +99,7 @@ def test_pick_unique_only(mock_project_dir):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -117,7 +122,7 @@ def test_pick_all_hits(mock_project_dir):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -152,7 +157,7 @@ def test_pick_custom_volume(mock_project_dir):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -180,7 +185,7 @@ def test_pick_target_filter(mock_project_dir, tmp_path):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -203,7 +208,7 @@ def test_pick_fill_order_column(mock_project_dir):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -226,7 +231,7 @@ def test_pick_fill_order_row(mock_project_dir):
 
     assert result.exit_code == 0
 
-    hitlist = mock_project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(mock_project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
@@ -307,7 +312,7 @@ def test_pick_with_tier_A(tier_project):
     result = runner.invoke(app, ["pick", str(tier_project), "--tier", "A"])
     assert result.exit_code == 0
 
-    hitlist = tier_project / "hitlist.csv"
+    hitlist = _hitlist_path(tier_project)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)
@@ -322,7 +327,7 @@ def test_pick_with_tier_B(tier_project):
     result = runner.invoke(app, ["pick", str(tier_project), "--tier", "B"])
     assert result.exit_code == 0
 
-    hitlist = tier_project / "hitlist.csv"
+    hitlist = _hitlist_path(tier_project)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)
@@ -337,7 +342,7 @@ def test_pick_with_tier_C(tier_project):
     result = runner.invoke(app, ["pick", str(tier_project), "--tier", "C"])
     assert result.exit_code == 0
 
-    hitlist = tier_project / "hitlist.csv"
+    hitlist = _hitlist_path(tier_project)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)
@@ -390,7 +395,7 @@ def test_pick_empty_wells(tmp_path):
     result = runner.invoke(app, ["pick", str(project_dir), "--tier", ""])
     assert result.exit_code == 0
 
-    hitlist = project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)  # skip header
@@ -452,7 +457,7 @@ def test_pick_empty_wells_with_legacy_suffix(tmp_path):
     result = runner.invoke(app, ["pick", str(project_dir), "--tier", ""])
     assert result.exit_code == 0
 
-    hitlist = project_dir / "hitlist.csv"
+    hitlist = _hitlist_path(project_dir)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)

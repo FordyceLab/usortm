@@ -603,8 +603,8 @@ class TestAlignAndSplit:
         assert "unmapped" in align_stats
         assert align_stats["mapped"] == align_stats["fwd"] + align_stats["rev"]
 
-    def test_bam_created(self, tmp_path, fake_fastq, fake_reference_fasta):
-        """BAM alignment file should be created."""
+    def test_oriented_fastq_created(self, tmp_path, fake_fastq, fake_reference_fasta):
+        """Oriented FASTQ and minimap2 log should be created (no BAM — streaming SAM)."""
         from usortm.demux.utils import align_and_split_by_strand
 
         align_dir = tmp_path / "alignment"
@@ -615,9 +615,8 @@ class TestAlignAndSplit:
             threads=1,
         )
 
-        bam_path = align_dir / "ref_alignment.bam"
-        assert bam_path.exists()
-        assert bam_path.stat().st_size > 0
+        assert (align_dir / "oriented_reads.fastq").exists()
+        assert (align_dir / "minimap2.log").exists()
 
 
 # ===================================================================

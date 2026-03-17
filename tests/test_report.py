@@ -55,7 +55,7 @@ def mock_project_with_library(tmp_path):
         {"plate": "1", "well": "A1", "variant": "var1", "reads": 100, "consensus_fraction": 0.95},
         {"plate": "1", "well": "B1", "variant": "var2", "reads": 200, "consensus_fraction": 0.98},
         {"plate": "1", "well": "C1", "variant": "var1", "reads": 150, "consensus_fraction": 0.93},
-        {"plate": "1", "well": "D1", "variant": "var3", "reads": 80, "consensus_fraction": 0.90},
+        {"plate": "1", "well": "D1", "variant": "var3", "reads": 80, "consensus_fraction": 0.91},
         {"plate": "2", "well": "A1", "variant": "var4", "reads": 120, "consensus_fraction": 0.96},
     ]
 

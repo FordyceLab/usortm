@@ -144,21 +144,31 @@ def plan(
     total_cost = synthesis_cost + cloning_cost + sorting_cost + barcoding_cost + sequencing_cost + hitpicking_cost
 
     # Predict coverage using simulation
-    import numpy as np
-    from usortm.simulate.sortm import sortm
+    try:
+        import numpy as np
+        from usortm.simulate.sortm import sortm
+        _simulate_ok = True
+    except (ImportError, SystemError):
+        _simulate_ok = False
 
-    console.print("[muted]Running coverage simulation...[/muted]")
-    predicted_variants = sortm(
-        n_sims=100,
-        lib_size=library_size,
-        fold_sampling=fold_sampling,
-        skew=skew,
-        p_grow=0.67,  # Typical sorting efficiency
-        return_correct=True,
-        seed=42,
-    )
-    expected_coverage = np.mean(predicted_variants) / library_size
-    coverage_std = np.std(predicted_variants) / library_size
+    if _simulate_ok:
+        console.print("[muted]Running coverage simulation...[/muted]")
+        predicted_variants = sortm(
+            n_sims=100,
+            lib_size=library_size,
+            fold_sampling=fold_sampling,
+            skew=skew,
+            p_grow=0.67,  # Typical sorting efficiency
+            return_correct=True,
+            seed=42,
+        )
+        expected_coverage = np.mean(predicted_variants) / library_size
+        coverage_std = np.std(predicted_variants) / library_size
+    else:
+        # Approximate coverage analytically when simulation unavailable
+        import math
+        expected_coverage = 1.0 - math.exp(-fold_sampling / skew)
+        coverage_std = 0.0
 
     # Check if fold sampling is sufficient
     if expected_coverage < target_coverage:
@@ -632,6 +642,9 @@ def _prompt_synthesis_method(seq_length: int, library_size: int):
     choices.append(questionary.Choice(title="Skip — specify skew manually (--skew)", value=None))
 
     console.print()
+    import sys
+    if not sys.stdin.isatty():
+        return None
     try:
         answer = questionary.select(
             "Select your pooled synthesis method (used to model library skew):",

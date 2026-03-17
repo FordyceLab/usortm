@@ -871,9 +871,12 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=Non
                 pre_filter, len(df))
 
     # --- add well position ---
-    df["well_pos"] = df.apply(
-        lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1
-    )
+    if len(df) > 0:
+        df["well_pos"] = df.apply(
+            lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1
+        )
+    else:
+        df["well_pos"] = pd.Series(dtype=object)
 
     # --- reorder / include quality columns ---
     cols = [
@@ -899,8 +902,8 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=Non
         df["ref_seq"] = df["ref_id"].map(ref_seqs)
         df["ref_len"] = df["ref_seq"].str.len()
 
-    print(df["well_pos"].unique())
-    df = df.sort_values(by="well_pos", key=lambda s: s.map(_parse_well))
+    if len(df) > 0:
+        df = df.sort_values(by="well_pos", key=lambda s: s.map(_parse_well))
     return df
 
 def generate_well_df(read_df):

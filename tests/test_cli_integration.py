@@ -182,6 +182,11 @@ def test_demux_with_mock_pipeline(tmp_path, mock_fastq):
 # Pick and report tests (using pre-made demux results)
 # ===================================================================
 
+def _hitlist_path(project_dir):
+    """Return the default hitlist output path."""
+    return project_dir / "pick" / "Integra ASSIST Input" / "hitlist_integra_assist.csv"
+
+
 def test_pick_command(project_with_demux_results):
     """Test pick command with pre-existing demux results."""
     result = runner.invoke(app, [
@@ -192,10 +197,11 @@ def test_pick_command(project_with_demux_results):
 
     assert result.exit_code == 0
     assert "Hit Picking" in result.stdout
-    assert (project_with_demux_results / "hitlist.csv").exists()
+    hitlist = _hitlist_path(project_with_demux_results)
+    assert hitlist.exists()
 
     # Verify Integra ASSIST format
-    with open(project_with_demux_results / "hitlist.csv", newline="") as f:
+    with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         header = next(reader)
         assert header == [
@@ -214,7 +220,7 @@ def test_pick_with_volume_option(project_with_demux_results):
     ])
     assert result.exit_code == 0
 
-    hitlist = project_with_demux_results / "hitlist.csv"
+    hitlist = _hitlist_path(project_with_demux_results)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)

@@ -480,6 +480,10 @@ def _prompt_preset_selection() -> Optional[dict]:
     ]
     choices.append(questionary.Choice(title="None (use built-in defaults)", value=0))
 
+    import sys
+    if not sys.stdin.isatty():
+        return None
+
     try:
         answer = questionary.select("Select a mask config preset:", choices=choices).ask()
     except KeyboardInterrupt:
@@ -659,7 +663,7 @@ def _compute_recovery_curve(library_size: int, skew: float = 4.0) -> Optional[di
     try:
         from usortm.simulate.sortm import sortm
         import numpy as np
-    except ImportError:
+    except (ImportError, SystemError):
         return None
 
     fold_samplings = [0.5, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15]

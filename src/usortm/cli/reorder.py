@@ -99,7 +99,10 @@ def reorder(
         usortm reorder my_project/ --format opools --pool-name round2_dropouts
     """
     if format is None:
+        import sys
         import questionary
+        if not sys.stdin.isatty():
+            raise typer.BadParameter("--format is required when stdin is not a terminal.")
         format = questionary.select(
             "Select synthesis ordering format:",
             choices=[
