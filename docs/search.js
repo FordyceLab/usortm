@@ -41,29 +41,38 @@
   function parsePageForIndex(html, pageName, pageUrl) {
     var parser = new DOMParser();
     var doc = parser.parseFromString(html, 'text/html');
-    var entries = [];
+    var entries = [{ title: pageName, page: pageName, url: pageUrl, text: '' }];
 
-    // Page-level entry
-    entries.push({ title: pageName, page: pageName, url: pageUrl, snippet: '' });
+    var main = doc.querySelector('.main');
+    if (!main) return entries;
 
-    // Section entries from h2 and h3 inside .main
-    var headings = doc.querySelectorAll('.main h2, .main h3');
-    headings.forEach(function (h) {
-      var title = h.textContent.trim();
-      if (!title) return;
-      var id = h.id || slugify(title);
+    // Walk all content nodes in document order, grouping text under headings.
+    // Collect p, li, td, dt, dd — block-level text elements that won't double-count
+    // text already gathered from a parent element.
+    var nodes = main.querySelectorAll('h2, h3, p, li, td, dt, dd');
+    var sections = [];
+    var cur = null;
 
-      // Grab a short snippet from the next sibling <p>
-      var snippet = '';
-      var next = h.nextElementSibling;
-      while (next && !snippet) {
-        if (next.tagName === 'P') {
-          snippet = next.textContent.trim().slice(0, 120);
-        }
-        next = next.nextElementSibling;
+    nodes.forEach(function (node) {
+      var tag = node.tagName;
+      if (tag === 'H2' || tag === 'H3') {
+        if (cur) sections.push(cur);
+        var title = node.textContent.trim();
+        cur = { title: title, id: node.id || slugify(title), parts: [] };
+      } else if (cur) {
+        var text = node.textContent.trim();
+        if (text) cur.parts.push(text);
       }
+    });
+    if (cur) sections.push(cur);
 
-      entries.push({ title: title, page: pageName, url: pageUrl + '#' + id, snippet: snippet });
+    sections.forEach(function (s) {
+      entries.push({
+        title: s.title,
+        page: pageName,
+        url: pageUrl + '#' + s.id,
+        text: s.parts.join(' ').replace(/\s+/g, ' ').slice(0, 4000),
+      });
     });
 
     return entries;
@@ -75,7 +84,7 @@
 
     // Try sessionStorage cache first
     try {
-      var cached = sessionStorage.getItem('usortm-search-v1');
+      var cached = sessionStorage.getItem('usortm-search-v2');
       if (cached) {
         index = JSON.parse(cached);
         return Promise.resolve();
@@ -95,7 +104,7 @@
       })
     ).then(function (results) {
       index = [].concat.apply([], results);
-      try { sessionStorage.setItem('usortm-search-v1', JSON.stringify(index)); } catch (e) {}
+      try { sessionStorage.setItem('usortm-search-v2', JSON.stringify(index)); } catch (e) {}
       building = null;
     });
 
@@ -109,21 +118,21 @@
 
     return index
       .map(function (entry) {
-        var titleLow   = entry.title.toLowerCase();
-        var pageLow    = entry.page.toLowerCase();
-        var snippetLow = (entry.snippet || '').toLowerCase();
+        var titleLow = entry.title.toLowerCase();
+        var pageLow  = entry.page.toLowerCase();
+        var textLow  = (entry.text || '').toLowerCase();
 
         // All terms must appear somewhere
         var allFound = terms.every(function (t) {
-          return titleLow.includes(t) || pageLow.includes(t) || snippetLow.includes(t);
+          return titleLow.includes(t) || pageLow.includes(t) || textLow.includes(t);
         });
         if (!allFound) return null;
 
-        // Score: higher for title hits
+        // Score: title hits rank highest, then page name, then body text
         var score = terms.reduce(function (s, t) {
-          if (titleLow.includes(t))   return s + 4;
-          if (pageLow.includes(t))    return s + 2;
-          if (snippetLow.includes(t)) return s + 1;
+          if (titleLow.includes(t)) return s + 4;
+          if (pageLow.includes(t))  return s + 2;
+          if (textLow.includes(t))  return s + 1;
           return s;
         }, 0);
 
