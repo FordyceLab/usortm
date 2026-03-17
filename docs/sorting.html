@@ -23,7 +23,9 @@
     (function() {
       const savedTheme = localStorage.getItem('theme');
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      const hour = new Date().getHours();
+      const isNight = hour >= 20 || hour < 7;
+      const theme = savedTheme || (prefersDark || isNight ? 'dark' : 'light');
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
@@ -418,7 +420,9 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
     (function() {
       const savedTheme = localStorage.getItem('theme');
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+      const hour = new Date().getHours();
+      const isNight = hour >= 20 || hour < 7;
+      const theme = savedTheme || (prefersDark || isNight ? 'dark' : 'light');
 
       document.documentElement.setAttribute('data-theme', theme);
       updateThemeUI(theme);
