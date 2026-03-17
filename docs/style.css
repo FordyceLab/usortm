@@ -830,7 +830,7 @@ pre:hover .code-copy-btn {
 
   /* Expanded — overlay over content */
   .sidebar.nav-open {
-    max-height: 100vh;
+    max-height: 600px;
     overflow-y: auto;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
   }
@@ -843,14 +843,12 @@ pre:hover .code-copy-btn {
     align-items: center;
   }
 
-  /* Hide nav content when collapsed */
+  /* Nav content — always rendered, clipped by sidebar overflow when collapsed */
   .sidebar-search {
-    display: none;
     padding: 0.75rem 1rem 0;
   }
 
   .sidebar-nav {
-    display: none;
     padding: 0 0.75rem;
   }
 
@@ -864,20 +862,27 @@ pre:hover .code-copy-btn {
   }
 
   .sidebar-section {
-    display: none;
     padding: 0 1rem;
     margin: 1rem 0 0.25rem;
   }
 
-  /* Show content when open */
-  .sidebar.nav-open .sidebar-search,
-  .sidebar.nav-open .sidebar-nav,
-  .sidebar.nav-open .sidebar-section {
-    display: block;
+  .sidebar-nav:last-of-type {
+    padding-bottom: 1.25rem;
   }
 
-  .sidebar.nav-open .sidebar-nav:last-of-type {
-    padding-bottom: 1.25rem;
+  /* Theme toggle — anchored inside topbar on mobile */
+  .theme-toggle {
+    top: 9px;
+    z-index: 95;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .theme-toggle:hover {
+    background: var(--color-border);
+    border-color: var(--color-border);
+    transform: none;
   }
 
   /* Hamburger toggle button */
