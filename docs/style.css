@@ -31,25 +31,25 @@
 
 /* Dark mode */
 [data-theme="dark"] {
-  --color-bg: #1a1a2e;
-  --color-sidebar: #16213e;
-  --color-border: #2d3748;
-  --color-text: #e2e8f0;
-  --color-text-muted: #a0aec0;
-  --color-text-light: #718096;
-  --color-link: #60a5fa;
-  --color-link-hover: #93c5fd;
-  --color-accent: #60a5fa;
-  --color-accent-light: #1e3a5f;
+  --color-bg: #1c1c1e;
+  --color-sidebar: #242424;
+  --color-border: #3a3a3c;
+  --color-text: #f2f2f2;
+  --color-text-muted: #ababab;
+  --color-text-light: #6e6e73;
+  --color-link: #4096e3;
+  --color-link-hover: #5babf0;
+  --color-accent: #4096e3;
+  --color-accent-light: #1a2d45;
   --color-success: #34d399;
   --color-success-light: #86efac;
   --color-success-dark: #14532d;
-  --color-card-bg: #1e293b;
-  --color-code-bg: #0d1117;
-  --color-code-text: #c9d1d9;
-  --color-code-border: #30363d;
-  --color-table-stripe: #1c2640;
-  --color-table-hover: #243049;
+  --color-card-bg: #2c2c2e;
+  --color-code-bg: #161617;
+  --color-code-text: #e0e0e0;
+  --color-code-border: #3a3a3c;
+  --color-table-stripe: #242424;
+  --color-table-hover: #2c2c2e;
   --method-img-filter: invert(0.88) hue-rotate(180deg);
 }
 

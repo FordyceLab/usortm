@@ -37,11 +37,11 @@
       --color-border: #e5e5e5;
     }
     [data-theme="dark"] {
-      --color-bg: #1a1a2e;
-      --color-sidebar: #16213e;
-      --color-text: #e2e8f0;
-      --color-card-bg: #1e293b;
-      --color-border: #2d3748;
+      --color-bg: #1c1c1e;
+      --color-sidebar: #242424;
+      --color-text: #f2f2f2;
+      --color-card-bg: #2c2c2e;
+      --color-border: #3a3a3c;
     }
     html, body {
       margin: 0;
@@ -181,6 +181,14 @@
               <td><code>report</code></td>
               <td>Generate final plate maps, coverage stats, and HTML summary</td>
             </tr>
+            <tr>
+              <td><code>reorder</code></td>
+              <td>Generate synthesis ordering files for dropout variants (IDT eBlocks, Twist Gene Fragments, oPools)</td>
+            </tr>
+            <tr>
+              <td><code>platemap</code></td>
+              <td>Regenerate interactive plate map HTML from existing demux results without re-running demux</td>
+            </tr>
           </tbody>
         </table>
         
@@ -216,7 +224,7 @@
               <td><code>--fold-sampling</code></td>
               <td><code>-f</code></td>
               <td>Fold oversampling</td>
-              <td>8.0</td>
+              <td>4.0</td>
             </tr>
             <tr>
               <td><code>--skew</code></td>
@@ -308,7 +316,7 @@
               <td><code>--seq-length</code></td>
               <td><code>-l</code></td>
               <td>Sequence length (bp)</td>
-              <td>300</td>
+              <td>auto-detected from sequences</td>
             </tr>
             <tr>
               <td><code>--fold-sampling</code></td>
@@ -320,7 +328,7 @@
               <td><code>--skew</code></td>
               <td><code>-s</code></td>
               <td>Expected library skew</td>
-              <td>4.0</td>
+              <td>interactive prompt (None)</td>
             </tr>
             <tr>
               <td><code>--target-coverage</code></td>
@@ -334,9 +342,15 @@
               <td>Barcode kit or CSV path</td>
               <td><code>levseq</code></td>
             </tr>
+            <tr>
+              <td><code>--round</code></td>
+              <td><code>-r</code></td>
+              <td>Sequencing round number (1 for initial sort, 2+ for re-order rounds)</td>
+              <td>1</td>
+            </tr>
           </tbody>
         </table>
-        
+
         <h3>Barcode Options</h3>
         <ul>
           <li><code>levseq</code> - Arnold lab LevSeq barcodes (recommended for ONT)</li>
@@ -408,9 +422,33 @@
               <td>Threads for alignment</td>
               <td>4</td>
             </tr>
+            <tr>
+              <td><code>--workers</code></td>
+              <td><code>-w</code></td>
+              <td>Parallel workers for per-well consensus alignment</td>
+              <td>4</td>
+            </tr>
+            <tr>
+              <td><code>--subsample</code></td>
+              <td><code>-n</code></td>
+              <td>Subsample to this many reads before running the pipeline</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--orient-ref</code></td>
+              <td></td>
+              <td>Single reference FASTA for read orientation only (useful for near-identical variant libraries)</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--vector-fasta</code></td>
+              <td></td>
+              <td>Vector FASTA with X's marking the variable region; enables flanking region mismatch detection</td>
+              <td>None</td>
+            </tr>
           </tbody>
         </table>
-        
+
         <h2 id="pick"><code>usortm pick</code></h2>
         <p>Generate hit-picking list from demultiplexing results. Output is formatted for Integra ASSIST PLUS liquid handling robots. The pick list is ordered to match the input library CSV, so variants appear in the same order they were defined.</p>
         
@@ -454,8 +492,8 @@
             <tr>
               <td><code>--fill-order</code></td>
               <td></td>
-              <td>Fill order (column/row)</td>
-              <td>column</td>
+              <td>Fill order (row/column)</td>
+              <td>row</td>
             </tr>
             <tr>
               <td><code>--unique-only/--all-hits</code></td>
@@ -463,9 +501,39 @@
               <td>Pick one well per variant</td>
               <td>True</td>
             </tr>
+            <tr>
+              <td><code>--tier</code></td>
+              <td></td>
+              <td>Quality tier filter: A (&ge;100 reads), B (&ge;50 reads), C (&ge;20 reads); all require &gt;90% consensus. Use <code>--tier ''</code> to disable.</td>
+              <td>A</td>
+            </tr>
+            <tr>
+              <td><code>--compact/--no-compact</code></td>
+              <td></td>
+              <td>Pack recovered hits into adjacent wells; omit empty placeholders for unrecovered variants</td>
+              <td>False</td>
+            </tr>
+            <tr>
+              <td><code>--pileups/--no-pileups</code></td>
+              <td></td>
+              <td>Generate per-well pileup HTML visualizations</td>
+              <td>True</td>
+            </tr>
+            <tr>
+              <td><code>--workers</code></td>
+              <td><code>-w</code></td>
+              <td>Parallel workers for pileup generation</td>
+              <td>4</td>
+            </tr>
+            <tr>
+              <td><code>--include-flank-errors</code></td>
+              <td></td>
+              <td>Include wells with flanking region mismatches in the pick list</td>
+              <td>False</td>
+            </tr>
           </tbody>
         </table>
-        
+
         <h3>Output Format</h3>
         <p>Semicolon-delimited CSV compatible with Integra ASSIST PLUS:</p>
         
@@ -508,10 +576,10 @@ G45A;1;A11;0;B1;5.0</code></pre>
         <h2>JSON Output</h2>
         <p>Several commands support <code>--json</code> output for programmatic use:</p>
         
-        <pre><code class="language-bash">usortm estimate -n 500 -l 300 --json | jq '.costs.total'</code></pre>
-        
+        <pre><code class="language-bash">usortm estimate -n 500 -l 300 --fold-sampling 8 --json | jq '.costs.total'</code></pre>
+
         <p>Example JSON output:</p>
-        
+
         <pre><code class="language-json">{
   "library_size": 500,
   "seq_length": 300,
