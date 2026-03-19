@@ -74,7 +74,6 @@ usortm report my_project/
 | `demux` | Demultiplex sequencing data (LevSeq barcodes via dorado, reference alignment, consensus, variant calling) |
 | `pick` | Generate Integra ASSIST hit-picking list (ordered by input library) |
 | `report` | Generate final plate maps, coverage stats, and HTML summary |
-| `integra` | Standalone hit-list generation (without project) |
 
 ### Example: Cost Estimate
 

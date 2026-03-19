@@ -2,6 +2,9 @@
 
 import typer
 
+from usortm import __version__
+from usortm.cli.theme import get_console
+
 from .estimate import estimate
 from .plan import plan
 from .demux_cmd import demux
@@ -11,12 +14,54 @@ from .report import report
 from .config_cmd import config_app
 from .platemap import platemap
 
+console = get_console()
+
+
+def version_callback(value: bool):
+    """Print version and exit."""
+    if value:
+        console.print(f"[brand]uSort-M[/brand] version {__version__}")
+        raise typer.Exit()
+
+
 # Create the main Typer app
 app = typer.Typer(
     name="usortm",
-    help="uSort-M: Scalable and cost-effective arrayed gene library generation",
+    help="[#4096E3]uSort-M[/#4096E3]: Rapid and low-cost parsed variant library generation.",
     add_completion=False,
+    rich_markup_mode="rich",
 )
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+):
+    """
+    [bold #4096E3]uSort-M[/bold #4096E3]: Rapid and low-cost parsed variant library generation.
+
+    [bold]Workflow commands:[/bold]
+
+        [cyan]plan[/cyan]      Initialize project from variant list
+        [cyan]demux[/cyan]     Demultiplex sequencing data
+        [cyan]pick[/cyan]      Generate hit-picking list
+        [cyan]reorder[/cyan]   Export synthesis order for dropout variants
+        [cyan]report[/cyan]    Generate final plate maps
+
+    [bold]Utility commands:[/bold]
+
+        [cyan]estimate[/cyan]  Quick cost/effort estimation
+        [cyan]platemap[/cyan]  Regenerate demux plate map HTML from existing results
+    """
+    pass
+
 
 # Register commands
 app.command(name="estimate")(estimate)

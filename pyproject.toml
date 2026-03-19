@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "usortm"
 version = "0.1.0"
-description = "Utilities for rapid and low-cost parsed protein library generation."
+description = "Utilities for rapid and low-cost parsed variant library generation."
 authors = [
     {name = "Micah Olivas", email = "mbolivas@stanford.edu"},
     {name = "Patrick Almhjell", email = "almhjell@stanford.edu"}
