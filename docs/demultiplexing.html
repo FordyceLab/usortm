@@ -175,7 +175,8 @@
         <h2>Prerequisites</h2>
 
         <p>The demux pipeline requires three external tools (see <a href="getting-started.html">Getting Started</a> for installation):</p>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr><th>Tool</th><th>Min Version</th><th>Purpose</th></tr>
           </thead>
@@ -185,6 +186,7 @@
             <tr><td><a href="https://github.com/samtools/samtools" target="_blank">samtools</a></td><td>1.16+</td><td>BAM processing &amp; consensus</td></tr>
           </tbody>
         </table>
+        </div>
         <p><code>usortm</code> auto-discovers dorado in common locations (<code>~/Downloads/dorado-*/bin/</code>, <code>~/.dorado/bin/</code>). You can also set <code>DORADO_PATH</code>, <code>MINIMAP2_PATH</code>, or <code>SAMTOOLS_PATH</code> environment variables.</p>
 
         <h2>Input Files</h2>
@@ -377,7 +379,8 @@ usortm report my_project/ --format json</code></pre>
 
         <p>Output files are saved to <code>project/report/</code>:</p>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr><th>Format</th><th>Files</th><th>Contents</th></tr>
           </thead>
@@ -399,6 +402,7 @@ usortm report my_project/ --format json</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Generating Pick Lists</h2>
 
@@ -530,7 +534,8 @@ T203Y;2;C5;0;C1;5.0</code></pre>
 
         <h3>Default Parameters</h3>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
           </thead>
@@ -552,6 +557,7 @@ T203Y;2;C5;0;C1;5.0</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Flanking Region Checking</h2>
 
@@ -613,7 +619,8 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           When <code>--vector-fasta</code> is provided, the following columns are added
           to <code>well_assignments.csv</code> and <code>well_df.csv</code>:
         </p>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Column</th>
@@ -639,6 +646,7 @@ T203Y;2;C5;0;C1;5.0</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
         <p>
           The CLI summary will also display a flanking region breakdown after the
           demultiplexing summary table.
@@ -657,7 +665,8 @@ T203Y;2;C5;0;C1;5.0</code></pre>
 
         <h3>Expected Metrics</h3>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Metric</th>
@@ -693,10 +702,12 @@ T203Y;2;C5;0;C1;5.0</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h3>Troubleshooting</h3>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Problem</th>
@@ -737,6 +748,7 @@ T203Y;2;C5;0;C1;5.0</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Complete Workflow Example</h2>
 

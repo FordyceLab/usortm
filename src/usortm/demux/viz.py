@@ -156,7 +156,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
           .apply(lambda x: "<br/>".join(
               [f"<b>{_well_label(x.iloc[0].row, x.iloc[0].col)}</b>"] +
               [f"{r} {p:.0%}" for r,p in zip(x[ref_col], x["frac"])][:max_lines]
-          ))
+          ), include_groups=False)
           .rename("tooltip").reset_index())
 
     dom = g.sort_values([well_col,"n"], ascending=[True,False]).groupby(well_col).head(1)

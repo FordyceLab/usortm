@@ -786,9 +786,9 @@ def _make_read_length_bokeh(hist_data: dict):
     ]
     for peak_bin, peak_count in peaks_to_annotate:
         peak_bp = int((peak_bin + 0.5) * bin_size)
-        fig.inverted_triangle(
+        fig.scatter(
             x=[peak_bp], y=[peak_count * 1.06], size=8,
-            color="#6b7280", alpha=0.6,
+            marker="inverted_triangle", color="#6b7280", alpha=0.6,
         )
         fig.add_layout(Label(
             x=peak_bp, y=peak_count * 1.10, text=f"{peak_bp}bp",
@@ -799,9 +799,9 @@ def _make_read_length_bokeh(hist_data: dict):
     # Median marker
     if median_bp > 0:
         med_count = counts[min(int(median_bp / bin_size), n_bins - 1)]
-        fig.inverted_triangle(
+        fig.scatter(
             x=[median_bp], y=[med_count * 1.06], size=8,
-            color="#ef4444", alpha=0.85,
+            marker="inverted_triangle", color="#ef4444", alpha=0.85,
         )
         fig.add_layout(Label(
             x=median_bp, y=med_count * 1.10, text=f"med {median_bp}bp",
@@ -914,7 +914,7 @@ def _make_recovery_curve_bokeh(
     # Observed data point(s)
     if true_sampling is not None:
         if tier_c_pct is not None:
-            obs_r = fig.circle(
+            obs_r = fig.scatter(
                 [true_sampling], [tier_c_pct], size=10, color="#22c55e",
             )
             legend_items.append(LegendItem(
@@ -922,7 +922,7 @@ def _make_recovery_curve_bokeh(
             ))
 
             if streakout_pct is not None and streakout_pct > tier_c_pct:
-                so_r = fig.circle(
+                so_r = fig.scatter(
                     [true_sampling], [streakout_pct], size=10, color="#2563eb",
                 )
                 fig.segment(

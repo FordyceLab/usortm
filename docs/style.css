@@ -531,14 +531,19 @@ a:hover {
 }
 
 /* Tables — GitHub-style with cell borders and alternating rows */
-table {
-  width: auto;
-  margin-left: auto;
-  margin-right: auto;
-  border-collapse: separate;
-  border-spacing: 0;
+.table-wrapper {
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
   margin-top: 1.5rem;
   margin-bottom: 1.5rem;
+}
+
+table {
+  width: auto;
+  flex-shrink: 0;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.9375rem;
   border: 1px solid var(--color-table-border);
   border-radius: 6px;

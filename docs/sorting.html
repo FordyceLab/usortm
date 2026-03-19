@@ -155,7 +155,8 @@
 
         <h2>Materials</h2>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Item</th>
@@ -191,6 +192,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Protocol</h2>
 
@@ -223,7 +225,8 @@
         </ul>
 
         <p><strong>Typical sort parameters:</strong></p>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Parameter</th>
@@ -257,6 +260,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h3>4. Perform Sorting</h3>
         <ol>
@@ -294,7 +298,8 @@ usortm estimate --library-size 500
 usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
 
         <p><strong>General guidelines:</strong></p>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Library Size</th>
@@ -330,12 +335,213 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
+
+        <style>
+          .cov-card { border: 1.5px solid var(--color-border); border-radius: 10px; padding: 1.25rem 1.5rem 1rem; margin: 1.5rem 0 0.5rem; background: var(--color-card-bg); }
+          .cov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1.1rem; margin-bottom: 0.9rem; }
+          .cov-label { font-size: 0.9rem; color: var(--color-text-muted); white-space: nowrap; }
+          .cov-ticker { display: inline-flex; align-items: stretch; border: 1.5px solid var(--color-border); border-radius: 6px; overflow: hidden; transition: border-color 0.15s; }
+          .cov-ticker:focus-within { border-color: var(--color-accent); }
+          .cov-btn { width: 32px; background: var(--color-bg-alt, #f0f0f0); border: none; cursor: pointer; font-size: 1.1rem; color: var(--color-text); transition: background 0.12s; }
+          [data-theme="dark"] .cov-btn { background: #3a3a3c; }
+          .cov-btn:hover { background: var(--color-accent); color: #fff; }
+          .cov-btn:disabled { opacity: 0.35; cursor: default; }
+          .cov-input { width: 60px; border: none; text-align: center; font-size: 1rem; background: transparent; color: var(--color-text); padding: 0.28rem 0; outline: none; -moz-appearance: textfield; }
+          .cov-input::-webkit-inner-spin-button, .cov-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+          .cov-unit { font-size: 0.9rem; color: var(--color-text-muted); }
+          .cov-select { padding: 0.28rem 0.6rem; border: 1.5px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-text); font-size: 0.88rem; cursor: pointer; outline: none; transition: border-color 0.15s; max-width: 280px; }
+          .cov-select:focus { border-color: var(--color-accent); }
+          .cov-skew-row { display: flex; align-items: center; gap: 0.45rem; }
+          .cov-skew-btn { padding: 0.2rem 0.65rem; border: 1.5px solid var(--color-border); border-radius: 4px; background: transparent; color: var(--color-text); cursor: pointer; font-size: 0.85rem; transition: background 0.12s, border-color 0.12s; }
+          .cov-skew-btn.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+          .cov-divider { width: 100%; height: 0; border: none; border-top: 1px solid var(--color-border); margin: 0.35rem 0 0.75rem; }
+          .cov-chart-wrap { margin: 0.25rem 0 0.5rem; }
+          .cov-chart-wrap svg { width: 100%; height: auto; display: block; }
+          .cov-hint { font-size: 0.88rem; color: var(--color-text-muted); margin: 0.4rem 0 0; text-align: center; }
+          .cov-hint strong { color: var(--color-text); }
+          @media (max-width: 560px) {
+            .cov-row { gap: 0.5rem 0.8rem; }
+            .cov-select { max-width: 100%; width: 100%; }
+          }
+        </style>
+
+        <div class="cov-card">
+          <div class="cov-row">
+            <span class="cov-label">Library size:</span>
+            <div class="cov-ticker">
+              <button class="cov-btn" id="covMinus" aria-label="Decrease">−</button>
+              <input type="number" id="covLibSize" class="cov-input" value="500" min="50" max="5000" step="50" />
+              <button class="cov-btn" id="covPlus" aria-label="Increase">+</button>
+            </div>
+            <span class="cov-unit">variants</span>
+          </div>
+          <div class="cov-row">
+            <span class="cov-label">Oligo pool product:</span>
+            <select id="covProduct" class="cov-select">
+              <option value="4" data-skew="4" selected>Twist Oligo Pools — skew 4×</option>
+              <option value="3" data-skew="3">Twist Cloned Oligo Pools — skew 3×</option>
+              <option value="5" data-skew="5">Twist Multiplexed Gene Fragments — skew 5×</option>
+              <option value="3b" data-skew="3">Twist Cloned MGF — skew 3×</option>
+              <option value="6" data-skew="6">Twist Gene Pools — skew 6×</option>
+              <option value="custom" data-skew="">Custom skew</option>
+            </select>
+          </div>
+          <div class="cov-row" id="covCustomSkewRow" style="display:none;">
+            <span class="cov-label">Library skew:</span>
+            <div class="cov-skew-row" id="covSkewBtns">
+              <button class="cov-skew-btn" data-skew="2">2×</button>
+              <button class="cov-skew-btn active" data-skew="4">4×</button>
+              <button class="cov-skew-btn" data-skew="5">5×</button>
+              <button class="cov-skew-btn" data-skew="6">6×</button>
+              <button class="cov-skew-btn" data-skew="8">8×</button>
+            </div>
+          </div>
+          <hr class="cov-divider" />
+          <div class="cov-chart-wrap" id="covChart"></div>
+          <p class="cov-hint" id="covHint"></p>
+        </div>
+
+        <script>
+        (function () {
+          var DATA_URL = 'sort_data/coverage_curves.json';
+          var LIB_SIZES = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000];
+          var covData = null;
+          var curLib = 500, curSkew = 4;
+
+          fetch(DATA_URL).then(function(r){ return r.json(); }).then(function(d){
+            covData = d; render();
+          });
+
+          document.getElementById('covMinus').addEventListener('click', function(){
+            var idx = nearestIdx(curLib);
+            if (idx > 0) { curLib = LIB_SIZES[idx - 1]; syncInput(); render(); }
+          });
+          document.getElementById('covPlus').addEventListener('click', function(){
+            var idx = nearestIdx(curLib);
+            if (idx < LIB_SIZES.length - 1) { curLib = LIB_SIZES[idx + 1]; syncInput(); render(); }
+          });
+          document.getElementById('covLibSize').addEventListener('change', function(){
+            var v = parseInt(this.value) || 500;
+            curLib = nearestLib(Math.max(50, Math.min(5000, v)));
+            syncInput(); render();
+          });
+
+          document.getElementById('covProduct').addEventListener('change', function(){
+            var opt = this.options[this.selectedIndex];
+            var skewVal = opt.getAttribute('data-skew');
+            var customRow = document.getElementById('covCustomSkewRow');
+            if (this.value === 'custom') {
+              customRow.style.display = '';
+              // curSkew stays as whatever the manual buttons have
+            } else {
+              customRow.style.display = 'none';
+              curSkew = parseInt(skewVal);
+              render();
+            }
+          });
+
+          document.querySelectorAll('#covSkewBtns .cov-skew-btn').forEach(function(btn){
+            btn.addEventListener('click', function(){
+              document.querySelectorAll('#covSkewBtns .cov-skew-btn').forEach(function(b){ b.classList.remove('active'); });
+              btn.classList.add('active');
+              curSkew = parseInt(btn.dataset.skew);
+              render();
+            });
+          });
+
+          function syncInput() { document.getElementById('covLibSize').value = curLib; }
+
+          function nearestIdx(n) {
+            var best = 0;
+            LIB_SIZES.forEach(function(v, i){ if (Math.abs(v - n) < Math.abs(LIB_SIZES[best] - n)) best = i; });
+            return best;
+          }
+          function nearestLib(n) { return LIB_SIZES[nearestIdx(n)]; }
+
+          function render() {
+            if (!covData) return;
+            var key = String(nearestLib(curLib));
+            var skewKey = String(curSkew);
+            var points = covData[key] && covData[key][skewKey];
+            if (!points) return;
+            drawChart(points);
+            updateHint(points);
+          }
+
+          function drawChart(points) {
+            var W = 440, H = 440, ML = 44, MR = 16, MT = 14, MB = 50;
+            var cW = W - ML - MR, cH = H - MT - MB;
+            var maxFold = points[points.length - 1].fold;
+            function xS(f){ return ML + (f / maxFold) * cW; }
+            function yS(v){ return MT + (1 - v) * cH; }
+
+            var meanPath = '', areaTop = '', areaBtm = [];
+            points.forEach(function(p, i){
+              var x = xS(p.fold).toFixed(1), ym = yS(p.mean).toFixed(1);
+              meanPath += (i === 0 ? 'M' : 'L') + x + ',' + ym;
+              var yt = yS(p.p90).toFixed(1);
+              areaTop += (i === 0 ? 'M' : 'L') + x + ',' + yt;
+              areaBtm.unshift('L' + x + ',' + yS(p.p10).toFixed(1));
+            });
+            var areaPath = areaTop + areaBtm.join('') + 'Z';
+
+            var y90 = yS(0.9).toFixed(1);
+            var yTicks = [0, 0.25, 0.5, 0.75, 1.0];
+            var yTicksSvg = yTicks.map(function(v){
+              return '<line x1="' + ML + '" y1="' + yS(v).toFixed(1) + '" x2="' + (ML+cW) + '" y2="' + yS(v).toFixed(1) + '" stroke="var(--color-border)" stroke-dasharray="3,3"/>'
+                + '<text x="' + (ML-6) + '" y="' + (yS(v)+4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--color-text-muted)">' + (v*100).toFixed(0) + '%</text>';
+            }).join('');
+
+            var xTicks = [1,2,3,4,6,8,10,12].filter(function(f){ return f <= maxFold + 0.1; });
+            var xTicksSvg = xTicks.map(function(f){
+              return '<line x1="' + xS(f).toFixed(1) + '" y1="' + (MT+cH) + '" x2="' + xS(f).toFixed(1) + '" y2="' + (MT+cH+5) + '" stroke="var(--color-border)"/>'
+                + '<text x="' + xS(f).toFixed(1) + '" y="' + (MT+cH+17) + '" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">' + f + '×</text>';
+            }).join('');
+
+            var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">'
+              + yTicksSvg + xTicksSvg
+              + '<path d="' + areaPath + '" fill="var(--color-accent)" fill-opacity="0.13"/>'
+              + '<path d="' + meanPath + '" fill="none" stroke="var(--color-accent)" stroke-width="2.5" stroke-linejoin="round"/>'
+              + '<line x1="' + ML + '" y1="' + y90 + '" x2="' + (ML+cW) + '" y2="' + y90 + '" stroke="var(--color-accent)" stroke-width="1" stroke-dasharray="5,3" opacity="0.65"/>'
+              + '<text x="' + (ML+cW-3) + '" y="' + (parseFloat(y90)-5) + '" text-anchor="end" font-size="10" fill="var(--color-accent)">90%</text>'
+              + '<text x="' + (ML + cW/2) + '" y="' + (H-4) + '" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">Fold sampling (wells ÷ library size)</text>'
+              + '</svg>';
+
+            document.getElementById('covChart').innerHTML = svg;
+          }
+
+          function updateHint(points) {
+            var fold90 = null;
+            for (var i = 0; i < points.length - 1; i++) {
+              if (points[i].mean < 0.9 && points[i+1].mean >= 0.9) {
+                var t = (0.9 - points[i].mean) / (points[i+1].mean - points[i].mean);
+                fold90 = points[i].fold + t * (points[i+1].fold - points[i].fold);
+                break;
+              }
+            }
+            if (fold90 === null && points[points.length-1].mean >= 0.9) fold90 = points[0].fold;
+            var el = document.getElementById('covHint');
+            if (fold90 === null) {
+              el.innerHTML = 'Increase fold sampling beyond 12× for 90% coverage at this skew.';
+              return;
+            }
+            var wells = Math.ceil(curLib * fold90);
+            var plates = Math.ceil(wells / 384);
+            el.innerHTML = 'For <strong>' + curLib.toLocaleString() + ' variants</strong> at <strong>' + curSkew + '× skew</strong>: '
+              + 'sort <strong>~' + wells.toLocaleString() + ' wells</strong> '
+              + '(<strong>' + plates + ' plate' + (plates === 1 ? '' : 's') + '</strong>) '
+              + 'for 90% library coverage (≈' + fold90.toFixed(1) + '× fold sampling).';
+          }
+        })();
+        </script>
 
         <h2>Quality Control</h2>
 
         <h3>Troubleshooting</h3>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Problem</th>
@@ -371,6 +577,7 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Next Steps</h2>
         <p>

@@ -155,7 +155,8 @@
         
         <h2>Commands</h2>
         
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Command</th>
@@ -193,6 +194,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
         
         <h2 id="estimate"><code>usortm estimate</code></h2>
         <p>Quick cost and effort estimation without creating a project.</p>
@@ -200,7 +202,8 @@
         <pre><code class="language-bash">usortm estimate --library-size 500 --seq-length 300</code></pre>
         
         <h3>Options</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Option</th>
@@ -266,6 +269,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
         
         <h3>Example with custom parameters</h3>
         <pre><code class="language-bash">usortm estimate \
@@ -282,7 +286,8 @@
         <pre><code class="language-bash">usortm plan variants.csv --output my_project/</code></pre>
         
         <h3>Arguments</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Argument</th>
@@ -296,9 +301,11 @@
             </tr>
           </tbody>
         </table>
+        </div>
         
         <h3>Options</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Option</th>
@@ -352,6 +359,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h3>Barcode Options</h3>
         <ul>
@@ -366,7 +374,8 @@
         <pre><code class="language-bash">usortm demux my_project/ --fastq data.fastq --library-csv variants.csv</code></pre>
 
         <h3>Options</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Option</th>
@@ -450,6 +459,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2 id="pick"><code>usortm pick</code></h2>
         <p>Generate hit-picking list from demultiplexing results. Output is formatted for Integra ASSIST PLUS liquid handling robots. The pick list is ordered to match the input library CSV, so variants appear in the same order they were defined.</p>
@@ -457,7 +467,8 @@
         <pre><code class="language-bash">usortm pick my_project/</code></pre>
         
         <h3>Options</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Option</th>
@@ -535,6 +546,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h3>Output Format</h3>
         <p>Semicolon-delimited CSV compatible with Integra ASSIST PLUS:</p>
@@ -549,7 +561,8 @@ G45A;1;A11;0;B1;5.0</code></pre>
         <pre><code class="language-bash">usortm report my_project/</code></pre>
         
         <h3>Options</h3>
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Option</th>
@@ -567,6 +580,7 @@ G45A;1;A11;0;B1;5.0</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
         
         <h3>Output Files</h3>
         <pre><code class="language-plaintext">my_project/report/

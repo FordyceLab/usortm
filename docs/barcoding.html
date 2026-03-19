@@ -172,7 +172,8 @@
 
         <h2>Materials</h2>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Item</th>
@@ -233,6 +234,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Protocol</h2>
 
@@ -254,9 +256,9 @@
               id="mmixPlates"
               class="mmix-input"
               value="1"
-              min="1"
+              min="0.5"
               max="99"
-              step="1"
+              step="any"
             />
             <button class="mmix-btn" id="mmixPlus" aria-label="Increase">+</button>
           </div>
@@ -267,7 +269,8 @@
           <li>Prepare PCR master mix for plates</li>
         </ol>
         <!-- <p><strong>Master mix (7 µL per reaction; includes 10% excess):</strong></p> -->
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Component</th>
@@ -288,6 +291,7 @@
             </tr>
           </tbody>
         </table>
+        </div>
 
         <style>
           .mmix-calc-wrapper {
@@ -337,7 +341,7 @@
             color: white;
           }
           .mmix-input {
-            width: 52px;
+            width: 60px;
             text-align: center;
             border: none;
             border-left: 1px solid var(--color-border, #e5e5e5);
@@ -407,28 +411,50 @@
               return (Math.round(v * 10) / 10).toFixed(1);
             }
 
-            function update() {
-              const n = Math.max(1, parseInt(input.value, 10) || 1);
-              input.value = n;
-              const rawRxns = WELLS_PER_PLATE * n * EXCESS;
+            const MIN = 1;
+
+            function render(n) {
+              const wells = WELLS_PER_PLATE * n;
+              const rawRxns = wells * EXCESS;
               const rxnsDisplay = Math.round(rawRxns);
+              const plateLabel = n === 1 ? 'plate' : 'plates';
               badge.textContent = rxnsDisplay.toLocaleString() + ' rxns';
-              hint.innerHTML = `384 wells × ${n} plate${n !== 1 ? 's' : ''} + 10% excess = <strong>${rxnsDisplay.toLocaleString()} rxns</strong>`;
+              hint.innerHTML = `${n} ${plateLabel} = <strong>${wells.toLocaleString()} wells</strong> + 10% excess = <strong>${rxnsDisplay.toLocaleString()} rxns</strong>`;
               PER_RXN.forEach((vol, i) => {
                 cells[i].textContent = formatVol(vol * rawRxns);
               });
-              minus.disabled = n <= 1;
+              minus.disabled = n <= MIN;
             }
 
-            minus.addEventListener('click', () => { input.value = Math.max(1, (parseInt(input.value) || 1) - 1); update(); });
-            plus.addEventListener('click',  () => { input.value = (parseInt(input.value) || 1) + 1; update(); });
-            input.addEventListener('input', update);
+            input.addEventListener('input', () => {
+              const n = parseFloat(input.value);
+              if (!isNaN(n) && n >= MIN) render(n);
+            });
 
-            update(); // initialise
+            input.addEventListener('blur', () => {
+              const n = Math.max(MIN, parseFloat(input.value) || MIN);
+              input.value = n;
+              render(n);
+            });
+
+            minus.addEventListener('click', () => {
+              const cur = parseFloat(input.value) || 1;
+              const n = Math.max(MIN, Math.floor(cur) === cur ? cur - 1 : Math.floor(cur));
+              input.value = n;
+              render(n);
+            });
+            plus.addEventListener('click', () => {
+              const cur = parseFloat(input.value) || 1;
+              const n = Math.ceil(cur) === cur ? cur + 1 : Math.ceil(cur);
+              input.value = n;
+              render(n);
+            });
+
+            render(parseFloat(input.value) || 1); // initialise
           })();
         </script>
 
-        <ol>
+        <ol start="2">
           <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
           <li><strong>Liquid handler workflow</strong> (minimize tips; do not change tips for each 384 or 96-well equivalent to prevent cross-contamination):
             <ol>
@@ -467,7 +493,8 @@
           Highlighted cells (<span class="ext-highlight-inline">20 sec/kb</span>) update automatically when a length is entered above.
         </p>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
         <thead>
           <tr>
             <th>Cycles</th>
@@ -523,6 +550,7 @@
 
         </tbody>
       </table>
+        </div>
 
         <div class="callout">
           <strong>Note:</strong> Touchdown step decreases from 65°C to 55°C over 10 cycles (ΔT = −1°C/cycle). PCR takes ~1 hour. During PCR, measure ODs of sort plates and store glycerol stocks at −80°C.
@@ -693,7 +721,8 @@ plate_2,A02,TCGATCGATCGA</code></pre>
 
         <h3>Troubleshooting</h3>
 
-        <table>
+        <div class="table-wrapper">
+          <table>
           <thead>
             <tr>
               <th>Problem</th>
@@ -724,6 +753,7 @@ plate_2,A02,TCGATCGATCGA</code></pre>
             </tr>
           </tbody>
         </table>
+        </div>
 
         <h2>Sequencing Submission</h2>
 
