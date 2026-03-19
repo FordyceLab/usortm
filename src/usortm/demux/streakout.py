@@ -741,6 +741,8 @@ def generate_well_pileup_html(
     output_path: str,
     minimap2_path: str = None,
     samtools_path: str = None,
+    flank_5p_len: int = 0,
+    flank_3p_len: int = 0,
 ) -> None:
     """Generate an interactive pileup HTML for one streak-out candidate well.
 
@@ -808,7 +810,11 @@ def generate_well_pileup_html(
     # Sort: major group first
     group_sections.sort(key=lambda s: -s["frac"])
 
-    html = _render_pileup_html(well_pos, candidate_info, group_sections)
+    flank_lengths = None
+    if flank_5p_len or flank_3p_len:
+        flank_lengths = (flank_5p_len, flank_3p_len)
+    html = _render_pileup_html(well_pos, candidate_info, group_sections,
+                               flank_lengths=flank_lengths)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
         f.write(html)
@@ -889,7 +895,8 @@ def _build_pileup_grid(
 
 
 def _render_pileup_html(well_pos: str, candidate: dict,
-                         groups: list[dict]) -> str:
+                         groups: list[dict],
+                         flank_lengths: tuple[int, int] | None = None) -> str:
     """Render the pileup HTML page for one well.
 
     Uses an HTML5 canvas matrix: each read is a row of colored cells.
@@ -897,6 +904,10 @@ def _render_pileup_html(well_pos: str, candidate: dict,
     """
     import html as _html
     import json as _json
+
+    flanks_js = "null"
+    if flank_lengths and (flank_lengths[0] or flank_lengths[1]):
+        flanks_js = f"[{flank_lengths[0]},{flank_lengths[1]}]"
 
     plate = candidate["plate"]
     well = candidate["well"]
@@ -983,8 +994,14 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         else:
             pileup_block = (
                 f'<div class="pileup-container">'
+                f'<div class="pileup-outer">'
+                f'<div class="pileup-labels" id="labels-{idx}"></div>'
+                f'<div class="pileup-scroll-wrap" id="wrap-{idx}">'
                 f'<div class="pileup-scroll" id="scroll-{idx}">'
+                f'<canvas id="ruler-{idx}" class="pileup-ruler"></canvas>'
                 f'<canvas id="pileup-{idx}"></canvas>'
+                f'</div>'
+                f'</div>'
                 f'</div>'
                 f'<div class="pileup-info">{n_rows} aligned reads &times; '
                 f'{n_cols} bp</div>'
@@ -994,7 +1011,8 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 f'var ref={ref_seq_js};'
                 f'var cons={cons_js};'
                 f'var rows={rows_js};'
-                f'drawPileup("pileup-{idx}",ref,cons,rows);'
+                f'var flanks={flanks_js};'
+                f'drawPileup("pileup-{idx}","ruler-{idx}","labels-{idx}",ref,cons,rows,flanks,"scroll-{idx}","wrap-{idx}");'
                 f'}})();'
                 f'</script>'
             )
@@ -1008,6 +1026,14 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         f' &middot; Recoverable: {_html.escape(recoverable_list)}'
         if recoverable_list else ""
     )
+
+    vector_legend = ""
+    if flank_lengths and (flank_lengths[0] or flank_lengths[1]):
+        vector_legend = (
+            '    <span class="legend-item">'
+            '<span class="legend-swatch" style="background:#dfe2e6;"></span>'
+            ' Vector Match</span>\n'
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1069,18 +1095,65 @@ h1 {{
 }}
 .pileup-container {{
     margin-bottom: 0.5rem;
+    margin-left: -2.5rem;
+}}
+.pileup-outer {{
+    display: flex;
+    align-items: stretch;
+}}
+.pileup-scroll-wrap {{
+    position: relative;
+    flex: 1;
+    min-width: 0;
 }}
 .pileup-scroll {{
     overflow-x: auto;
-    overflow-y: auto;
+    overflow-y: hidden;
     max-height: 60vh;
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    scrollbar-width: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
     padding: 0;
 }}
+.pileup-scroll::-webkit-scrollbar {{
+    display: none;
+}}
+.pileup-mm-arrow {{
+    position: absolute;
+    top: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    font-size: 16px;
+    pointer-events: none;
+    z-index: 2;
+    color: var(--text);
+}}
+.pileup-mm-arrow-l {{ left: 0; background: linear-gradient(to right, var(--usortm-bg) 40%, transparent); }}
+.pileup-mm-arrow-r {{ right: 0; background: linear-gradient(to left, var(--usortm-bg) 40%, transparent); }}
 .pileup-scroll canvas {{
     display: block;
+}}
+.pileup-labels {{
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    flex-shrink: 0;
+    width: 2.5rem;
+    padding-right: 4px;
+    font: 9px/1 SF Mono, Menlo, Consolas, monospace;
+    color: var(--muted);
+    text-align: right;
+    white-space: nowrap;
+}}
+.pileup-labels span {{
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}}
+.pileup-ruler {{
 }}
 .pileup-info {{
     font-size: 0.75rem;
@@ -1123,8 +1196,10 @@ h1 {{
 }}
 </style>
 <script>
-function drawPileup(canvasId, refSeq, cons, rows) {{
+function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scrollId, wrapId) {{
   var canvas = document.getElementById(canvasId);
+  var rulerCanvas = document.getElementById(rulerId);
+  var labelsEl = document.getElementById(labelsId);
   if (!canvas) return;
   var nCols = refSeq.length;
   var nRows = rows.length;
@@ -1132,33 +1207,160 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
   var cellH = nRows < 100 ? 3 : 2;
   var refH = Math.max(cellH, 6);
   var consH = refH;
-  var gap = 1;
-  canvas.width = nCols * cellW;
-  canvas.height = refH + gap + consH + gap + nRows * cellH;
+  var gap = 4;
+  var totalW = nCols * cellW;
+  var dpr = window.devicePixelRatio || 1;
+  var pileupH = refH + gap + consH + gap + nRows * cellH;
+  canvas.width = totalW * dpr;
+  canvas.height = pileupH * dpr;
+  canvas.style.width = totalW + 'px';
+  canvas.style.height = pileupH + 'px';
   var ctx = canvas.getContext('2d');
-  var matchColor = '#059669';
-  var gapColor = '#d1d5db';
-  var refColor = '#1e293b';
-  var consMatchColor = '#059669';
-  var baseColors = {{'A':'#ef4444','T':'#3b82f6','C':'#f59e0b','G':'#8b5cf6'}};
-  if (document.documentElement.getAttribute('data-theme') === 'dark') {{
-    matchColor = '#34d399';
-    gapColor = '#334155';
-    refColor = '#e0e0e0';
-    consMatchColor = '#34d399';
-    baseColors = {{'A':'#f87171','T':'#60a5fa','C':'#fbbf24','G':'#a78bfa'}};
+  ctx.scale(dpr, dpr);
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  var matchColor = isDark ? '#4a5568' : '#c8ccd0';
+  var vectorMatchColor = isDark ? '#3a4455' : '#dfe2e6';
+  var gapColor = isDark ? '#ffffff' : '#ffffff';
+  var refColor = isDark ? '#e0e0e0' : '#1e293b';
+  var consMatchColor = matchColor;
+  var baseColors = isDark
+    ? {{'A':'#ff6b6b','T':'#339af0','C':'#ffa94d','G':'#ffd43b'}}
+    : {{'A':'#e03131','T':'#1971c2','C':'#e8590c','G':'#e67700'}};
+  // Mismatch columns: consensus differs from reference (not '.' and not '-')
+  var mismatchCols = [];
+  for (var _mi = 0; _mi < cons.length; _mi++) {{
+    var _ch = cons[_mi];
+    if (_ch !== '.' && _ch !== '-') mismatchCols.push(_mi);
   }}
-  // Reference row
+  var triRowH = mismatchCols.length > 0 ? 13 : 0;
+  function isVector(col) {{
+    return flanks && (col < flanks[0] || col >= nCols - flanks[1]);
+  }}
+  function pickMatch(col) {{
+    return isVector(col) ? vectorMatchColor : matchColor;
+  }}
+  // --- Ruler ---
+  var rulerH = (flanks ? 24 : 14) + triRowH;
+  if (rulerCanvas) {{
+    rulerCanvas.width = totalW * dpr;
+    rulerCanvas.height = rulerH * dpr;
+    rulerCanvas.style.width = totalW + 'px';
+    rulerCanvas.style.height = rulerH + 'px';
+    var rc = rulerCanvas.getContext('2d');
+    rc.scale(dpr, dpr);
+    var tickColor = isDark ? '#64748b' : '#94a3b8';
+    var labelColor = isDark ? '#e0e0e0' : '#1e293b';
+    var boundaryColor = isDark ? '#f59e0b' : '#d97706';
+    rc.clearRect(0, 0, totalW, rulerH);
+    var tickBottom = rulerH - triRowH;
+    // Region labels on top row (if flanks present)
+    var tickRowY = 0;
+    if (flanks) {{
+      tickRowY = 11;
+      rc.fillStyle = boundaryColor;
+      rc.font = '9px SF Mono,Menlo,Consolas,monospace';
+      rc.textAlign = 'center';
+      rc.textBaseline = 'top';
+      var bLeft = flanks[0] * cellW;
+      var bRight = (nCols - flanks[1]) * cellW;
+      var minLabelPx = 40;
+      if (flanks[0] > 0 && flanks[0] * cellW > minLabelPx) {{
+        rc.fillText("5\u2032 vector", bLeft / 2, 0);
+      }}
+      var insertW = bRight - bLeft;
+      if (insertW > minLabelPx) {{
+        rc.fillText("insert", bLeft + insertW / 2, 0);
+      }}
+      if (flanks[1] > 0 && flanks[1] * cellW > minLabelPx) {{
+        rc.fillText("3\u2032 vector", bRight + (totalW - bRight) / 2, 0);
+      }}
+      // Boundary dashed lines (start below both text rows, stop above triangle row)
+      rc.setLineDash([3, 2]);
+      rc.strokeStyle = boundaryColor;
+      rc.lineWidth = 1;
+      var dashY = tickRowY + 12;
+      if (flanks[0] > 0 && dashY < tickBottom) {{
+        rc.beginPath(); rc.moveTo(bLeft, dashY); rc.lineTo(bLeft, tickBottom); rc.stroke();
+      }}
+      if (flanks[1] > 0 && dashY < tickBottom) {{
+        rc.beginPath(); rc.moveTo(bRight, dashY); rc.lineTo(bRight, tickBottom); rc.stroke();
+      }}
+      rc.setLineDash([]);
+    }}
+    // Tick labels + ticks (stop above triangle row)
+    rc.strokeStyle = tickColor;
+    rc.fillStyle = labelColor;
+    rc.font = '10px SF Mono,Menlo,Consolas,monospace';
+    rc.textBaseline = 'top';
+    for (var i = 0; i < nCols; i++) {{
+      var x = i * cellW + cellW / 2;
+      if ((i + 1) % 100 === 0) {{
+        rc.strokeStyle = tickColor;
+        rc.beginPath(); rc.moveTo(x, tickRowY + 10); rc.lineTo(x, tickBottom); rc.stroke();
+        rc.fillStyle = labelColor;
+        rc.textAlign = 'center';
+        rc.fillText(String(i + 1), x, tickRowY);
+      }} else if ((i + 1) % 50 === 0) {{
+        rc.strokeStyle = tickColor;
+        rc.beginPath(); rc.moveTo(x, tickBottom - 3); rc.lineTo(x, tickBottom); rc.stroke();
+      }}
+    }}
+    // --- Mismatch triangles (pointing down toward ref) ---
+    if (mismatchCols.length > 0) {{
+      var triH = 10, triW = Math.max(cellW * 2, 9);
+      for (var _ti = 0; _ti < mismatchCols.length; _ti++) {{
+        var mc = mismatchCols[_ti];
+        rc.fillStyle = baseColors[cons[mc]] || '#94a3b8';
+        var cx = mc * cellW + cellW / 2;
+        var ty = tickBottom + 1;
+        rc.beginPath();
+        rc.moveTo(cx - triW / 2, ty);
+        rc.lineTo(cx + triW / 2, ty);
+        rc.lineTo(cx, ty + triH);
+        rc.closePath();
+        rc.fill();
+      }}
+    }}
+  }}
+  // --- HTML row labels ---
+  var consY = refH + gap;
+  var readsY = consY + consH + gap;
+  if (labelsEl) {{
+    labelsEl.innerHTML = '';
+    var rulerSpacer = document.createElement('span');
+    rulerSpacer.style.height = rulerH + 'px';
+    labelsEl.appendChild(rulerSpacer);
+    var refLabel = document.createElement('span');
+    refLabel.textContent = 'Ref';
+    refLabel.style.height = refH + 'px';
+    labelsEl.appendChild(refLabel);
+    var gapSpacer1 = document.createElement('span');
+    gapSpacer1.style.height = gap + 'px';
+    labelsEl.appendChild(gapSpacer1);
+    var consLabel = document.createElement('span');
+    consLabel.textContent = 'Cons';
+    consLabel.style.height = consH + 'px';
+    labelsEl.appendChild(consLabel);
+    var gapSpacer2 = document.createElement('span');
+    gapSpacer2.style.height = gap + 'px';
+    labelsEl.appendChild(gapSpacer2);
+    if (nRows > 0) {{
+      var readsLabel = document.createElement('span');
+      readsLabel.textContent = 'Reads';
+      readsLabel.style.height = (nRows * cellH) + 'px';
+      labelsEl.appendChild(readsLabel);
+    }}
+  }}
+  // --- Reference row ---
   ctx.fillStyle = refColor;
   for (var i = 0; i < nCols; i++) {{
     ctx.fillRect(i * cellW, 0, cellW, refH);
   }}
-  // Consensus row
-  var consY = refH + gap;
+  // --- Consensus row ---
   for (var i = 0; i < cons.length; i++) {{
     var ch = cons[i];
     if (ch === '.') {{
-      ctx.fillStyle = consMatchColor;
+      ctx.fillStyle = isVector(i) ? vectorMatchColor : consMatchColor;
     }} else if (ch === '-') {{
       ctx.fillStyle = gapColor;
     }} else {{
@@ -1166,15 +1368,14 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
     }}
     ctx.fillRect(i * cellW, consY, cellW, consH);
   }}
-  // Read rows
-  var readsY = consY + consH + gap;
+  // --- Read rows ---
   for (var r = 0; r < nRows; r++) {{
     var row = rows[r];
     var y = readsY + r * cellH;
     for (var c = 0; c < row.length; c++) {{
       var ch = row[c];
       if (ch === '.') {{
-        ctx.fillStyle = matchColor;
+        ctx.fillStyle = pickMatch(c);
       }} else if (ch === '-') {{
         ctx.fillStyle = gapColor;
       }} else {{
@@ -1183,7 +1384,61 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
       ctx.fillRect(c * cellW, y, cellW, cellH);
     }}
   }}
-  // Tooltip
+  // --- Region boundary dashed lines on pileup canvas ---
+  if (flanks) {{
+    ctx.save();
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = isDark ? '#f59e0b' : '#d97706';
+    ctx.lineWidth = 1;
+    var pH = pileupH;
+    if (flanks[0] > 0) {{
+      var bx = flanks[0] * cellW;
+      ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, pH); ctx.stroke();
+    }}
+    if (flanks[1] > 0) {{
+      var bx2 = (nCols - flanks[1]) * cellW;
+      ctx.beginPath(); ctx.moveTo(bx2, 0); ctx.lineTo(bx2, pH); ctx.stroke();
+    }}
+    ctx.restore();
+  }}
+  // --- Mismatch overflow arrows ---
+  if (mismatchCols.length > 0 && scrollId && wrapId) {{
+    var scrollEl = document.getElementById(scrollId);
+    var wrapEl = document.getElementById(wrapId);
+    if (scrollEl && wrapEl) {{
+      var leftArrow = document.createElement('div');
+      leftArrow.className = 'pileup-mm-arrow pileup-mm-arrow-l';
+      leftArrow.textContent = '\u25c4';
+      leftArrow.style.height = rulerH + 'px';
+      wrapEl.appendChild(leftArrow);
+      var rightArrow = document.createElement('div');
+      rightArrow.className = 'pileup-mm-arrow pileup-mm-arrow-r';
+      rightArrow.textContent = '\u25ba';
+      rightArrow.style.height = rulerH + 'px';
+      wrapEl.appendChild(rightArrow);
+      function updateMmArrows() {{
+        var sl = scrollEl.scrollLeft;
+        var vw = scrollEl.clientWidth;
+        var hasL = false, hasR = false;
+        for (var _ai = 0; _ai < mismatchCols.length; _ai++) {{
+          var ax = mismatchCols[_ai] * cellW + cellW / 2;
+          if (ax < sl + 4) hasL = true;
+          if (ax > sl + vw - 4) hasR = true;
+        }}
+        leftArrow.style.display = hasL ? 'flex' : 'none';
+        rightArrow.style.display = hasR ? 'flex' : 'none';
+      }}
+      scrollEl.addEventListener('scroll', updateMmArrows);
+      updateMmArrows();
+    }}
+  }}
+  // --- Tooltip ---
+  function regionLabel(col) {{
+    if (!flanks) return '';
+    if (col < flanks[0]) return '[5\u2032 vector] ';
+    if (col >= nCols - flanks[1]) return '[3\u2032 vector] ';
+    return '[insert] ';
+  }}
   var tooltip = document.createElement('div');
   tooltip.style.cssText = 'position:fixed;background:#1e293b;color:#fff;padding:4px 8px;'
     + 'border-radius:4px;font-size:11px;pointer-events:none;display:none;z-index:10;'
@@ -1195,19 +1450,20 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
     var yp = e.clientY - rect.top;
     var col = Math.floor(x / cellW);
     if (col < 0 || col >= nCols) {{ tooltip.style.display = 'none'; return; }}
+    var rl = regionLabel(col);
     if (yp < refH) {{
-      tooltip.textContent = 'Ref pos ' + (col + 1) + ': ' + refSeq[col];
+      tooltip.textContent = rl + 'Ref pos ' + (col + 1) + ': ' + refSeq[col];
     }} else if (yp < consY + consH) {{
       var ch = cons[col];
       var base = ch === '.' ? refSeq[col] : ch;
       var note = ch === '.' ? ' (match)' : ch === '-' ? '' : ' (mismatch)';
-      tooltip.textContent = 'Consensus pos ' + (col + 1) + ': ' + base + note;
+      tooltip.textContent = rl + 'Consensus pos ' + (col + 1) + ': ' + base + note;
     }} else {{
       var row_idx = Math.floor((yp - readsY) / cellH);
       if (row_idx >= 0 && row_idx < nRows) {{
         var ch = rows[row_idx][col];
         var label = ch === '.' ? refSeq[col] + ' (match)' : ch === '-' ? 'gap' : ch + ' (mismatch)';
-        tooltip.textContent = 'Read ' + (row_idx + 1) + ', pos ' + (col + 1) + ': ' + label;
+        tooltip.textContent = rl + 'Read ' + (row_idx + 1) + ', pos ' + (col + 1) + ': ' + label;
       }} else {{
         tooltip.style.display = 'none'; return;
       }}
@@ -1230,15 +1486,14 @@ function drawPileup(canvasId, refSeq, cons, rows) {{
 </div>
 <div class="legend">
     <span style="font-weight:600;">Legend:</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#059669;"></span> Match</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span> A</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span> T</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#f59e0b;"></span> C</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#8b5cf6;"></span> G</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#d1d5db;"></span> Gap</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#c8ccd0;"></span> Match</span>
+{vector_legend}    <span class="legend-item"><span class="legend-swatch" style="background:#e03131;"></span> A</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#1971c2;"></span> T</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#e8590c;"></span> C</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#e67700;"></span> G</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#ffffff;border:1px solid #d1d5db;"></span> Gap</span>
     <span class="legend-item"><span class="legend-swatch" style="background:#1e293b;"></span> Reference</span>
-    <span style="color:var(--muted);">|</span>
-    <span style="font-size:0.75rem;color:var(--muted);">Rows: Reference &rarr; Consensus &rarr; Reads</span>
+
 </div>
 {body}
 <script id="usortm-theme-sync">
@@ -1272,6 +1527,8 @@ def _generate_one_pick_pileup(
     minimap2_path: str,
     samtools_path: str,
     ref_index: str = None,
+    flank_5p_len: int = 0,
+    flank_3p_len: int = 0,
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
 
@@ -1313,7 +1570,11 @@ def _generate_one_pick_pileup(
         "pileup_rows": pileup_rows,
     }]
 
-    html = _render_pileup_html(well_pos, candidate_info, group_sections)
+    flank_lengths = None
+    if flank_5p_len or flank_3p_len:
+        flank_lengths = (flank_5p_len, flank_3p_len)
+    html = _render_pileup_html(well_pos, candidate_info, group_sections,
+                               flank_lengths=flank_lengths)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as fh:
         fh.write(html)
