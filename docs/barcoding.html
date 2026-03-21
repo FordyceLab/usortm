@@ -681,34 +681,204 @@
         <h3>4. Pooling + cleanup</h3>
         <ol>
           <li>Aliquot <strong>30 µL</strong> of <strong>100 mM EDTA</strong> into <strong>two</strong> 8×200 µL strip tubes per plate.</li>
-          <li>Using Integra Voyager: configure <strong>Multi-Aspirate</strong> for <strong>24 aspirations</strong> of <strong>5 µL</strong> per step; aspirate row-wise along the plate.</li>
-          <li>Widen tip spacing and dispense the combined <strong>120 µL</strong> into an 8-tube strip.</li>
+          <li>Pipette <strong>5 µL</strong> from each well row-wise into the associated strip tube.</li>
           <li>Pool <strong>75 µL</strong> from strip tubes into a single 1.5 mL Eppendorf.</li>
           <li>Repeat for each plate.</li>
           <li>Perform bead cleanup with <strong>SPRIselect</strong> using a <strong>&gt;300 bp cutoff</strong> (per Beckman Coulter protocol).</li>
         </ol>
 
-        <h2>File Formats</h2>
+        <h2>Sequencing Submission</h2>
 
-        <h3>Barcode CSV</h3>
-        <p>
-          Create a CSV file mapping each well to its barcode sequence. This file is required for demultiplexing:
-        </p>
+        <p>Submit the pooled, purified amplicon library for sequencing. The total amount of sequencing data you need depends on how many wells you sorted, the length of your amplicon, and the read depth required to confidently call each well. Use the calculator below to estimate your sequencing need.</p>
 
-        <pre><code class="language-csv">plate,well,barcode
-plate_1,A01,ACGTACGTACGT
-plate_1,A02,TGCATGCATGCA
-plate_1,A03,GCTAGCTAGCTA
-plate_1,A04,CGATCGATCGAT
-plate_2,A01,AGTCAGTCAGTC
-plate_2,A02,TCGATCGATCGA</code></pre>
+        <div class="seq-calc-card">
+          <div class="seq-calc-title">Sequencing Need Calculator</div>
+          <div class="seq-calc-inputs">
+            <div class="seq-calc-field">
+              <label for="seqWells">Wells sorted</label>
+              <input type="number" id="seqWells" class="seq-calc-input" placeholder="e.g. 384" min="1" max="1000000" step="1">
+            </div>
+            <div class="seq-calc-sep">×</div>
+            <div class="seq-calc-field">
+              <label for="seqAmplicon">Amplicon length (bp)</label>
+              <input type="number" id="seqAmplicon" class="seq-calc-input" placeholder="e.g. 1500" min="100" max="20000" step="100">
+            </div>
+            <div class="seq-calc-sep">×</div>
+            <div class="seq-calc-field">
+              <label for="seqDepth">Read depth per well</label>
+              <input type="number" id="seqDepth" class="seq-calc-input" value="100" min="1" max="10000" step="10">
+            </div>
+          </div>
+          <div class="seq-calc-result">
+            <span class="seq-calc-result-label">Total sequencing need:</span>
+            <span class="seq-calc-result-value" id="seqResultValue">—</span>
+          </div>
+          <div class="seq-calc-note" id="seqDepthNote"></div>
+        </div>
 
-        <p><strong>Column definitions:</strong></p>
-        <ul>
-          <li><code>plate</code>: Unique identifier for each 384-well plate (e.g., plate_1, plate_2)</li>
-          <li><code>well</code>: Well position in standard format (A01–P24 for 384-well)</li>
-          <li><code>barcode</code>: DNA barcode sequence (typically 8–16 bp)</li>
-        </ul>
+        <style>
+          .seq-calc-card {
+            background: var(--color-card-bg);
+            border: 1px solid var(--color-border);
+            border-radius: 10px;
+            padding: 1.25rem 1.5rem;
+            margin: 1.25rem 0 1.75rem;
+          }
+          .seq-calc-title {
+            font-weight: 600;
+            font-size: 0.95em;
+            margin-bottom: 1rem;
+            color: var(--color-text);
+          }
+          .seq-calc-inputs {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
+          .seq-calc-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+          .seq-calc-field label {
+            font-size: 0.78em;
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+          }
+          .seq-calc-input {
+            width: 130px;
+            padding: 6px 10px;
+            border: 2px solid var(--color-border);
+            border-radius: 6px;
+            font-size: 0.9em;
+            background: var(--color-card-bg);
+            color: var(--color-text);
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+            -moz-appearance: textfield;
+          }
+          .seq-calc-input::-webkit-inner-spin-button,
+          .seq-calc-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+          .seq-calc-input:placeholder-shown {
+            border-color: #4096E3;
+            background: rgba(64, 150, 227, 0.04);
+          }
+          .seq-calc-input:focus {
+            border-color: #4096E3;
+            box-shadow: 0 0 0 3px rgba(64,150,227,0.15);
+            background: var(--color-card-bg);
+          }
+          [data-theme="dark"] .seq-calc-input:placeholder-shown {
+            background: rgba(64, 150, 227, 0.07);
+          }
+          .seq-calc-sep {
+            font-size: 1.3em;
+            font-weight: 300;
+            color: var(--color-text-muted);
+            padding-bottom: 6px;
+            user-select: none;
+          }
+          .seq-calc-result {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-top: 1rem;
+            padding-top: 0.9rem;
+            border-top: 1px solid var(--color-border);
+          }
+          .seq-calc-result-label {
+            font-size: 0.85em;
+            color: var(--color-text-muted);
+            white-space: nowrap;
+          }
+          .seq-calc-result-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #4096E3;
+            font-variant-numeric: tabular-nums;
+          }
+          .seq-calc-note {
+            font-size: 0.8em;
+            margin-top: 0.4rem;
+            min-height: 1em;
+          }
+          .seq-calc-note.warn {
+            color: #d97706;
+          }
+          .seq-calc-note.ok {
+            color: var(--color-success);
+          }
+        </style>
+
+        <script>
+          (function () {
+            const wellsInput   = document.getElementById('seqWells');
+            const ampliconInput = document.getElementById('seqAmplicon');
+            const depthInput   = document.getElementById('seqDepth');
+            const resultValue  = document.getElementById('seqResultValue');
+            const noteEl       = document.getElementById('seqDepthNote');
+            const MIN_DEPTH    = 100;
+
+            // Pre-populate amplicon length from the thermocycler calculator if already set
+            const tcInput = document.getElementById('ampliconLength');
+            if (tcInput && tcInput.value) ampliconInput.value = tcInput.value;
+            if (tcInput) tcInput.addEventListener('input', () => {
+              if (!ampliconInput._userEdited) ampliconInput.value = tcInput.value;
+              update();
+            });
+            ampliconInput.addEventListener('input', () => { ampliconInput._userEdited = true; update(); });
+
+            function formatBases(n) {
+              if (n >= 1e9)       return (n / 1e9).toFixed(2) + ' Gbp';
+              if (n >= 1e6)       return (n / 1e6).toFixed(1) + ' Mbp';
+              if (n >= 1e3)       return (n / 1e3).toFixed(0) + ' kbp';
+              return n.toLocaleString() + ' bp';
+            }
+
+            function update() {
+              const wells   = parseInt(wellsInput.value, 10);
+              const amplicon = parseInt(ampliconInput.value, 10);
+              const depth   = parseInt(depthInput.value, 10);
+
+              if (!wells || !amplicon || !depth || wells <= 0 || amplicon <= 0 || depth <= 0) {
+                resultValue.textContent = '—';
+                noteEl.textContent = '';
+                noteEl.className = 'seq-calc-note';
+                return;
+              }
+
+              const total = wells * amplicon * depth;
+              resultValue.textContent = formatBases(total);
+
+              if (depth < MIN_DEPTH) {
+                noteEl.textContent = `⚠ A depth of ${MIN_DEPTH} reads per well is recommended for reliable demultiplexing.`;
+                noteEl.className = 'seq-calc-note warn';
+              } else {
+                noteEl.textContent = `✓ A depth of ${MIN_DEPTH} reads per well is recommended for reliable demultiplexing.`;
+                noteEl.className = 'seq-calc-note ok';
+              }
+            }
+
+            wellsInput.addEventListener('input', update);
+            depthInput.addEventListener('input', update);
+            update();
+          })();
+        </script>
+
+        <h3>Plasmidsaurus (Recommended)</h3>
+        <pre><code class="language-bash"># Submit purified pool (500 ng - 2 µg in 15 µL)
+# Turnaround: 3-5 business days
+# Cost: ~$15 per sample (volume discounts available)</code></pre>
+
+        <h3>Oxford Nanopore (In-House)</h3>
+        <pre><code class="language-bash"># Use ligation sequencing kit (SQK-LSK109 or newer)
+# Target: 200-500 ng input DNA
+# Run time: 12-48 hours
+# Cost: ~$500-900 per flow cell</code></pre>
+
 
         <h2>Quality Control</h2>
 
@@ -754,27 +924,6 @@ plate_2,A02,TCGATCGATCGA</code></pre>
           </tbody>
         </table>
         </div>
-
-        <h2>Sequencing Submission</h2>
-
-        <p>Submit the pooled, purified amplicon library for sequencing:</p>
-
-        <h3>Plasmidsaurus (Recommended)</h3>
-        <pre><code class="language-bash"># Submit purified pool (500 ng - 2 µg in 15 µL)
-# Turnaround: 3-5 business days
-# Cost: ~$15 per sample (volume discounts available)</code></pre>
-
-        <h3>Oxford Nanopore (In-House)</h3>
-        <pre><code class="language-bash"># Use ligation sequencing kit (SQK-LSK109 or newer)
-# Target: 200-500 ng input DNA
-# Run time: 12-48 hours
-# Cost: ~$500-900 per flow cell</code></pre>
-
-        <h3>Illumina MiSeq</h3>
-        <pre><code class="language-bash"># Submit 20-50 ng at 4 nM
-# Requires PhiX spike-in (10%) for low-diversity libraries
-# Run time: 24-56 hours
-# Cost: $600-1500 per run</code></pre>
 
         <h2>Next Steps</h2>
         <p>

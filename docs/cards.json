@@ -2,7 +2,7 @@
   "cards": [
     {
       "id": 1,
-      "text": "Your PI pulls you aside and says a colleague at another university mentioned they'd be interested in having you apply for an open postdoc. It's a great lab, but the science is adjacent to yours — not a direct extension. Taking it means learning a new system from scratch. Staying in your current area means you're immediately productive but your CV starts to look narrow. How do you weigh the cost of starting over against the risk of overfitting to one niche?"
+      "text": "A colleague at another university mentioned they'd be interested in having you apply for an open postdoc. It's a great lab, but the science is adjacent to yours — not a direct extension. Taking it means learning a new system from scratch. Staying in your current area means you're immediately productive but you pass up on the opportunity to broaden your skillset. How do you weigh the cost of starting over against the risk of overfitting to one niche?"
     },
     {
       "id": 2,
@@ -22,11 +22,11 @@
     },
     {
       "id": 6,
-      "text": "You notice that the people in your field who seem happiest aren't the ones with the most impressive CVs — they're the ones who seem to have figured out what they actually care about and organized their life around it. But when you try to articulate what you actually care about — independent of what you've been rewarded for — it's harder than you expected. What comes up?"
+      "text": "You notice that the people in your field who seem happiest are the ones who have figured out what they actually care about and organized their life around it. But when you try to articulate what you actually care about — independent of what you've been rewarded for — it's harder than you expected. What comes up?"
     },
     {
       "id": 7,
-      "text": "You're writing a grant and you have to choose between proposing the project you're genuinely most curious about (risky, possibly unfundable) and the project you know will score well (safe, incremental, but not what keeps you up at night). You've heard senior faculty say \"write what they'll fund, then do what you want.\" Is that good advice or a trap?"
+      "text": "You're writing a grant and you have to choose between proposing the project you're genuinely most curious about (risky, possibly unfundable) and the project you know will score well (safe, incremental, but not what keeps you up at night). How do you navigate this trade-off? Does knowing that you have lab members depending on you (e.g. trainees) change the decision?"
     },
     {
       "id": 8,
@@ -78,7 +78,7 @@
     },
     {
       "id": 20,
-      "text": "You've been in grad school or a postdoc long enough that your non-scientist friends have settled into careers, bought homes, started families. You're still on a temporary contract in a shared apartment. Someone at a dinner party asks what you do and you watch their face when you explain your salary. Does this bother you? Should it?"
+      "text": "You've been in grad school or a postdoc long enough that your non-scientist friends have settled into careers, bought homes, started families. You're still on a temporary contract in an apartment. Someone at a dinner party asks what you do and you watch their face when you explain your salary. Does this bother you? Should it?"
     },
     {
       "id": 21,
@@ -94,10 +94,6 @@
     },
     {
       "id": 24,
-      "text": "Your lab has a culture where people work late and on weekends. Nobody explicitly requires it, but the implicit expectation is clear. You want to set a boundary, but you also don't want to be the person who's seen as less committed. What do you do? Is there a version of this where you can have both?"
-    },
-    {
-      "id": 25,
       "text": "Two of your close friends from grad school made opposite choices: one left science and is thriving in a completely different career, the other stayed and just got tenure. Both seem happy. What do you take away from that?"
     }
   ]
