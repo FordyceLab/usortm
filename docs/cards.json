@@ -1,0 +1,104 @@
+{
+  "cards": [
+    {
+      "id": 1,
+      "text": "Your PI pulls you aside and says a colleague at another university mentioned they'd be interested in having you apply for an open postdoc. It's a great lab, but the science is adjacent to yours — not a direct extension. Taking it means learning a new system from scratch. Staying in your current area means you're immediately productive but your CV starts to look narrow. How do you weigh the cost of starting over against the risk of overfitting to one niche?"
+    },
+    {
+      "id": 2,
+      "text": "You're at a conference and someone from a biotech startup describes a role that sounds genuinely exciting — good science, good people, real impact on patients. But you've always pictured yourself in academia. You don't even know if you'd be good at it. Do you explore it seriously, or is that just a distraction from the path you're on? How do you know whether an opportunity is signal or noise?"
+    },
+    {
+      "id": 3,
+      "text": "A postdoc in your department gave themselves a two-year deadline: if they didn't land a faculty offer by then, they'd move to industry. The deadline passes. They don't have an offer, but they just got promising preliminary data that could change everything in six months. Do they stick to the deadline or extend it? What would you do — and does your answer change if they have a partner, kids, or debt?"
+    },
+    {
+      "id": 4,
+      "text": "You get two postdoc offers. One is a famous lab — great pedigree, high-impact papers, intense culture, expensive city. The other is a smaller lab where the PI has a reputation for being an exceptional mentor, but the work is less flashy and it's in a city where your partner could thrive. Everyone tells you to take the famous lab. What do you actually optimize for?"
+    },
+    {
+      "id": 5,
+      "text": "It's Friday at 4pm. You could stay and run one more experiment, or you could leave and meet a friend you haven't seen in months. This exact decision happens fifty times a year. It seems trivial each time, but it compounds. How do you think about the cumulative cost of always choosing work — or always choosing not-work?"
+    },
+    {
+      "id": 6,
+      "text": "You notice that the people in your field who seem happiest aren't the ones with the most impressive CVs — they're the ones who seem to have figured out what they actually care about and organized their life around it. But when you try to articulate what you actually care about — independent of what you've been rewarded for — it's harder than you expected. What comes up?"
+    },
+    {
+      "id": 7,
+      "text": "You're writing a grant and you have to choose between proposing the project you're genuinely most curious about (risky, possibly unfundable) and the project you know will score well (safe, incremental, but not what keeps you up at night). You've heard senior faculty say \"write what they'll fund, then do what you want.\" Is that good advice or a trap?"
+    },
+    {
+      "id": 8,
+      "text": "A senior scientist you respect tells you: \"The decisions that shaped my career the most weren't the ones I agonized over — they were the ones I made almost accidentally, by saying yes to something without overthinking it.\" Does that ring true for you? What's the best decision you've made that you didn't plan?"
+    },
+    {
+      "id": 9,
+      "text": "You're offered a permanent position — maybe a staff scientist role, maybe a teaching-focused faculty job — that would give you stability, a good salary, and a life you'd genuinely enjoy. But it's not the tenure-track research position you trained for. Taking it feels like giving up. Not taking it means continuing to bet on a path with a ~15% success rate. How do you separate what you actually want from what you think you're supposed to want?"
+    },
+    {
+      "id": 10,
+      "text": "You move across the country for a great professional opportunity. Two years in, the work is going well, but you miss your people. You're starting to wonder whether proximity to the people you love is more important than you thought — or whether you're just not used to it yet. How long do you give yourself before you decide it's not working?"
+    },
+    {
+      "id": 11,
+      "text": "You realize the thing you're best at in the lab and the thing you're most excited about are diverging. One path is safe and productive. The other is risky and energizing. How do you weight competence vs. curiosity when choosing what to work on next?"
+    },
+    {
+      "id": 12,
+      "text": "A close friend asks you to co-found something outside of science entirely — a company, a nonprofit, a restaurant. You'd have to leave your current path. Under what conditions would you actually say yes? What would have to be true?"
+    },
+    {
+      "id": 13,
+      "text": "You're three years into a project and it's not working, but you've invested enormous time and built real expertise in the area. At what point is persistence a virtue and at what point is it sunk-cost fallacy? How do you tell the difference from the inside?"
+    },
+    {
+      "id": 14,
+      "text": "Think about the best mentor you've had. What did they do that nobody taught them to do? How much of being a good mentor is a skill you can learn vs. just who someone is?"
+    },
+    {
+      "id": 15,
+      "text": "You're 60 and looking back. You followed a \"safe\" path and it went well — stable career, reasonable income, good relationships. But you never took the big risk you always thought about. Do you regret it? Now flip it: you took the risk and it failed. Do you regret that more, less, or the same?"
+    },
+    {
+      "id": 16,
+      "text": "Your partner gets a dream opportunity in a city you'd never choose. They'd do the same for you. How do you make a decision like this without someone \"winning\"? Is that even possible?"
+    },
+    {
+      "id": 17,
+      "text": "What's something you spend serious time on outside of work that you'd be embarrassed to call a priority out loud — but that actually matters to you more than most of your stated goals?"
+    },
+    {
+      "id": 18,
+      "text": "You're advising a first-year grad student and they ask: \"How do I know when I've explored enough and it's time to commit to a direction?\" What do you tell them? Now — do you follow your own advice?"
+    },
+    {
+      "id": 19,
+      "text": "You can live anywhere in the world for the next decade, but you have to commit now. Where do you go, and what does your answer reveal about what you're actually optimizing for — career, relationships, lifestyle, something else?"
+    },
+    {
+      "id": 20,
+      "text": "You've been in grad school or a postdoc long enough that your non-scientist friends have settled into careers, bought homes, started families. You're still on a temporary contract in a shared apartment. Someone at a dinner party asks what you do and you watch their face when you explain your salary. Does this bother you? Should it?"
+    },
+    {
+      "id": 21,
+      "text": "A collaborator publishes a paper that partially scoops your project. You could pivot to something new, or you could push forward and try to do it better. The pivot is exploration; pushing forward is exploitation. Which instinct do you follow, and what does that say about where you are in your career?"
+    },
+    {
+      "id": 22,
+      "text": "You get feedback that you'd be a strong candidate for a position, but only if you're willing to rebrand your research toward a trendier area. You could do it — you have the skills — but it's not what drew you to science. How much of your identity are you willing to reshape for an opportunity?"
+    },
+    {
+      "id": 23,
+      "text": "Imagine you're giving a talk in ten years. Not a scientific talk — a talk about your life to a room of grad students. What do you hope the story is? What are you most afraid it might be?"
+    },
+    {
+      "id": 24,
+      "text": "Your lab has a culture where people work late and on weekends. Nobody explicitly requires it, but the implicit expectation is clear. You want to set a boundary, but you also don't want to be the person who's seen as less committed. What do you do? Is there a version of this where you can have both?"
+    },
+    {
+      "id": 25,
+      "text": "Two of your close friends from grad school made opposite choices: one left science and is thriving in a completely different career, the other stayed and just got tenure. Both seem happy. What do you take away from that?"
+    }
+  ]
+}

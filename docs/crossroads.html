@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Crossroads</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0F1110;
+      --text:      #F2F1EE;
+      --text-muted:#8A8A84;
+      --card-bg:   #FFFFFF;
+      --card-text: #1A1D1B;
+      --amber:     #B5762A;
+      --amber-dark:#8F5A1A;
+      --green:     #2E7D5B;
+      --radius:    16px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 0 0 env(safe-area-inset-bottom, 0);
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    header {
+      width: 100%;
+      max-width: 480px;
+      padding: 48px 24px 0;
+      text-align: center;
+    }
+
+    h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2rem, 8vw, 2.6rem);
+      font-weight: normal;
+      letter-spacing: 0.06em;
+      color: var(--text);
+    }
+
+    .subtitle {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    /* ── Main stage ───────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 480px;
+      padding: 32px 20px 24px;
+      gap: 28px;
+    }
+
+    /* ── Idle state ───────────────────────────────────────── */
+    #idle-view {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      text-align: center;
+    }
+
+    .idle-label {
+      font-size: 1rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 280px;
+    }
+
+    /* ── Card ─────────────────────────────────────────────── */
+    #card-view {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 32px 28px;
+      width: 100%;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.45);
+
+      /* Animation */
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+
+    .card.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .card-number {
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 16px;
+    }
+
+    .card-text {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.05rem, 4.5vw, 1.2rem);
+      line-height: 1.7;
+      color: var(--card-text);
+    }
+
+    /* ── Counter ──────────────────────────────────────────── */
+    .counter {
+      font-size: 0.8rem;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      padding: 18px 12px;
+      transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      min-height: 58px;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: var(--amber);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--amber-dark); }
+
+    .btn-secondary {
+      background: rgba(242,241,238,0.08);
+      color: var(--text-muted);
+      border: 1px solid rgba(242,241,238,0.12);
+    }
+    .btn-secondary:hover { background: rgba(242,241,238,0.13); }
+
+    .btn-draw {
+      font-size: 1.05rem;
+      padding: 20px 40px;
+      flex: none;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    /* ── Reshuffled toast ─────────────────────────────────── */
+    #reshuffle-toast {
+      position: fixed;
+      bottom: calc(32px + env(safe-area-inset-bottom, 0));
+      left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: var(--green);
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 10px 22px;
+      border-radius: 100px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      white-space: nowrap;
+    }
+
+    #reshuffle-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── Error state ──────────────────────────────────────── */
+    #error-view {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-align: center;
+      padding: 0 8px;
+    }
+
+    .error-title {
+      font-family: Georgia, serif;
+      font-size: 1.1rem;
+      color: #c0392b;
+    }
+
+    .error-body {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    code {
+      font-family: "SF Mono", "Fira Code", monospace;
+      background: rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Crossroads</h1>
+    <p class="subtitle">Discussion cards</p>
+  </header>
+
+  <main>
+
+    <!-- Idle: first draw -->
+    <div id="idle-view">
+      <p class="idle-label">Draw a card to get the conversation started.</p>
+      <button class="btn btn-primary btn-draw" id="draw-btn">Draw a Card</button>
+    </div>
+
+    <!-- Card view -->
+    <div id="card-view">
+      <div class="card" id="card-container">
+        <div class="card-number" id="card-number"></div>
+        <p class="card-text" id="card-text"></p>
+      </div>
+
+      <div class="counter" id="counter"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="skip-btn">Skip</button>
+        <button class="btn btn-primary" id="next-btn">Next Card</button>
+      </div>
+    </div>
+
+    <!-- Error view -->
+    <div id="error-view">
+      <p class="error-title">Couldn't load cards</p>
+      <p class="error-body">
+        Make sure <code>cards.json</code> is in the same folder as this page,
+        and that you're serving it over HTTP (not opening the file directly).
+      </p>
+    </div>
+
+  </main>
+
+  <!-- Reshuffle toast -->
+  <div id="reshuffle-toast">Deck reshuffled</div>
+
+  <script>
+    // ── State keys ──────────────────────────────────────────
+    const STORAGE_KEY_REMAINING = 'crossroads_remaining';
+    const STORAGE_KEY_TOTAL     = 'crossroads_total';
+
+    // ── DOM refs ────────────────────────────────────────────
+    const idleView      = document.getElementById('idle-view');
+    const cardView      = document.getElementById('card-view');
+    const errorView     = document.getElementById('error-view');
+    const cardContainer = document.getElementById('card-container');
+    const cardNumber    = document.getElementById('card-number');
+    const cardText      = document.getElementById('card-text');
+    const counter       = document.getElementById('counter');
+    const drawBtn       = document.getElementById('draw-btn');
+    const nextBtn       = document.getElementById('next-btn');
+    const skipBtn       = document.getElementById('skip-btn');
+    const reshuffleToast= document.getElementById('reshuffle-toast');
+
+    // ── App state ───────────────────────────────────────────
+    let allCards = [];
+    let remaining = [];
+
+    // ── Helpers ─────────────────────────────────────────────
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY_REMAINING, JSON.stringify(remaining));
+      localStorage.setItem(STORAGE_KEY_TOTAL, allCards.length.toString());
+    }
+
+    function loadState() {
+      const savedTotal = parseInt(localStorage.getItem(STORAGE_KEY_TOTAL) || '0', 10);
+      const savedRemaining = JSON.parse(localStorage.getItem(STORAGE_KEY_REMAINING) || 'null');
+
+      // Only restore if the deck size matches (guards against stale data)
+      if (savedRemaining && savedTotal === allCards.length && savedRemaining.length > 0) {
+        remaining = savedRemaining;
+      } else {
+        remaining = shuffle(allCards.map(c => c.id));
+        saveState();
+      }
+    }
+
+    function showToast(msg) {
+      reshuffleToast.textContent = msg;
+      reshuffleToast.classList.add('show');
+      setTimeout(() => reshuffleToast.classList.remove('show'), 2200);
+    }
+
+    function drawCard() {
+      let reshuffled = false;
+
+      if (remaining.length === 0) {
+        remaining = shuffle(allCards.map(c => c.id));
+        reshuffled = true;
+      }
+
+      const id   = remaining.shift();
+      const card = allCards.find(c => c.id === id);
+      saveState();
+
+      // Populate card
+      const cardIndex = allCards.findIndex(c => c.id === id) + 1;
+      cardNumber.textContent = `Card ${cardIndex} of ${allCards.length}`;
+      cardText.textContent   = card.text;
+      counter.textContent    = `${remaining.length} of ${allCards.length} remaining`;
+
+      // Animate
+      cardContainer.classList.remove('visible');
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          cardContainer.classList.add('visible');
+        });
+      });
+
+      // Show/hide views
+      idleView.style.display  = 'none';
+      cardView.style.display  = 'flex';
+
+      if (reshuffled) showToast('Deck reshuffled ↺');
+    }
+
+    function showError() {
+      idleView.style.display  = 'none';
+      cardView.style.display  = 'none';
+      errorView.style.display = 'flex';
+    }
+
+    // ── Event listeners ─────────────────────────────────────
+    drawBtn.addEventListener('click', drawCard);
+    nextBtn.addEventListener('click', drawCard);
+    skipBtn.addEventListener('click', drawCard);
+
+    // ── Init ────────────────────────────────────────────────
+    (async function init() {
+      try {
+        const res  = await fetch('cards.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (!data.cards || !Array.isArray(data.cards) || data.cards.length === 0) {
+          throw new Error('Invalid card data');
+        }
+
+        allCards = data.cards;
+        loadState();
+
+        // If state had cards drawn already, go straight to card view
+        // but don't auto-draw — let user choose when to start
+      } catch (err) {
+        console.error('Crossroads: failed to load cards.json', err);
+        showError();
+      }
+    })();
+  </script>
+
+</body>
+</html>
