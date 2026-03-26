@@ -98,7 +98,17 @@ def estimate(
     compare: bool = typer.Option(
         True,
         "--compare/--no-compare",
-        help="Show comparison with traditional gene synthesis costs.",
+        help="Show comparison with direct gene synthesis costs.",
+    ),
+    sdm_compare: bool = typer.Option(
+        False,
+        "--sdm/--no-sdm",
+        help="Show SDM cost comparison (for single-mutation libraries).",
+    ),
+    sdm_include_hifi: bool = typer.Option(
+        False,
+        "--sdm-hifi/--no-sdm-hifi",
+        help="Include HiFi assembly step in SDM cost estimate.",
     ),
     methods_dir: Optional[str] = typer.Option(
         None,
@@ -168,6 +178,15 @@ def estimate(
         )
         trad_sequencing = cf.parsed_genefragments_sequencing_cost(seq_length, library_size)
         trad_total = trad_synthesis + trad_cloning + trad_sequencing
+
+    # Calculate SDM costs for comparison
+    if sdm_compare:
+        sdm_primers = cf.sdm_primer_cost(library_size)
+        sdm_kit = cf.sdm_kit_cost(library_size, include_hifi=sdm_include_hifi)
+        sdm_transformation = cf.sdm_transformation_cost(library_size)
+        sdm_consumables = cf.sdm_consumables_cost(library_size)
+        sdm_sequencing = cf.parsed_genefragments_sequencing_cost(seq_length, library_size)
+        sdm_total = sdm_primers + sdm_kit + sdm_transformation + sdm_consumables + sdm_sequencing
     
     # Calculate effort metrics - 8 min/plate sort + 30 min setup
     sort_minutes = n_plates * 8 + 30
@@ -214,6 +233,16 @@ def estimate(
                 "total": round(trad_total, 2),
             }
             result["savings_fold"] = round(trad_total / usortm_total, 1)
+        if sdm_compare:
+            result["sdm"] = {
+                "primers": round(sdm_primers, 2),
+                "q5_sdm_kit": round(sdm_kit, 2),
+                "transformation": round(sdm_transformation, 2),
+                "consumables": round(sdm_consumables, 2),
+                "sequencing": round(sdm_sequencing, 2),
+                "total": round(sdm_total, 2),
+            }
+            result["sdm_savings_fold"] = round(sdm_total / usortm_total, 1)
         console.print(json.dumps(result, indent=2))
         return
     
@@ -263,8 +292,10 @@ def estimate(
     cost_table.add_column("Step", style="muted")
     cost_table.add_column("[brand.plain]uSort-M[/brand.plain]", justify="right", style="green")
     if compare:
-        cost_table.add_column("Traditional", justify="right", style="yellow")
-    
+        cost_table.add_column("Direct Synthesis", justify="right", style="yellow")
+    if sdm_compare:
+        cost_table.add_column("SDM", justify="right", style="magenta")
+
     def _step_label(name: str, *keys: str) -> str:
         if any(_actual_flags.get(k) for k in keys):
             return f"{name} [dim](actual)[/dim]"
@@ -274,42 +305,67 @@ def estimate(
         _step_label("Synthesis", "synthesis"),
         f"${synthesis_cost:,.0f}",
         f"${trad_synthesis:,.0f}" if compare else None,
+        f"${sdm_primers:,.0f} [dim](primers)[/dim]" if sdm_compare else None,
     )
     cost_table.add_row(
         _step_label("Cloning", "cloning"),
         f"${cloning_cost:,.0f}",
         f"${trad_cloning:,.0f}" if compare else None,
+        f"${sdm_kit:,.0f} [dim](Q5 SDM{' + HiFi' if sdm_include_hifi else ''})[/dim]" if sdm_compare else None,
     )
     cost_table.add_row(
         _step_label("Sorting", "sorting"),
         f"${sorting_cost:,.0f}",
         "N/A" if compare else None,
+        "N/A" if sdm_compare else None,
     )
     cost_table.add_row(
         _step_label("Barcoding + Sequencing", "barcoding", "sequencing"),
         f"${barcoding_cost + sequencing_cost:,.0f}",
         f"${trad_sequencing:,.0f}" if compare else None,
+        f"${sdm_sequencing:,.0f}" if sdm_compare else None,
+    )
+    cost_table.add_row(
+        "Transformation",
+        "N/A",
+        "N/A" if compare else None,
+        f"${sdm_transformation:,.0f}" if sdm_compare else None,
+    )
+    cost_table.add_row(
+        "Consumables",
+        "N/A",
+        "N/A" if compare else None,
+        f"${sdm_consumables:,.0f}" if sdm_compare else None,
     )
     cost_table.add_row(
         _step_label("Hit-picking", "hitpicking"),
         f"${hitpicking_cost:,.0f}",
         "N/A" if compare else None,
+        "N/A" if sdm_compare else None,
     )
     cost_table.add_row(
         "[bold]Total[/bold]",
         f"[bold green]${usortm_total:,.0f}[/bold green]",
         f"[bold yellow]${trad_total:,.0f}[/bold yellow]" if compare else None,
+        f"[bold magenta]${sdm_total:,.0f}[/bold magenta]" if sdm_compare else None,
     )
-    
+
     console.print(cost_table)
     console.print()
-    
+
     if compare:
         savings = trad_total / usortm_total
         console.print(
             f"  [bold green]{savings:.1f}-fold savings[/bold green] "
-            f"with [brand.plain]uSort-M[/brand.plain] (${trad_total - usortm_total:,.0f} saved)"
+            f"with [brand.plain]uSort-M[/brand.plain] vs Direct Synthesis (${trad_total - usortm_total:,.0f} saved)"
         )
+    if sdm_compare:
+        sdm_savings = sdm_total / usortm_total
+        console.print(
+            f"  [bold green]{sdm_savings:.1f}-fold savings[/bold green] "
+            f"with [brand.plain]uSort-M[/brand.plain] vs SDM (${sdm_total - usortm_total:,.0f} saved)"
+        )
+    if compare or sdm_compare:
         console.print()
     
     # Effort summary

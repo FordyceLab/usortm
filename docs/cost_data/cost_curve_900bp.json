@@ -1,1395 +1,1793 @@
 [
   {
     "library_size": 50,
-    "usortm_cost": 725.34,
+    "usortm_cost": 702.84,
     "traditional_cost": 4267.48,
     "traditional_min": 4267.48,
-    "traditional_max": 5167.48
+    "traditional_max": 5167.48,
+    "sdm_cost": 1444.0,
+    "sdm_cost_max": 1691.0
   },
   {
     "library_size": 75,
-    "usortm_cost": 739.79,
+    "usortm_cost": 706.04,
     "traditional_cost": 6151.21,
     "traditional_min": 6151.21,
-    "traditional_max": 7501.21
+    "traditional_max": 7501.21,
+    "sdm_cost": 1696.5,
+    "sdm_cost_max": 1943.5
   },
   {
     "library_size": 100,
-    "usortm_cost": 865.47,
+    "usortm_cost": 820.47,
     "traditional_cost": 8034.95,
     "traditional_min": 8034.95,
-    "traditional_max": 9834.95
+    "traditional_max": 9834.95,
+    "sdm_cost": 2388.0,
+    "sdm_cost_max": 2882.0
   },
   {
     "library_size": 125,
-    "usortm_cost": 879.92,
+    "usortm_cost": 823.67,
     "traditional_cost": 9918.69,
     "traditional_min": 9918.69,
-    "traditional_max": 12168.69
+    "traditional_max": 12168.69,
+    "sdm_cost": 2640.5,
+    "sdm_cost_max": 3134.5
   },
   {
     "library_size": 150,
-    "usortm_cost": 894.37,
+    "usortm_cost": 826.87,
     "traditional_cost": 11802.43,
     "traditional_min": 11802.43,
-    "traditional_max": 14502.43
+    "traditional_max": 14502.43,
+    "sdm_cost": 2893.0,
+    "sdm_cost_max": 3387.0
   },
   {
     "library_size": 175,
-    "usortm_cost": 908.82,
+    "usortm_cost": 830.07,
     "traditional_cost": 13686.16,
     "traditional_min": 13686.16,
-    "traditional_max": 16836.16
+    "traditional_max": 16836.16,
+    "sdm_cost": 3145.5,
+    "sdm_cost_max": 3639.5
   },
   {
     "library_size": 200,
-    "usortm_cost": 1034.5,
+    "usortm_cost": 944.5,
     "traditional_cost": 15569.9,
     "traditional_min": 15569.9,
-    "traditional_max": 19169.9
+    "traditional_max": 19169.9,
+    "sdm_cost": 3837.0,
+    "sdm_cost_max": 4578.0
   },
   {
     "library_size": 225,
-    "usortm_cost": 1048.95,
+    "usortm_cost": 947.7,
     "traditional_cost": 17453.64,
     "traditional_min": 17453.64,
-    "traditional_max": 21503.64
+    "traditional_max": 21503.64,
+    "sdm_cost": 4089.5,
+    "sdm_cost_max": 4830.5
   },
   {
     "library_size": 250,
-    "usortm_cost": 1063.4,
+    "usortm_cost": 950.9,
     "traditional_cost": 19337.38,
     "traditional_min": 19337.38,
-    "traditional_max": 23837.38
+    "traditional_max": 23837.38,
+    "sdm_cost": 4342.0,
+    "sdm_cost_max": 5083.0
   },
   {
     "library_size": 275,
-    "usortm_cost": 1077.85,
+    "usortm_cost": 954.1,
     "traditional_cost": 21221.11,
     "traditional_min": 21221.11,
-    "traditional_max": 26171.11
+    "traditional_max": 26171.11,
+    "sdm_cost": 4594.5,
+    "sdm_cost_max": 5335.5
   },
   {
     "library_size": 300,
-    "usortm_cost": 1203.53,
+    "usortm_cost": 1068.53,
     "traditional_cost": 23104.85,
     "traditional_min": 23104.85,
-    "traditional_max": 28504.85
+    "traditional_max": 28504.85,
+    "sdm_cost": 5286.0,
+    "sdm_cost_max": 6274.0
   },
   {
     "library_size": 325,
-    "usortm_cost": 1217.98,
+    "usortm_cost": 1071.73,
     "traditional_cost": 24988.59,
     "traditional_min": 24988.59,
-    "traditional_max": 30838.59
+    "traditional_max": 30838.59,
+    "sdm_cost": 5538.5,
+    "sdm_cost_max": 6526.5
   },
   {
     "library_size": 350,
-    "usortm_cost": 1232.43,
+    "usortm_cost": 1074.93,
     "traditional_cost": 26872.33,
     "traditional_min": 26872.33,
-    "traditional_max": 33172.33
+    "traditional_max": 33172.33,
+    "sdm_cost": 5791.0,
+    "sdm_cost_max": 6779.0
   },
   {
     "library_size": 375,
-    "usortm_cost": 1246.88,
+    "usortm_cost": 1078.13,
     "traditional_cost": 28756.06,
     "traditional_min": 28756.06,
-    "traditional_max": 35506.06
+    "traditional_max": 35506.06,
+    "sdm_cost": 6043.5,
+    "sdm_cost_max": 7031.5
   },
   {
     "library_size": 400,
-    "usortm_cost": 1380.4,
+    "usortm_cost": 1200.4,
     "traditional_cost": 30639.8,
     "traditional_min": 30639.8,
-    "traditional_max": 37839.8
+    "traditional_max": 37839.8,
+    "sdm_cost": 6735.0,
+    "sdm_cost_max": 7970.0
   },
   {
     "library_size": 425,
-    "usortm_cost": 1394.85,
+    "usortm_cost": 1203.6,
     "traditional_cost": 32523.54,
     "traditional_min": 32523.54,
-    "traditional_max": 40173.54
+    "traditional_max": 40173.54,
+    "sdm_cost": 6987.5,
+    "sdm_cost_max": 8222.5
   },
   {
     "library_size": 450,
-    "usortm_cost": 1409.3,
+    "usortm_cost": 1206.8,
     "traditional_cost": 34407.28,
     "traditional_min": 34407.28,
-    "traditional_max": 42507.28
+    "traditional_max": 42507.28,
+    "sdm_cost": 7240.0,
+    "sdm_cost_max": 8475.0
   },
   {
     "library_size": 475,
-    "usortm_cost": 1423.75,
+    "usortm_cost": 1210.0,
     "traditional_cost": 36291.01,
     "traditional_min": 36291.01,
-    "traditional_max": 44841.01
+    "traditional_max": 44841.01,
+    "sdm_cost": 7492.5,
+    "sdm_cost_max": 8727.5
   },
   {
     "library_size": 500,
-    "usortm_cost": 1549.43,
+    "usortm_cost": 1324.43,
     "traditional_cost": 38174.75,
     "traditional_min": 38174.75,
-    "traditional_max": 47174.75
+    "traditional_max": 47174.75,
+    "sdm_cost": 8184.0,
+    "sdm_cost_max": 9666.0
   },
   {
     "library_size": 525,
-    "usortm_cost": 1563.88,
+    "usortm_cost": 1327.63,
     "traditional_cost": 40058.49,
     "traditional_min": 40058.49,
-    "traditional_max": 49508.49
+    "traditional_max": 49508.49,
+    "sdm_cost": 8436.5,
+    "sdm_cost_max": 9918.5
   },
   {
     "library_size": 550,
-    "usortm_cost": 1578.33,
+    "usortm_cost": 1330.83,
     "traditional_cost": 41942.23,
     "traditional_min": 41942.23,
-    "traditional_max": 51842.23
+    "traditional_max": 51842.23,
+    "sdm_cost": 8689.0,
+    "sdm_cost_max": 10171.0
   },
   {
     "library_size": 575,
-    "usortm_cost": 1592.78,
+    "usortm_cost": 1334.03,
     "traditional_cost": 43825.97,
     "traditional_min": 43825.97,
-    "traditional_max": 54175.97
+    "traditional_max": 54175.97,
+    "sdm_cost": 8941.5,
+    "sdm_cost_max": 10423.5
   },
   {
     "library_size": 600,
-    "usortm_cost": 1718.46,
+    "usortm_cost": 1448.46,
     "traditional_cost": 45709.7,
     "traditional_min": 45709.7,
-    "traditional_max": 56509.7
+    "traditional_max": 56509.7,
+    "sdm_cost": 9633.0,
+    "sdm_cost_max": 11362.0
   },
   {
     "library_size": 625,
-    "usortm_cost": 1732.91,
+    "usortm_cost": 1451.66,
     "traditional_cost": 47593.44,
     "traditional_min": 47593.44,
-    "traditional_max": 58843.44
+    "traditional_max": 58843.44,
+    "sdm_cost": 9885.5,
+    "sdm_cost_max": 11614.5
   },
   {
     "library_size": 650,
-    "usortm_cost": 1747.36,
+    "usortm_cost": 1454.86,
     "traditional_cost": 49477.18,
     "traditional_min": 49477.18,
-    "traditional_max": 61177.18
+    "traditional_max": 61177.18,
+    "sdm_cost": 10138.0,
+    "sdm_cost_max": 11867.0
   },
   {
     "library_size": 675,
-    "usortm_cost": 1873.04,
+    "usortm_cost": 1569.29,
     "traditional_cost": 51360.92,
     "traditional_min": 51360.92,
-    "traditional_max": 63510.92
+    "traditional_max": 63510.92,
+    "sdm_cost": 10829.5,
+    "sdm_cost_max": 12805.5
   },
   {
     "library_size": 700,
-    "usortm_cost": 1887.49,
+    "usortm_cost": 1572.49,
     "traditional_cost": 53244.65,
     "traditional_min": 53244.65,
-    "traditional_max": 65844.65
+    "traditional_max": 65844.65,
+    "sdm_cost": 11082.0,
+    "sdm_cost_max": 13058.0
   },
   {
     "library_size": 725,
-    "usortm_cost": 1901.94,
+    "usortm_cost": 1575.69,
     "traditional_cost": 55128.39,
     "traditional_min": 55128.39,
-    "traditional_max": 68178.39
+    "traditional_max": 68178.39,
+    "sdm_cost": 11334.5,
+    "sdm_cost_max": 13310.5
   },
   {
     "library_size": 750,
-    "usortm_cost": 1916.39,
+    "usortm_cost": 1578.89,
     "traditional_cost": 57012.13,
     "traditional_min": 57012.13,
-    "traditional_max": 70512.13
+    "traditional_max": 70512.13,
+    "sdm_cost": 11587.0,
+    "sdm_cost_max": 13563.0
   },
   {
     "library_size": 775,
-    "usortm_cost": 2049.91,
+    "usortm_cost": 1701.16,
     "traditional_cost": 58895.87,
     "traditional_min": 58895.87,
-    "traditional_max": 72845.87
+    "traditional_max": 72845.87,
+    "sdm_cost": 12278.5,
+    "sdm_cost_max": 14501.5
   },
   {
     "library_size": 800,
-    "usortm_cost": 2064.36,
+    "usortm_cost": 1704.36,
     "traditional_cost": 60779.6,
     "traditional_min": 60779.6,
-    "traditional_max": 75179.6
+    "traditional_max": 75179.6,
+    "sdm_cost": 12531.0,
+    "sdm_cost_max": 14754.0
   },
   {
     "library_size": 825,
-    "usortm_cost": 2078.81,
+    "usortm_cost": 1707.56,
     "traditional_cost": 62663.34,
     "traditional_min": 62663.34,
-    "traditional_max": 77513.34
+    "traditional_max": 77513.34,
+    "sdm_cost": 12783.5,
+    "sdm_cost_max": 15006.5
   },
   {
     "library_size": 850,
-    "usortm_cost": 2093.26,
+    "usortm_cost": 1710.76,
     "traditional_cost": 64547.08,
     "traditional_min": 64547.08,
-    "traditional_max": 79847.08
+    "traditional_max": 79847.08,
+    "sdm_cost": 13036.0,
+    "sdm_cost_max": 15259.0
   },
   {
     "library_size": 875,
-    "usortm_cost": 2218.94,
+    "usortm_cost": 1825.19,
     "traditional_cost": 66430.82,
     "traditional_min": 66430.82,
-    "traditional_max": 82180.82
+    "traditional_max": 82180.82,
+    "sdm_cost": 13727.5,
+    "sdm_cost_max": 16197.5
   },
   {
     "library_size": 900,
-    "usortm_cost": 2233.39,
+    "usortm_cost": 1828.39,
     "traditional_cost": 68314.55,
     "traditional_min": 68314.55,
-    "traditional_max": 84514.55
+    "traditional_max": 84514.55,
+    "sdm_cost": 13980.0,
+    "sdm_cost_max": 16450.0
   },
   {
     "library_size": 925,
-    "usortm_cost": 2247.84,
+    "usortm_cost": 1831.59,
     "traditional_cost": 70198.29,
     "traditional_min": 70198.29,
-    "traditional_max": 86848.29
+    "traditional_max": 86848.29,
+    "sdm_cost": 14232.5,
+    "sdm_cost_max": 16702.5
   },
   {
     "library_size": 950,
-    "usortm_cost": 2262.29,
+    "usortm_cost": 1834.79,
     "traditional_cost": 72082.03,
     "traditional_min": 72082.03,
-    "traditional_max": 89182.03
+    "traditional_max": 89182.03,
+    "sdm_cost": 14485.0,
+    "sdm_cost_max": 16955.0
   },
   {
     "library_size": 975,
-    "usortm_cost": 2387.97,
+    "usortm_cost": 1949.22,
     "traditional_cost": 73965.77,
     "traditional_min": 73965.77,
-    "traditional_max": 91515.77
+    "traditional_max": 91515.77,
+    "sdm_cost": 15176.5,
+    "sdm_cost_max": 17893.5
   },
   {
     "library_size": 1000,
-    "usortm_cost": 2402.42,
+    "usortm_cost": 1952.42,
     "traditional_cost": 75849.51,
     "traditional_min": 75849.51,
-    "traditional_max": 93849.51
+    "traditional_max": 93849.51,
+    "sdm_cost": 15429.0,
+    "sdm_cost_max": 18146.0
   },
   {
     "library_size": 1025,
-    "usortm_cost": 2416.87,
+    "usortm_cost": 1955.62,
     "traditional_cost": 77733.24,
     "traditional_min": 77733.24,
-    "traditional_max": 96183.24
+    "traditional_max": 96183.24,
+    "sdm_cost": 15681.5,
+    "sdm_cost_max": 18398.5
   },
   {
     "library_size": 1050,
-    "usortm_cost": 2431.32,
+    "usortm_cost": 1958.82,
     "traditional_cost": 79616.98,
     "traditional_min": 79616.98,
-    "traditional_max": 98516.98
+    "traditional_max": 98516.98,
+    "sdm_cost": 15934.0,
+    "sdm_cost_max": 18651.0
   },
   {
     "library_size": 1075,
-    "usortm_cost": 2557.0,
+    "usortm_cost": 2073.25,
     "traditional_cost": 81500.72,
     "traditional_min": 81500.72,
-    "traditional_max": 100850.72
+    "traditional_max": 100850.72,
+    "sdm_cost": 16625.5,
+    "sdm_cost_max": 19589.5
   },
   {
     "library_size": 1100,
-    "usortm_cost": 2571.45,
+    "usortm_cost": 2076.45,
     "traditional_cost": 83384.46,
     "traditional_min": 83384.46,
-    "traditional_max": 103184.46
+    "traditional_max": 103184.46,
+    "sdm_cost": 16878.0,
+    "sdm_cost_max": 19842.0
   },
   {
     "library_size": 1125,
-    "usortm_cost": 2585.9,
+    "usortm_cost": 2079.65,
     "traditional_cost": 85268.19,
     "traditional_min": 85268.19,
-    "traditional_max": 105518.19
+    "traditional_max": 105518.19,
+    "sdm_cost": 17130.5,
+    "sdm_cost_max": 20094.5
   },
   {
     "library_size": 1150,
-    "usortm_cost": 2600.35,
+    "usortm_cost": 2082.85,
     "traditional_cost": 87151.93,
     "traditional_min": 87151.93,
-    "traditional_max": 107851.93
+    "traditional_max": 107851.93,
+    "sdm_cost": 17383.0,
+    "sdm_cost_max": 20347.0
   },
   {
     "library_size": 1175,
-    "usortm_cost": 2733.87,
+    "usortm_cost": 2205.12,
     "traditional_cost": 89035.67,
     "traditional_min": 89035.67,
-    "traditional_max": 110185.67
+    "traditional_max": 110185.67,
+    "sdm_cost": 18074.5,
+    "sdm_cost_max": 21285.5
   },
   {
     "library_size": 1200,
-    "usortm_cost": 2748.32,
+    "usortm_cost": 2208.32,
     "traditional_cost": 90919.41,
     "traditional_min": 90919.41,
-    "traditional_max": 112519.41
+    "traditional_max": 112519.41,
+    "sdm_cost": 18327.0,
+    "sdm_cost_max": 21538.0
   },
   {
     "library_size": 1225,
-    "usortm_cost": 2762.77,
+    "usortm_cost": 2211.52,
     "traditional_cost": 92803.14,
     "traditional_min": 92803.14,
-    "traditional_max": 114853.14
+    "traditional_max": 114853.14,
+    "sdm_cost": 18579.5,
+    "sdm_cost_max": 21790.5
   },
   {
     "library_size": 1250,
-    "usortm_cost": 2888.45,
+    "usortm_cost": 2325.95,
     "traditional_cost": 94686.88,
     "traditional_min": 94686.88,
-    "traditional_max": 117186.88
+    "traditional_max": 117186.88,
+    "sdm_cost": 19271.0,
+    "sdm_cost_max": 22729.0
   },
   {
     "library_size": 1275,
-    "usortm_cost": 2902.9,
+    "usortm_cost": 2329.15,
     "traditional_cost": 96570.62,
     "traditional_min": 96570.62,
-    "traditional_max": 119520.62
+    "traditional_max": 119520.62,
+    "sdm_cost": 19523.5,
+    "sdm_cost_max": 22981.5
   },
   {
     "library_size": 1300,
-    "usortm_cost": 2917.35,
+    "usortm_cost": 2332.35,
     "traditional_cost": 98454.36,
     "traditional_min": 98454.36,
-    "traditional_max": 121854.36
+    "traditional_max": 121854.36,
+    "sdm_cost": 19776.0,
+    "sdm_cost_max": 23234.0
   },
   {
     "library_size": 1325,
-    "usortm_cost": 2931.8,
+    "usortm_cost": 2335.55,
     "traditional_cost": 100338.09,
     "traditional_min": 100338.09,
-    "traditional_max": 124188.09
+    "traditional_max": 124188.09,
+    "sdm_cost": 20028.5,
+    "sdm_cost_max": 23486.5
   },
   {
     "library_size": 1350,
-    "usortm_cost": 3057.48,
+    "usortm_cost": 2449.98,
     "traditional_cost": 102221.83,
     "traditional_min": 102221.83,
-    "traditional_max": 126521.83
+    "traditional_max": 126521.83,
+    "sdm_cost": 20720.0,
+    "sdm_cost_max": 24425.0
   },
   {
     "library_size": 1375,
-    "usortm_cost": 3071.93,
+    "usortm_cost": 2453.18,
     "traditional_cost": 104105.57,
     "traditional_min": 104105.57,
-    "traditional_max": 128855.57
+    "traditional_max": 128855.57,
+    "sdm_cost": 20972.5,
+    "sdm_cost_max": 24677.5
   },
   {
     "library_size": 1400,
-    "usortm_cost": 3086.38,
+    "usortm_cost": 2456.38,
     "traditional_cost": 105989.31,
     "traditional_min": 105989.31,
-    "traditional_max": 131189.31
+    "traditional_max": 131189.31,
+    "sdm_cost": 21225.0,
+    "sdm_cost_max": 24930.0
   },
   {
     "library_size": 1425,
-    "usortm_cost": 3100.83,
+    "usortm_cost": 2459.58,
     "traditional_cost": 107873.04,
     "traditional_min": 107873.04,
-    "traditional_max": 133523.04
+    "traditional_max": 133523.04,
+    "sdm_cost": 21477.5,
+    "sdm_cost_max": 25182.5
   },
   {
     "library_size": 1450,
-    "usortm_cost": 3226.51,
+    "usortm_cost": 2574.01,
     "traditional_cost": 109756.78,
     "traditional_min": 109756.78,
-    "traditional_max": 135856.78
+    "traditional_max": 135856.78,
+    "sdm_cost": 22169.0,
+    "sdm_cost_max": 26121.0
   },
   {
     "library_size": 1475,
-    "usortm_cost": 3240.96,
+    "usortm_cost": 2577.21,
     "traditional_cost": 111640.52,
     "traditional_min": 111640.52,
-    "traditional_max": 138190.52
+    "traditional_max": 138190.52,
+    "sdm_cost": 22421.5,
+    "sdm_cost_max": 26373.5
   },
   {
     "library_size": 1500,
-    "usortm_cost": 3255.41,
+    "usortm_cost": 2580.41,
     "traditional_cost": 113524.26,
     "traditional_min": 113524.26,
-    "traditional_max": 140524.26
+    "traditional_max": 140524.26,
+    "sdm_cost": 22674.0,
+    "sdm_cost_max": 26626.0
   },
   {
     "library_size": 1525,
-    "usortm_cost": 3269.86,
+    "usortm_cost": 2583.61,
     "traditional_cost": 115408.0,
     "traditional_min": 115408.0,
-    "traditional_max": 142858.0
+    "traditional_max": 142858.0,
+    "sdm_cost": 22926.5,
+    "sdm_cost_max": 26878.5
   },
   {
     "library_size": 1550,
-    "usortm_cost": 3403.38,
+    "usortm_cost": 2705.88,
     "traditional_cost": 117291.73,
     "traditional_min": 117291.73,
-    "traditional_max": 145191.73
+    "traditional_max": 145191.73,
+    "sdm_cost": 23618.0,
+    "sdm_cost_max": 27817.0
   },
   {
     "library_size": 1575,
-    "usortm_cost": 3417.83,
+    "usortm_cost": 2709.08,
     "traditional_cost": 119175.47,
     "traditional_min": 119175.47,
-    "traditional_max": 147525.47
+    "traditional_max": 147525.47,
+    "sdm_cost": 23870.5,
+    "sdm_cost_max": 28069.5
   },
   {
     "library_size": 1600,
-    "usortm_cost": 3432.28,
+    "usortm_cost": 2712.28,
     "traditional_cost": 121059.21,
     "traditional_min": 121059.21,
-    "traditional_max": 149859.21
+    "traditional_max": 149859.21,
+    "sdm_cost": 24123.0,
+    "sdm_cost_max": 28322.0
   },
   {
     "library_size": 1625,
-    "usortm_cost": 3446.73,
+    "usortm_cost": 2715.48,
     "traditional_cost": 122942.95,
     "traditional_min": 122942.95,
-    "traditional_max": 152192.95
+    "traditional_max": 152192.95,
+    "sdm_cost": 24375.5,
+    "sdm_cost_max": 28574.5
   },
   {
     "library_size": 1650,
-    "usortm_cost": 3572.41,
+    "usortm_cost": 2829.91,
     "traditional_cost": 124826.68,
     "traditional_min": 124826.68,
-    "traditional_max": 154526.68
+    "traditional_max": 154526.68,
+    "sdm_cost": 25067.0,
+    "sdm_cost_max": 29513.0
   },
   {
     "library_size": 1675,
-    "usortm_cost": 3586.86,
+    "usortm_cost": 2833.11,
     "traditional_cost": 126710.42,
     "traditional_min": 126710.42,
-    "traditional_max": 156860.42
+    "traditional_max": 156860.42,
+    "sdm_cost": 25319.5,
+    "sdm_cost_max": 29765.5
   },
   {
     "library_size": 1700,
-    "usortm_cost": 3601.31,
+    "usortm_cost": 2836.31,
     "traditional_cost": 128594.16,
     "traditional_min": 128594.16,
-    "traditional_max": 159194.16
+    "traditional_max": 159194.16,
+    "sdm_cost": 25572.0,
+    "sdm_cost_max": 30018.0
   },
   {
     "library_size": 1725,
-    "usortm_cost": 3615.76,
+    "usortm_cost": 2839.51,
     "traditional_cost": 130477.9,
     "traditional_min": 130477.9,
-    "traditional_max": 161527.9
+    "traditional_max": 161527.9,
+    "sdm_cost": 25824.5,
+    "sdm_cost_max": 30270.5
   },
   {
     "library_size": 1750,
-    "usortm_cost": 3741.44,
+    "usortm_cost": 2953.94,
     "traditional_cost": 132361.63,
     "traditional_min": 132361.63,
-    "traditional_max": 163861.63
+    "traditional_max": 163861.63,
+    "sdm_cost": 26516.0,
+    "sdm_cost_max": 31209.0
   },
   {
     "library_size": 1775,
-    "usortm_cost": 3755.89,
+    "usortm_cost": 2957.14,
     "traditional_cost": 134245.37,
     "traditional_min": 134245.37,
-    "traditional_max": 166195.37
+    "traditional_max": 166195.37,
+    "sdm_cost": 26768.5,
+    "sdm_cost_max": 31461.5
   },
   {
     "library_size": 1800,
-    "usortm_cost": 3770.34,
+    "usortm_cost": 2960.34,
     "traditional_cost": 136129.11,
     "traditional_min": 136129.11,
-    "traditional_max": 168529.11
+    "traditional_max": 168529.11,
+    "sdm_cost": 27021.0,
+    "sdm_cost_max": 31714.0
   },
   {
     "library_size": 1825,
-    "usortm_cost": 3896.02,
+    "usortm_cost": 3074.77,
     "traditional_cost": 138012.85,
     "traditional_min": 138012.85,
-    "traditional_max": 170862.85
+    "traditional_max": 170862.85,
+    "sdm_cost": 27712.5,
+    "sdm_cost_max": 32652.5
   },
   {
     "library_size": 1850,
-    "usortm_cost": 3910.47,
+    "usortm_cost": 3077.97,
     "traditional_cost": 139896.58,
     "traditional_min": 139896.58,
-    "traditional_max": 173196.58
+    "traditional_max": 173196.58,
+    "sdm_cost": 27965.0,
+    "sdm_cost_max": 32905.0
   },
   {
     "library_size": 1875,
-    "usortm_cost": 3924.92,
+    "usortm_cost": 3081.17,
     "traditional_cost": 141780.32,
     "traditional_min": 141780.32,
-    "traditional_max": 175530.32
+    "traditional_max": 175530.32,
+    "sdm_cost": 28217.5,
+    "sdm_cost_max": 33157.5
   },
   {
     "library_size": 1900,
-    "usortm_cost": 3939.37,
+    "usortm_cost": 3084.37,
     "traditional_cost": 143664.06,
     "traditional_min": 143664.06,
-    "traditional_max": 177864.06
+    "traditional_max": 177864.06,
+    "sdm_cost": 28470.0,
+    "sdm_cost_max": 33410.0
   },
   {
     "library_size": 1925,
-    "usortm_cost": 4072.89,
+    "usortm_cost": 3206.64,
     "traditional_cost": 145547.8,
     "traditional_min": 145547.8,
-    "traditional_max": 180197.8
+    "traditional_max": 180197.8,
+    "sdm_cost": 29161.5,
+    "sdm_cost_max": 34348.5
   },
   {
     "library_size": 1950,
-    "usortm_cost": 4087.34,
+    "usortm_cost": 3209.84,
     "traditional_cost": 147431.54,
     "traditional_min": 147431.54,
-    "traditional_max": 182531.54
+    "traditional_max": 182531.54,
+    "sdm_cost": 29414.0,
+    "sdm_cost_max": 34601.0
   },
   {
     "library_size": 1975,
-    "usortm_cost": 4101.79,
+    "usortm_cost": 3213.04,
     "traditional_cost": 149315.27,
     "traditional_min": 149315.27,
-    "traditional_max": 184865.27
+    "traditional_max": 184865.27,
+    "sdm_cost": 29666.5,
+    "sdm_cost_max": 34853.5
   },
   {
     "library_size": 2000,
-    "usortm_cost": 4116.24,
+    "usortm_cost": 3216.24,
     "traditional_cost": 151199.01,
     "traditional_min": 151199.01,
-    "traditional_max": 187199.01
+    "traditional_max": 187199.01,
+    "sdm_cost": 29919.0,
+    "sdm_cost_max": 35106.0
   },
   {
     "library_size": 2025,
-    "usortm_cost": 4241.92,
+    "usortm_cost": 3330.67,
     "traditional_cost": 153082.75,
     "traditional_min": 153082.75,
-    "traditional_max": 189532.75
+    "traditional_max": 189532.75,
+    "sdm_cost": 30610.5,
+    "sdm_cost_max": 36044.5
   },
   {
     "library_size": 2050,
-    "usortm_cost": 4256.37,
+    "usortm_cost": 3333.87,
     "traditional_cost": 154966.49,
     "traditional_min": 154966.49,
-    "traditional_max": 191866.49
+    "traditional_max": 191866.49,
+    "sdm_cost": 30863.0,
+    "sdm_cost_max": 36297.0
   },
   {
     "library_size": 2075,
-    "usortm_cost": 4270.82,
+    "usortm_cost": 3337.07,
     "traditional_cost": 156850.22,
     "traditional_min": 156850.22,
-    "traditional_max": 194200.22
+    "traditional_max": 194200.22,
+    "sdm_cost": 31115.5,
+    "sdm_cost_max": 36549.5
   },
   {
     "library_size": 2100,
-    "usortm_cost": 4285.27,
+    "usortm_cost": 3340.27,
     "traditional_cost": 158733.96,
     "traditional_min": 158733.96,
-    "traditional_max": 196533.96
+    "traditional_max": 196533.96,
+    "sdm_cost": 31368.0,
+    "sdm_cost_max": 36802.0
   },
   {
     "library_size": 2125,
-    "usortm_cost": 4410.95,
+    "usortm_cost": 3454.7,
     "traditional_cost": 160617.7,
     "traditional_min": 160617.7,
-    "traditional_max": 198867.7
+    "traditional_max": 198867.7,
+    "sdm_cost": 32059.5,
+    "sdm_cost_max": 37740.5
   },
   {
     "library_size": 2150,
-    "usortm_cost": 4425.4,
+    "usortm_cost": 3457.9,
     "traditional_cost": 162501.44,
     "traditional_min": 162501.44,
-    "traditional_max": 201201.44
+    "traditional_max": 201201.44,
+    "sdm_cost": 32312.0,
+    "sdm_cost_max": 37993.0
   },
   {
     "library_size": 2175,
-    "usortm_cost": 4439.85,
+    "usortm_cost": 3461.1,
     "traditional_cost": 164385.17,
     "traditional_min": 164385.17,
-    "traditional_max": 203535.17
+    "traditional_max": 203535.17,
+    "sdm_cost": 32564.5,
+    "sdm_cost_max": 38245.5
   },
   {
     "library_size": 2200,
-    "usortm_cost": 4454.3,
+    "usortm_cost": 3464.3,
     "traditional_cost": 166268.91,
     "traditional_min": 166268.91,
-    "traditional_max": 205868.91
+    "traditional_max": 205868.91,
+    "sdm_cost": 32817.0,
+    "sdm_cost_max": 38498.0
   },
   {
     "library_size": 2225,
-    "usortm_cost": 4579.98,
+    "usortm_cost": 3578.73,
     "traditional_cost": 168152.65,
     "traditional_min": 168152.65,
-    "traditional_max": 208202.65
+    "traditional_max": 208202.65,
+    "sdm_cost": 33508.5,
+    "sdm_cost_max": 39436.5
   },
   {
     "library_size": 2250,
-    "usortm_cost": 4594.43,
+    "usortm_cost": 3581.93,
     "traditional_cost": 170036.39,
     "traditional_min": 170036.39,
-    "traditional_max": 210536.39
+    "traditional_max": 210536.39,
+    "sdm_cost": 33761.0,
+    "sdm_cost_max": 39689.0
   },
   {
     "library_size": 2275,
-    "usortm_cost": 4608.88,
+    "usortm_cost": 3585.13,
     "traditional_cost": 171920.12,
     "traditional_min": 171920.12,
-    "traditional_max": 212870.12
+    "traditional_max": 212870.12,
+    "sdm_cost": 34013.5,
+    "sdm_cost_max": 39941.5
   },
   {
     "library_size": 2300,
-    "usortm_cost": 4623.33,
+    "usortm_cost": 3588.33,
     "traditional_cost": 173803.86,
     "traditional_min": 173803.86,
-    "traditional_max": 215203.86
+    "traditional_max": 215203.86,
+    "sdm_cost": 34266.0,
+    "sdm_cost_max": 40194.0
   },
   {
     "library_size": 2325,
-    "usortm_cost": 4756.85,
+    "usortm_cost": 3710.6,
     "traditional_cost": 175687.6,
     "traditional_min": 175687.6,
-    "traditional_max": 217537.6
+    "traditional_max": 217537.6,
+    "sdm_cost": 34957.5,
+    "sdm_cost_max": 41132.5
   },
   {
     "library_size": 2350,
-    "usortm_cost": 4771.3,
+    "usortm_cost": 3713.8,
     "traditional_cost": 177571.34,
     "traditional_min": 177571.34,
-    "traditional_max": 219871.34
+    "traditional_max": 219871.34,
+    "sdm_cost": 35210.0,
+    "sdm_cost_max": 41385.0
   },
   {
     "library_size": 2375,
-    "usortm_cost": 4785.75,
+    "usortm_cost": 3717.0,
     "traditional_cost": 179455.07,
     "traditional_min": 179455.07,
-    "traditional_max": 222205.07
+    "traditional_max": 222205.07,
+    "sdm_cost": 35462.5,
+    "sdm_cost_max": 41637.5
   },
   {
     "library_size": 2400,
-    "usortm_cost": 4911.43,
+    "usortm_cost": 3831.43,
     "traditional_cost": 181338.81,
     "traditional_min": 181338.81,
-    "traditional_max": 224538.81
+    "traditional_max": 224538.81,
+    "sdm_cost": 35715.0,
+    "sdm_cost_max": 41890.0
   },
   {
     "library_size": 2425,
-    "usortm_cost": 4925.88,
+    "usortm_cost": 3834.63,
     "traditional_cost": 183222.55,
     "traditional_min": 183222.55,
-    "traditional_max": 226872.55
+    "traditional_max": 226872.55,
+    "sdm_cost": 36406.5,
+    "sdm_cost_max": 42828.5
   },
   {
     "library_size": 2450,
-    "usortm_cost": 4940.33,
+    "usortm_cost": 3837.83,
     "traditional_cost": 185106.29,
     "traditional_min": 185106.29,
-    "traditional_max": 229206.29
+    "traditional_max": 229206.29,
+    "sdm_cost": 36659.0,
+    "sdm_cost_max": 43081.0
   },
   {
     "library_size": 2475,
-    "usortm_cost": 4954.78,
+    "usortm_cost": 3841.03,
     "traditional_cost": 186990.03,
     "traditional_min": 186990.03,
-    "traditional_max": 231540.03
+    "traditional_max": 231540.03,
+    "sdm_cost": 36911.5,
+    "sdm_cost_max": 43333.5
   },
   {
     "library_size": 2500,
-    "usortm_cost": 5080.46,
+    "usortm_cost": 3955.46,
     "traditional_cost": 188873.76,
     "traditional_min": 188873.76,
-    "traditional_max": 233873.76
+    "traditional_max": 233873.76,
+    "sdm_cost": 37603.0,
+    "sdm_cost_max": 44272.0
   },
   {
     "library_size": 2525,
-    "usortm_cost": 5144.91,
+    "usortm_cost": 4008.66,
     "traditional_cost": 190757.5,
     "traditional_min": 190757.5,
-    "traditional_max": 236207.5
+    "traditional_max": 236207.5,
+    "sdm_cost": 37855.5,
+    "sdm_cost_max": 44524.5
   },
   {
     "library_size": 2550,
-    "usortm_cost": 5159.36,
+    "usortm_cost": 4011.86,
     "traditional_cost": 192641.24,
     "traditional_min": 192641.24,
-    "traditional_max": 238541.24
+    "traditional_max": 238541.24,
+    "sdm_cost": 38108.0,
+    "sdm_cost_max": 44777.0
   },
   {
     "library_size": 2575,
-    "usortm_cost": 5173.81,
+    "usortm_cost": 4015.06,
     "traditional_cost": 194524.98,
     "traditional_min": 194524.98,
-    "traditional_max": 240874.98
+    "traditional_max": 240874.98,
+    "sdm_cost": 38360.5,
+    "sdm_cost_max": 45029.5
   },
   {
     "library_size": 2600,
-    "usortm_cost": 5299.49,
+    "usortm_cost": 4129.49,
     "traditional_cost": 196408.71,
     "traditional_min": 196408.71,
-    "traditional_max": 243208.71
+    "traditional_max": 243208.71,
+    "sdm_cost": 39052.0,
+    "sdm_cost_max": 45968.0
   },
   {
     "library_size": 2625,
-    "usortm_cost": 5313.94,
+    "usortm_cost": 4132.69,
     "traditional_cost": 198292.45,
     "traditional_min": 198292.45,
-    "traditional_max": 245542.45
+    "traditional_max": 245542.45,
+    "sdm_cost": 39304.5,
+    "sdm_cost_max": 46220.5
   },
   {
     "library_size": 2650,
-    "usortm_cost": 5328.39,
+    "usortm_cost": 4135.89,
     "traditional_cost": 200176.19,
     "traditional_min": 200176.19,
-    "traditional_max": 247876.19
+    "traditional_max": 247876.19,
+    "sdm_cost": 39557.0,
+    "sdm_cost_max": 46473.0
   },
   {
     "library_size": 2675,
-    "usortm_cost": 5342.84,
+    "usortm_cost": 4139.09,
     "traditional_cost": 202059.93,
     "traditional_min": 202059.93,
-    "traditional_max": 250209.93
+    "traditional_max": 250209.93,
+    "sdm_cost": 39809.5,
+    "sdm_cost_max": 46725.5
   },
   {
     "library_size": 2700,
-    "usortm_cost": 5476.36,
+    "usortm_cost": 4261.36,
     "traditional_cost": 203943.66,
     "traditional_min": 203943.66,
-    "traditional_max": 252543.66
+    "traditional_max": 252543.66,
+    "sdm_cost": 40501.0,
+    "sdm_cost_max": 47664.0
   },
   {
     "library_size": 2725,
-    "usortm_cost": 5490.81,
+    "usortm_cost": 4264.56,
     "traditional_cost": 205827.4,
     "traditional_min": 205827.4,
-    "traditional_max": 254877.4
+    "traditional_max": 254877.4,
+    "sdm_cost": 40753.5,
+    "sdm_cost_max": 47916.5
   },
   {
     "library_size": 2750,
-    "usortm_cost": 5505.26,
+    "usortm_cost": 4267.76,
     "traditional_cost": 207711.14,
     "traditional_min": 207711.14,
-    "traditional_max": 257211.14
+    "traditional_max": 257211.14,
+    "sdm_cost": 41006.0,
+    "sdm_cost_max": 48169.0
   },
   {
     "library_size": 2775,
-    "usortm_cost": 5519.71,
+    "usortm_cost": 4270.96,
     "traditional_cost": 209594.88,
     "traditional_min": 209594.88,
-    "traditional_max": 259544.88
+    "traditional_max": 259544.88,
+    "sdm_cost": 41258.5,
+    "sdm_cost_max": 48421.5
   },
   {
     "library_size": 2800,
-    "usortm_cost": 5645.39,
+    "usortm_cost": 4385.39,
     "traditional_cost": 211478.61,
     "traditional_min": 211478.61,
-    "traditional_max": 261878.61
+    "traditional_max": 261878.61,
+    "sdm_cost": 41950.0,
+    "sdm_cost_max": 49360.0
   },
   {
     "library_size": 2825,
-    "usortm_cost": 5659.84,
+    "usortm_cost": 4388.59,
     "traditional_cost": 213362.35,
     "traditional_min": 213362.35,
-    "traditional_max": 264212.35
+    "traditional_max": 264212.35,
+    "sdm_cost": 42202.5,
+    "sdm_cost_max": 49612.5
   },
   {
     "library_size": 2850,
-    "usortm_cost": 5674.29,
+    "usortm_cost": 4391.79,
     "traditional_cost": 215246.09,
     "traditional_min": 215246.09,
-    "traditional_max": 266546.09
+    "traditional_max": 266546.09,
+    "sdm_cost": 42455.0,
+    "sdm_cost_max": 49865.0
   },
   {
     "library_size": 2875,
-    "usortm_cost": 5688.74,
+    "usortm_cost": 4394.99,
     "traditional_cost": 217129.83,
     "traditional_min": 217129.83,
-    "traditional_max": 268879.83
+    "traditional_max": 268879.83,
+    "sdm_cost": 42707.5,
+    "sdm_cost_max": 50117.5
   },
   {
     "library_size": 2900,
-    "usortm_cost": 5814.42,
+    "usortm_cost": 4509.42,
     "traditional_cost": 219013.57,
     "traditional_min": 219013.57,
-    "traditional_max": 271213.57
+    "traditional_max": 271213.57,
+    "sdm_cost": 43399.0,
+    "sdm_cost_max": 51056.0
   },
   {
     "library_size": 2925,
-    "usortm_cost": 5828.87,
+    "usortm_cost": 4512.62,
     "traditional_cost": 220897.3,
     "traditional_min": 220897.3,
-    "traditional_max": 273547.3
+    "traditional_max": 273547.3,
+    "sdm_cost": 43651.5,
+    "sdm_cost_max": 51308.5
   },
   {
     "library_size": 2950,
-    "usortm_cost": 5843.32,
+    "usortm_cost": 4515.82,
     "traditional_cost": 222781.04,
     "traditional_min": 222781.04,
-    "traditional_max": 275881.04
+    "traditional_max": 275881.04,
+    "sdm_cost": 43904.0,
+    "sdm_cost_max": 51561.0
   },
   {
     "library_size": 2975,
-    "usortm_cost": 5857.77,
+    "usortm_cost": 4519.02,
     "traditional_cost": 224664.78,
     "traditional_min": 224664.78,
-    "traditional_max": 278214.78
+    "traditional_max": 278214.78,
+    "sdm_cost": 44156.5,
+    "sdm_cost_max": 51813.5
   },
   {
     "library_size": 3000,
-    "usortm_cost": 4723.45,
+    "usortm_cost": 4633.45,
     "traditional_cost": 226548.52,
     "traditional_min": 226548.52,
-    "traditional_max": 280548.52
+    "traditional_max": 280548.52,
+    "sdm_cost": 44848.0,
+    "sdm_cost_max": 52752.0
   },
   {
     "library_size": 3025,
-    "usortm_cost": 4727.4,
+    "usortm_cost": 4636.65,
     "traditional_cost": 228432.25,
     "traditional_min": 228432.25,
-    "traditional_max": 282882.25
+    "traditional_max": 282882.25,
+    "sdm_cost": 45100.5,
+    "sdm_cost_max": 53004.5
   },
   {
     "library_size": 3050,
-    "usortm_cost": 4731.35,
+    "usortm_cost": 4639.85,
     "traditional_cost": 230315.99,
     "traditional_min": 230315.99,
-    "traditional_max": 285215.99
+    "traditional_max": 285215.99,
+    "sdm_cost": 45353.0,
+    "sdm_cost_max": 53257.0
   },
   {
     "library_size": 3075,
-    "usortm_cost": 4854.37,
+    "usortm_cost": 4762.12,
     "traditional_cost": 232199.73,
     "traditional_min": 232199.73,
-    "traditional_max": 287549.73
+    "traditional_max": 287549.73,
+    "sdm_cost": 46044.5,
+    "sdm_cost_max": 54195.5
   },
   {
     "library_size": 3100,
-    "usortm_cost": 4858.32,
+    "usortm_cost": 4765.32,
     "traditional_cost": 234083.47,
     "traditional_min": 234083.47,
-    "traditional_max": 289883.47
+    "traditional_max": 289883.47,
+    "sdm_cost": 46297.0,
+    "sdm_cost_max": 54448.0
   },
   {
     "library_size": 3125,
-    "usortm_cost": 4862.27,
+    "usortm_cost": 4768.52,
     "traditional_cost": 235967.2,
     "traditional_min": 235967.2,
-    "traditional_max": 292217.2
+    "traditional_max": 292217.2,
+    "sdm_cost": 46549.5,
+    "sdm_cost_max": 54700.5
   },
   {
     "library_size": 3150,
-    "usortm_cost": 4866.22,
+    "usortm_cost": 4771.72,
     "traditional_cost": 237850.94,
     "traditional_min": 237850.94,
-    "traditional_max": 294550.94
+    "traditional_max": 294550.94,
+    "sdm_cost": 46802.0,
+    "sdm_cost_max": 54953.0
   },
   {
     "library_size": 3175,
-    "usortm_cost": 4981.4,
+    "usortm_cost": 4886.15,
     "traditional_cost": 239734.68,
     "traditional_min": 239734.68,
-    "traditional_max": 296884.68
+    "traditional_max": 296884.68,
+    "sdm_cost": 47493.5,
+    "sdm_cost_max": 55891.5
   },
   {
     "library_size": 3200,
-    "usortm_cost": 4985.35,
+    "usortm_cost": 4889.35,
     "traditional_cost": 241618.42,
     "traditional_min": 241618.42,
-    "traditional_max": 299218.42
+    "traditional_max": 299218.42,
+    "sdm_cost": 47746.0,
+    "sdm_cost_max": 56144.0
   },
   {
     "library_size": 3225,
-    "usortm_cost": 4989.3,
+    "usortm_cost": 4892.55,
     "traditional_cost": 243502.15,
     "traditional_min": 243502.15,
-    "traditional_max": 301552.15
+    "traditional_max": 301552.15,
+    "sdm_cost": 47998.5,
+    "sdm_cost_max": 56396.5
   },
   {
     "library_size": 3250,
-    "usortm_cost": 4993.25,
+    "usortm_cost": 4895.75,
     "traditional_cost": 245385.89,
     "traditional_min": 245385.89,
-    "traditional_max": 303885.89
+    "traditional_max": 303885.89,
+    "sdm_cost": 48251.0,
+    "sdm_cost_max": 56649.0
   },
   {
     "library_size": 3275,
-    "usortm_cost": 5108.43,
+    "usortm_cost": 5010.18,
     "traditional_cost": 247269.63,
     "traditional_min": 247269.63,
-    "traditional_max": 306219.63
+    "traditional_max": 306219.63,
+    "sdm_cost": 48942.5,
+    "sdm_cost_max": 57587.5
   },
   {
     "library_size": 3300,
-    "usortm_cost": 5112.38,
+    "usortm_cost": 5013.38,
     "traditional_cost": 249153.37,
     "traditional_min": 249153.37,
-    "traditional_max": 308553.37
+    "traditional_max": 308553.37,
+    "sdm_cost": 49195.0,
+    "sdm_cost_max": 57840.0
   },
   {
     "library_size": 3325,
-    "usortm_cost": 5116.33,
+    "usortm_cost": 5016.58,
     "traditional_cost": 251037.1,
     "traditional_min": 251037.1,
-    "traditional_max": 310887.1
+    "traditional_max": 310887.1,
+    "sdm_cost": 49447.5,
+    "sdm_cost_max": 58092.5
   },
   {
     "library_size": 3350,
-    "usortm_cost": 5120.28,
+    "usortm_cost": 5019.78,
     "traditional_cost": 252920.84,
     "traditional_min": 252920.84,
-    "traditional_max": 313220.84
+    "traditional_max": 313220.84,
+    "sdm_cost": 49700.0,
+    "sdm_cost_max": 58345.0
   },
   {
     "library_size": 3375,
-    "usortm_cost": 5235.46,
+    "usortm_cost": 5134.21,
     "traditional_cost": 254804.58,
     "traditional_min": 254804.58,
-    "traditional_max": 315554.58
+    "traditional_max": 315554.58,
+    "sdm_cost": 50391.5,
+    "sdm_cost_max": 59283.5
   },
   {
     "library_size": 3400,
-    "usortm_cost": 5239.41,
+    "usortm_cost": 5137.41,
     "traditional_cost": 256688.32,
     "traditional_min": 256688.32,
-    "traditional_max": 317888.32
+    "traditional_max": 317888.32,
+    "sdm_cost": 50644.0,
+    "sdm_cost_max": 59536.0
   },
   {
     "library_size": 3425,
-    "usortm_cost": 5243.36,
+    "usortm_cost": 5140.61,
     "traditional_cost": 258572.06,
     "traditional_min": 258572.06,
-    "traditional_max": 320222.06
+    "traditional_max": 320222.06,
+    "sdm_cost": 50896.5,
+    "sdm_cost_max": 59788.5
   },
   {
     "library_size": 3450,
-    "usortm_cost": 5247.31,
+    "usortm_cost": 5143.81,
     "traditional_cost": 260455.79,
     "traditional_min": 260455.79,
-    "traditional_max": 322555.79
+    "traditional_max": 322555.79,
+    "sdm_cost": 51149.0,
+    "sdm_cost_max": 60041.0
   },
   {
     "library_size": 3475,
-    "usortm_cost": 5370.33,
+    "usortm_cost": 5266.08,
     "traditional_cost": 262339.53,
     "traditional_min": 262339.53,
-    "traditional_max": 324889.53
+    "traditional_max": 324889.53,
+    "sdm_cost": 51840.5,
+    "sdm_cost_max": 60979.5
   },
   {
     "library_size": 3500,
-    "usortm_cost": 5374.28,
+    "usortm_cost": 5269.28,
     "traditional_cost": 264223.27,
     "traditional_min": 264223.27,
-    "traditional_max": 327223.27
+    "traditional_max": 327223.27,
+    "sdm_cost": 52093.0,
+    "sdm_cost_max": 61232.0
   },
   {
     "library_size": 3525,
-    "usortm_cost": 5378.23,
+    "usortm_cost": 5272.48,
     "traditional_cost": 266107.01,
     "traditional_min": 266107.01,
-    "traditional_max": 329557.01
+    "traditional_max": 329557.01,
+    "sdm_cost": 52345.5,
+    "sdm_cost_max": 61484.5
   },
   {
     "library_size": 3550,
-    "usortm_cost": 5382.18,
+    "usortm_cost": 5275.68,
     "traditional_cost": 267990.74,
     "traditional_min": 267990.74,
-    "traditional_max": 331890.74
+    "traditional_max": 331890.74,
+    "sdm_cost": 52598.0,
+    "sdm_cost_max": 61737.0
   },
   {
     "library_size": 3575,
-    "usortm_cost": 5497.36,
+    "usortm_cost": 5390.11,
     "traditional_cost": 269874.48,
     "traditional_min": 269874.48,
-    "traditional_max": 334224.48
+    "traditional_max": 334224.48,
+    "sdm_cost": 53289.5,
+    "sdm_cost_max": 62675.5
   },
   {
     "library_size": 3600,
-    "usortm_cost": 5501.31,
+    "usortm_cost": 5393.31,
     "traditional_cost": 271758.22,
     "traditional_min": 271758.22,
-    "traditional_max": 336558.22
+    "traditional_max": 336558.22,
+    "sdm_cost": 53542.0,
+    "sdm_cost_max": 62928.0
   },
   {
     "library_size": 3625,
-    "usortm_cost": 5505.26,
+    "usortm_cost": 5396.51,
     "traditional_cost": 273641.96,
     "traditional_min": 273641.96,
-    "traditional_max": 338891.96
+    "traditional_max": 338891.96,
+    "sdm_cost": 53794.5,
+    "sdm_cost_max": 63180.5
   },
   {
     "library_size": 3650,
-    "usortm_cost": 5620.44,
+    "usortm_cost": 5510.94,
     "traditional_cost": 275525.69,
     "traditional_min": 275525.69,
-    "traditional_max": 341225.69
+    "traditional_max": 341225.69,
+    "sdm_cost": 54486.0,
+    "sdm_cost_max": 64119.0
   },
   {
     "library_size": 3675,
-    "usortm_cost": 5624.39,
+    "usortm_cost": 5514.14,
     "traditional_cost": 277409.43,
     "traditional_min": 277409.43,
-    "traditional_max": 343559.43
+    "traditional_max": 343559.43,
+    "sdm_cost": 54738.5,
+    "sdm_cost_max": 64371.5
   },
   {
     "library_size": 3700,
-    "usortm_cost": 5628.34,
+    "usortm_cost": 5517.34,
     "traditional_cost": 279293.17,
     "traditional_min": 279293.17,
-    "traditional_max": 345893.17
+    "traditional_max": 345893.17,
+    "sdm_cost": 54991.0,
+    "sdm_cost_max": 64624.0
   },
   {
     "library_size": 3725,
-    "usortm_cost": 5632.29,
+    "usortm_cost": 5520.54,
     "traditional_cost": 281176.91,
     "traditional_min": 281176.91,
-    "traditional_max": 348226.91
+    "traditional_max": 348226.91,
+    "sdm_cost": 55243.5,
+    "sdm_cost_max": 64876.5
   },
   {
     "library_size": 3750,
-    "usortm_cost": 5747.47,
+    "usortm_cost": 5634.97,
     "traditional_cost": 283060.64,
     "traditional_min": 283060.64,
-    "traditional_max": 350560.64
+    "traditional_max": 350560.64,
+    "sdm_cost": 55935.0,
+    "sdm_cost_max": 65815.0
   },
   {
     "library_size": 3775,
-    "usortm_cost": 5751.42,
+    "usortm_cost": 5638.17,
     "traditional_cost": 284944.38,
     "traditional_min": 284944.38,
-    "traditional_max": 352894.38
+    "traditional_max": 352894.38,
+    "sdm_cost": 56187.5,
+    "sdm_cost_max": 66067.5
   },
   {
     "library_size": 3800,
-    "usortm_cost": 5755.37,
+    "usortm_cost": 5641.37,
     "traditional_cost": 286828.12,
     "traditional_min": 286828.12,
-    "traditional_max": 355228.12
+    "traditional_max": 355228.12,
+    "sdm_cost": 56440.0,
+    "sdm_cost_max": 66320.0
   },
   {
     "library_size": 3825,
-    "usortm_cost": 5759.32,
+    "usortm_cost": 5644.57,
     "traditional_cost": 288711.86,
     "traditional_min": 288711.86,
-    "traditional_max": 357561.86
+    "traditional_max": 357561.86,
+    "sdm_cost": 56692.5,
+    "sdm_cost_max": 66572.5
   },
   {
     "library_size": 3850,
-    "usortm_cost": 5882.34,
+    "usortm_cost": 5766.84,
     "traditional_cost": 290595.6,
     "traditional_min": 290595.6,
-    "traditional_max": 359895.6
+    "traditional_max": 359895.6,
+    "sdm_cost": 57384.0,
+    "sdm_cost_max": 67511.0
   },
   {
     "library_size": 3875,
-    "usortm_cost": 5886.29,
+    "usortm_cost": 5770.04,
     "traditional_cost": 292479.33,
     "traditional_min": 292479.33,
-    "traditional_max": 362229.33
+    "traditional_max": 362229.33,
+    "sdm_cost": 57636.5,
+    "sdm_cost_max": 67763.5
   },
   {
     "library_size": 3900,
-    "usortm_cost": 5890.24,
+    "usortm_cost": 5773.24,
     "traditional_cost": 294363.07,
     "traditional_min": 294363.07,
-    "traditional_max": 364563.07
+    "traditional_max": 364563.07,
+    "sdm_cost": 57889.0,
+    "sdm_cost_max": 68016.0
   },
   {
     "library_size": 3925,
-    "usortm_cost": 5894.19,
+    "usortm_cost": 5776.44,
     "traditional_cost": 296246.81,
     "traditional_min": 296246.81,
-    "traditional_max": 366896.81
+    "traditional_max": 366896.81,
+    "sdm_cost": 58141.5,
+    "sdm_cost_max": 68268.5
   },
   {
     "library_size": 3950,
-    "usortm_cost": 6009.37,
+    "usortm_cost": 5890.87,
     "traditional_cost": 298130.55,
     "traditional_min": 298130.55,
-    "traditional_max": 369230.55
+    "traditional_max": 369230.55,
+    "sdm_cost": 58833.0,
+    "sdm_cost_max": 69207.0
   },
   {
     "library_size": 3975,
-    "usortm_cost": 6013.32,
+    "usortm_cost": 5894.07,
     "traditional_cost": 300014.28,
     "traditional_min": 300014.28,
-    "traditional_max": 371564.28
+    "traditional_max": 371564.28,
+    "sdm_cost": 59085.5,
+    "sdm_cost_max": 69459.5
   },
   {
     "library_size": 4000,
-    "usortm_cost": 6017.27,
+    "usortm_cost": 5897.27,
     "traditional_cost": 301898.02,
     "traditional_min": 301898.02,
-    "traditional_max": 373898.02
+    "traditional_max": 373898.02,
+    "sdm_cost": 59338.0,
+    "sdm_cost_max": 69712.0
   },
   {
     "library_size": 4025,
-    "usortm_cost": 6021.22,
+    "usortm_cost": 5900.47,
     "traditional_cost": 303781.76,
     "traditional_min": 303781.76,
-    "traditional_max": 376231.76
+    "traditional_max": 376231.76,
+    "sdm_cost": 59590.5,
+    "sdm_cost_max": 69964.5
   },
   {
     "library_size": 4050,
-    "usortm_cost": 6136.4,
+    "usortm_cost": 6014.9,
     "traditional_cost": 305665.5,
     "traditional_min": 305665.5,
-    "traditional_max": 378565.5
+    "traditional_max": 378565.5,
+    "sdm_cost": 60282.0,
+    "sdm_cost_max": 70903.0
   },
   {
     "library_size": 4075,
-    "usortm_cost": 6140.35,
+    "usortm_cost": 6018.1,
     "traditional_cost": 307549.23,
     "traditional_min": 307549.23,
-    "traditional_max": 380899.23
+    "traditional_max": 380899.23,
+    "sdm_cost": 60534.5,
+    "sdm_cost_max": 71155.5
   },
   {
     "library_size": 4100,
-    "usortm_cost": 6144.3,
+    "usortm_cost": 6021.3,
     "traditional_cost": 309432.97,
     "traditional_min": 309432.97,
-    "traditional_max": 383232.97
+    "traditional_max": 383232.97,
+    "sdm_cost": 60787.0,
+    "sdm_cost_max": 71408.0
   },
   {
     "library_size": 4125,
-    "usortm_cost": 6148.25,
+    "usortm_cost": 6024.5,
     "traditional_cost": 311316.71,
     "traditional_min": 311316.71,
-    "traditional_max": 385566.71
+    "traditional_max": 385566.71,
+    "sdm_cost": 61039.5,
+    "sdm_cost_max": 71660.5
   },
   {
     "library_size": 4150,
-    "usortm_cost": 6263.43,
+    "usortm_cost": 6138.93,
     "traditional_cost": 313200.45,
     "traditional_min": 313200.45,
-    "traditional_max": 387900.45
+    "traditional_max": 387900.45,
+    "sdm_cost": 61731.0,
+    "sdm_cost_max": 72599.0
   },
   {
     "library_size": 4175,
-    "usortm_cost": 6267.38,
+    "usortm_cost": 6142.13,
     "traditional_cost": 315084.18,
     "traditional_min": 315084.18,
-    "traditional_max": 390234.18
+    "traditional_max": 390234.18,
+    "sdm_cost": 61983.5,
+    "sdm_cost_max": 72851.5
   },
   {
     "library_size": 4200,
-    "usortm_cost": 6271.33,
+    "usortm_cost": 6145.33,
     "traditional_cost": 316967.92,
     "traditional_min": 316967.92,
-    "traditional_max": 392567.92
+    "traditional_max": 392567.92,
+    "sdm_cost": 62236.0,
+    "sdm_cost_max": 73104.0
   },
   {
     "library_size": 4225,
-    "usortm_cost": 6394.35,
+    "usortm_cost": 6267.6,
     "traditional_cost": 318851.66,
     "traditional_min": 318851.66,
-    "traditional_max": 394901.66
+    "traditional_max": 394901.66,
+    "sdm_cost": 62927.5,
+    "sdm_cost_max": 74042.5
   },
   {
     "library_size": 4250,
-    "usortm_cost": 6398.3,
+    "usortm_cost": 6270.8,
     "traditional_cost": 320735.4,
     "traditional_min": 320735.4,
-    "traditional_max": 397235.4
+    "traditional_max": 397235.4,
+    "sdm_cost": 63180.0,
+    "sdm_cost_max": 74295.0
   },
   {
     "library_size": 4275,
-    "usortm_cost": 6402.25,
+    "usortm_cost": 6274.0,
     "traditional_cost": 322619.13,
     "traditional_min": 322619.13,
-    "traditional_max": 399569.13
+    "traditional_max": 399569.13,
+    "sdm_cost": 63432.5,
+    "sdm_cost_max": 74547.5
   },
   {
     "library_size": 4300,
-    "usortm_cost": 6406.2,
+    "usortm_cost": 6277.2,
     "traditional_cost": 324502.87,
     "traditional_min": 324502.87,
-    "traditional_max": 401902.87
+    "traditional_max": 401902.87,
+    "sdm_cost": 63685.0,
+    "sdm_cost_max": 74800.0
   },
   {
     "library_size": 4325,
-    "usortm_cost": 6521.38,
+    "usortm_cost": 6391.63,
     "traditional_cost": 326386.61,
     "traditional_min": 326386.61,
-    "traditional_max": 404236.61
+    "traditional_max": 404236.61,
+    "sdm_cost": 64376.5,
+    "sdm_cost_max": 75738.5
   },
   {
     "library_size": 4350,
-    "usortm_cost": 6525.33,
+    "usortm_cost": 6394.83,
     "traditional_cost": 328270.35,
     "traditional_min": 328270.35,
-    "traditional_max": 406570.35
+    "traditional_max": 406570.35,
+    "sdm_cost": 64629.0,
+    "sdm_cost_max": 75991.0
   },
   {
     "library_size": 4375,
-    "usortm_cost": 6529.28,
+    "usortm_cost": 6398.03,
     "traditional_cost": 330154.09,
     "traditional_min": 330154.09,
-    "traditional_max": 408904.09
+    "traditional_max": 408904.09,
+    "sdm_cost": 64881.5,
+    "sdm_cost_max": 76243.5
   },
   {
     "library_size": 4400,
-    "usortm_cost": 6533.23,
+    "usortm_cost": 6401.23,
     "traditional_cost": 332037.82,
     "traditional_min": 332037.82,
-    "traditional_max": 411237.82
+    "traditional_max": 411237.82,
+    "sdm_cost": 65134.0,
+    "sdm_cost_max": 76496.0
   },
   {
     "library_size": 4425,
-    "usortm_cost": 6648.41,
+    "usortm_cost": 6515.66,
     "traditional_cost": 333921.56,
     "traditional_min": 333921.56,
-    "traditional_max": 413571.56
+    "traditional_max": 413571.56,
+    "sdm_cost": 65825.5,
+    "sdm_cost_max": 77434.5
   },
   {
     "library_size": 4450,
-    "usortm_cost": 6652.36,
+    "usortm_cost": 6518.86,
     "traditional_cost": 335805.3,
     "traditional_min": 335805.3,
-    "traditional_max": 415905.3
+    "traditional_max": 415905.3,
+    "sdm_cost": 66078.0,
+    "sdm_cost_max": 77687.0
   },
   {
     "library_size": 4475,
-    "usortm_cost": 6656.31,
+    "usortm_cost": 6522.06,
     "traditional_cost": 337689.04,
     "traditional_min": 337689.04,
-    "traditional_max": 418239.04
+    "traditional_max": 418239.04,
+    "sdm_cost": 66330.5,
+    "sdm_cost_max": 77939.5
   },
   {
     "library_size": 4500,
-    "usortm_cost": 6660.26,
+    "usortm_cost": 6525.26,
     "traditional_cost": 339572.77,
     "traditional_min": 339572.77,
-    "traditional_max": 420572.77
+    "traditional_max": 420572.77,
+    "sdm_cost": 66583.0,
+    "sdm_cost_max": 78192.0
   },
   {
     "library_size": 4525,
-    "usortm_cost": 6775.44,
+    "usortm_cost": 6639.69,
     "traditional_cost": 341456.51,
     "traditional_min": 341456.51,
-    "traditional_max": 422906.51
+    "traditional_max": 422906.51,
+    "sdm_cost": 67274.5,
+    "sdm_cost_max": 79130.5
   },
   {
     "library_size": 4550,
-    "usortm_cost": 6779.39,
+    "usortm_cost": 6642.89,
     "traditional_cost": 343340.25,
     "traditional_min": 343340.25,
-    "traditional_max": 425240.25
+    "traditional_max": 425240.25,
+    "sdm_cost": 67527.0,
+    "sdm_cost_max": 79383.0
   },
   {
     "library_size": 4575,
-    "usortm_cost": 6783.34,
+    "usortm_cost": 6646.09,
     "traditional_cost": 345223.99,
     "traditional_min": 345223.99,
-    "traditional_max": 427573.99
+    "traditional_max": 427573.99,
+    "sdm_cost": 67779.5,
+    "sdm_cost_max": 79635.5
   },
   {
     "library_size": 4600,
-    "usortm_cost": 6787.29,
+    "usortm_cost": 6649.29,
     "traditional_cost": 347107.72,
     "traditional_min": 347107.72,
-    "traditional_max": 429907.72
+    "traditional_max": 429907.72,
+    "sdm_cost": 68032.0,
+    "sdm_cost_max": 79888.0
   },
   {
     "library_size": 4625,
-    "usortm_cost": 6910.31,
+    "usortm_cost": 6771.56,
     "traditional_cost": 348991.46,
     "traditional_min": 348991.46,
-    "traditional_max": 432241.46
+    "traditional_max": 432241.46,
+    "sdm_cost": 68723.5,
+    "sdm_cost_max": 80826.5
   },
   {
     "library_size": 4650,
-    "usortm_cost": 6914.26,
+    "usortm_cost": 6774.76,
     "traditional_cost": 350875.2,
     "traditional_min": 350875.2,
-    "traditional_max": 434575.2
+    "traditional_max": 434575.2,
+    "sdm_cost": 68976.0,
+    "sdm_cost_max": 81079.0
   },
   {
     "library_size": 4675,
-    "usortm_cost": 6918.21,
+    "usortm_cost": 6777.96,
     "traditional_cost": 352758.94,
     "traditional_min": 352758.94,
-    "traditional_max": 436908.94
+    "traditional_max": 436908.94,
+    "sdm_cost": 69228.5,
+    "sdm_cost_max": 81331.5
   },
   {
     "library_size": 4700,
-    "usortm_cost": 6922.16,
+    "usortm_cost": 6781.16,
     "traditional_cost": 354642.67,
     "traditional_min": 354642.67,
-    "traditional_max": 439242.67
+    "traditional_max": 439242.67,
+    "sdm_cost": 69481.0,
+    "sdm_cost_max": 81584.0
   },
   {
     "library_size": 4725,
-    "usortm_cost": 7037.34,
+    "usortm_cost": 6895.59,
     "traditional_cost": 356526.41,
     "traditional_min": 356526.41,
-    "traditional_max": 441576.41
+    "traditional_max": 441576.41,
+    "sdm_cost": 70172.5,
+    "sdm_cost_max": 82522.5
   },
   {
     "library_size": 4750,
-    "usortm_cost": 7041.29,
+    "usortm_cost": 6898.79,
     "traditional_cost": 358410.15,
     "traditional_min": 358410.15,
-    "traditional_max": 443910.15
+    "traditional_max": 443910.15,
+    "sdm_cost": 70425.0,
+    "sdm_cost_max": 82775.0
   },
   {
     "library_size": 4775,
-    "usortm_cost": 7045.24,
+    "usortm_cost": 6901.99,
     "traditional_cost": 360293.89,
     "traditional_min": 360293.89,
-    "traditional_max": 446243.89
+    "traditional_max": 446243.89,
+    "sdm_cost": 70677.5,
+    "sdm_cost_max": 83027.5
   },
   {
     "library_size": 4800,
-    "usortm_cost": 7160.42,
+    "usortm_cost": 7016.42,
     "traditional_cost": 362177.62,
     "traditional_min": 362177.62,
-    "traditional_max": 448577.62
+    "traditional_max": 448577.62,
+    "sdm_cost": 70930.0,
+    "sdm_cost_max": 83280.0
   },
   {
     "library_size": 4825,
-    "usortm_cost": 7164.37,
+    "usortm_cost": 7019.62,
     "traditional_cost": 364061.36,
     "traditional_min": 364061.36,
-    "traditional_max": 450911.36
+    "traditional_max": 450911.36,
+    "sdm_cost": 71621.5,
+    "sdm_cost_max": 84218.5
   },
   {
     "library_size": 4850,
-    "usortm_cost": 7168.32,
+    "usortm_cost": 7022.82,
     "traditional_cost": 365945.1,
     "traditional_min": 365945.1,
-    "traditional_max": 453245.1
+    "traditional_max": 453245.1,
+    "sdm_cost": 71874.0,
+    "sdm_cost_max": 84471.0
   },
   {
     "library_size": 4875,
-    "usortm_cost": 7172.27,
+    "usortm_cost": 7026.02,
     "traditional_cost": 367828.84,
     "traditional_min": 367828.84,
-    "traditional_max": 455578.84
+    "traditional_max": 455578.84,
+    "sdm_cost": 72126.5,
+    "sdm_cost_max": 84723.5
   },
   {
     "library_size": 4900,
-    "usortm_cost": 7287.45,
+    "usortm_cost": 7140.45,
     "traditional_cost": 369712.58,
     "traditional_min": 369712.58,
-    "traditional_max": 457912.58
+    "traditional_max": 457912.58,
+    "sdm_cost": 72818.0,
+    "sdm_cost_max": 85662.0
   },
   {
     "library_size": 4925,
-    "usortm_cost": 7291.4,
+    "usortm_cost": 7143.65,
     "traditional_cost": 371596.31,
     "traditional_min": 371596.31,
-    "traditional_max": 460246.31
+    "traditional_max": 460246.31,
+    "sdm_cost": 73070.5,
+    "sdm_cost_max": 85914.5
   },
   {
     "library_size": 4950,
-    "usortm_cost": 7295.35,
+    "usortm_cost": 7146.85,
     "traditional_cost": 373480.05,
     "traditional_min": 373480.05,
-    "traditional_max": 462580.05
+    "traditional_max": 462580.05,
+    "sdm_cost": 73323.0,
+    "sdm_cost_max": 86167.0
   },
   {
     "library_size": 4975,
-    "usortm_cost": 7299.3,
+    "usortm_cost": 7150.05,
     "traditional_cost": 375363.79,
     "traditional_min": 375363.79,
-    "traditional_max": 464913.79
+    "traditional_max": 464913.79,
+    "sdm_cost": 73575.5,
+    "sdm_cost_max": 86419.5
   },
   {
     "library_size": 5000,
-    "usortm_cost": 7422.32,
+    "usortm_cost": 7272.32,
     "traditional_cost": 377247.53,
     "traditional_min": 377247.53,
-    "traditional_max": 467247.53
+    "traditional_max": 467247.53,
+    "sdm_cost": 74267.0,
+    "sdm_cost_max": 87358.0
   }
 ]

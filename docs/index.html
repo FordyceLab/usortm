@@ -261,7 +261,7 @@
 
     .context-options {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 0.5rem;
       margin-bottom: 0.75rem;
     }
@@ -512,7 +512,7 @@
             <p>
               uSort-M converts pooled DNA libraries into collections of isolated and 
               verified sequences. uSort-M achieves significant (often <b>>10x</b>) 
-              cost savings compared to traditional gene synthesis. For most libraries, 
+              cost savings compared to direct gene synthesis. For most libraries,
               the time required to clone, sort, barcode, and sequence-verify thousands 
               of sequences is often less than <b>10 days</b>.
             </p>
@@ -557,7 +557,7 @@
           <p class="synthesis-footnote" style="margin-top: 0; margin-bottom: 2rem; padding: 0.25rem 0.75rem; background: transparent; font-size: 0.75rem; line-height: 1.5; color: var(--color-text-light); opacity: 0.85; text-align: center;">
             <span style="display: block; margin-top: 0;">
               <strong>uSort-M:</strong> <span id="usortm-assumption">0-300 bp uses IDT oPools or Twist Oligo Pools; &gt;300 bp uses 30 bp substitution library cloned into full-length gene</span>.<br>
-              <strong>Traditional:</strong> <span id="traditional-assumption">Direct gene fragment synthesis (Twist Gene Fragments, IDT eBlocks)</span>.
+              <strong><span id="comparison-method-label">Direct Synthesis</span>:</strong> <span id="traditional-assumption">Direct gene fragment synthesis (Twist Gene Fragments, IDT eBlocks)</span>.
             </span>
           </p>
 
@@ -595,6 +595,13 @@
                       <div class="option-description">Synthesizing 30 bp inserts with mutations</div>
                     </div>
                   </label>
+                  <label class="context-option">
+                    <input type="radio" name="library-type" value="sdm">
+                    <div class="option-content">
+                      <div class="option-title">Site-Directed Mutagenesis</div>
+                      <div class="option-description">Individual point mutations via Q5 SDM</div>
+                    </div>
+                  </label>
                 </div>
                 <div class="synthesis-info" id="synthesis-info">
                   <strong>Recommended synthesis:</strong> <span id="synthesis-method">Twist Oligo Pools (0-350 bp)</span>
@@ -615,7 +622,7 @@
                   <div class="cost-divider">vs</div>
                   <div class="cost-item-large">
                     <span class="cost-value-large traditional" id="total-cost-trad-large">$24,050</span>
-                    <span class="cost-label-large">Traditional</span>
+                    <span class="cost-label-large" id="cost-label-comparison">Direct Synthesis</span>
                   </div>
                 </div>
                 <div class="savings-badge" id="savings-badge">7.8× savings</div>
@@ -630,7 +637,7 @@
                 <div class="stat-box">
                   <div class="label">Cost per Variant</div>
                   <div class="value accent" id="cost-per-variant-usortm">$6.18</div>
-                  <div class="subvalue" id="cost-per-variant-comparison">vs $48.10 trad.</div>
+                  <div class="subvalue" id="cost-per-variant-comparison">vs $48.10 direct</div>
                 </div>
               </div>
               
@@ -730,12 +737,16 @@ function interpolateCost(data, libSize) {
     traditional_cost: before.traditional_cost + ratio * (after.traditional_cost - before.traditional_cost),
     traditional_min: before.traditional_min + ratio * (after.traditional_min - before.traditional_min),
     traditional_max: before.traditional_max + ratio * (after.traditional_max - before.traditional_max),
+    sdm_cost: before.sdm_cost + ratio * (after.sdm_cost - before.sdm_cost),
+    sdm_cost_max: before.sdm_cost_max + ratio * (after.sdm_cost_max - before.sdm_cost_max),
   };
 }
 
 async function updatePlot(seqLen, currentLib) {
   const costData = await loadCostData(seqLen);
   const currentCosts = interpolateCost(costData, currentLib);
+  const libraryType = document.querySelector('input[name="library-type"]:checked').value;
+  const isSDM = libraryType === 'sdm';
 
   // Extend data range if needed
   const maxLib = Math.max(Math.max(...costData.map(d => d.library_size)), currentLib * 1.2);
@@ -749,9 +760,21 @@ async function updatePlot(seqLen, currentLib) {
   const plotData = [];
   costData.forEach(d => {
     plotData.push({library: d.library_size, cost: d.usortm_cost, method: "uSort-M"});
-    plotData.push({library: d.library_size, cost: d.traditional_cost, method: "Traditional"});
-    plotData.push({library: d.library_size, costMin: d.traditional_min, costMax: d.traditional_max, method: "TradRange"});
+    if (isSDM) {
+      plotData.push({library: d.library_size, cost: d.sdm_cost, method: "SDM"});
+      plotData.push({library: d.library_size, costMin: d.sdm_cost, costMax: d.sdm_cost_max, method: "SDMRange"});
+    } else {
+      plotData.push({library: d.library_size, cost: d.traditional_cost, method: "Direct Synthesis"});
+      plotData.push({library: d.library_size, costMin: d.traditional_min, costMax: d.traditional_max, method: "TradRange"});
+    }
   });
+
+  // Comparison cost and color based on mode
+  const compCost = isSDM ? currentCosts.sdm_cost : currentCosts.traditional_cost;
+  const compColor = isSDM ? "#f59e0b" : "#6b7280";
+  const compLabel = isSDM ? "SDM" : "Direct Synthesis";
+  const rangeMethod = isSDM ? "SDMRange" : "TradRange";
+  const lineMethod = isSDM ? "SDM" : "Direct Synthesis";
 
   const plot = Plot.plot({
     width: plotWidth,
@@ -779,19 +802,19 @@ async function updatePlot(seqLen, currentLib) {
       grid: true
     },
     marks: [
-      // Traditional range (shaded area)
-      Plot.areaY(plotData.filter(d => d.method === "TradRange"), {
+      // Comparison range (shaded area)
+      Plot.areaY(plotData.filter(d => d.method === rangeMethod), {
         x: "library",
         y1: "costMin",
         y2: "costMax",
-        fill: "#9ca3af",
+        fill: compColor,
         fillOpacity: 0.2
       }),
-      // Traditional line (grey)
-      Plot.line(plotData.filter(d => d.method === "Traditional"), {
+      // Comparison line
+      Plot.line(plotData.filter(d => d.method === lineMethod), {
         x: "library",
         y: "cost",
-        stroke: "#6b7280",
+        stroke: compColor,
         strokeWidth: 2.5
       }),
       // uSort-M line (blue)
@@ -809,7 +832,7 @@ async function updatePlot(seqLen, currentLib) {
       // Connector line between points
       Plot.link([{
         x1: currentLib, y1: currentCosts.usortm_cost,
-        x2: currentLib, y2: currentCosts.traditional_cost
+        x2: currentLib, y2: compCost
       }], {
         x1: "x1", y1: "y1", x2: "x2", y2: "y2",
         stroke: "#374151",
@@ -819,12 +842,12 @@ async function updatePlot(seqLen, currentLib) {
       // Current position markers
       Plot.dot([
         {library: currentLib, cost: currentCosts.usortm_cost, method: "uSort-M"},
-        {library: currentLib, cost: currentCosts.traditional_cost, method: "Traditional"}
+        {library: currentLib, cost: compCost, method: compLabel}
       ], {
         x: "library",
         y: "cost",
         r: 7,
-        fill: d => d.method === "uSort-M" ? "#2563eb" : "#6b7280",
+        fill: d => d.method === "uSort-M" ? "#2563eb" : compColor,
         stroke: "white",
         strokeWidth: 2
       })
@@ -843,8 +866,13 @@ async function updateUI() {
 
   const costs = await updatePlot(seqLen, libSize);
 
-  // Update stats
-  const savings = costs.traditional_cost / costs.usortm_cost;
+  const libraryType = document.querySelector('input[name="library-type"]:checked').value;
+  const isSDM = libraryType === 'sdm';
+
+  // Pick comparison cost based on mode
+  const compCost = isSDM ? costs.sdm_cost : costs.traditional_cost;
+  const compLabel = isSDM ? "SDM" : "Direct Synthesis";
+  const savings = compCost / costs.usortm_cost;
 
   // Format costs for display
   const formatCost = (cost) => {
@@ -856,14 +884,15 @@ async function updateUI() {
 
   // Update primary cost comparison
   document.getElementById("total-cost-usortm-large").textContent = formatCost(costs.usortm_cost);
-  document.getElementById("total-cost-trad-large").textContent = formatCost(costs.traditional_cost);
+  document.getElementById("total-cost-trad-large").textContent = formatCost(compCost);
+  document.getElementById("cost-label-comparison").textContent = compLabel;
   document.getElementById("savings-badge").textContent = `${savings.toFixed(1)}× savings`;
 
   // Update cost per variant
   const cpvUsortm = costs.usortm_cost / libSize;
-  const cpvTrad = costs.traditional_cost / libSize;
+  const cpvComp = compCost / libSize;
   document.getElementById("cost-per-variant-usortm").textContent = `$${cpvUsortm.toFixed(2)}`;
-  document.getElementById("cost-per-variant-comparison").textContent = `vs $${cpvTrad.toFixed(2)} trad.`;
+  document.getElementById("cost-per-variant-comparison").textContent = `vs $${cpvComp.toFixed(2)} ${isSDM ? 'SDM' : 'direct'}`;
 
   // Calculate plates for timeline
   const foldSampling = 4;
@@ -893,7 +922,9 @@ function updateSynthesisMethod(seqLen) {
   // Determine synthesis method based on library type and length
   let method = "";
 
-  if (libraryType === "substitution") {
+  if (libraryType === "sdm") {
+    method = "Q5 Site-Directed Mutagenesis Kit (NEB E0554S)";
+  } else if (libraryType === "substitution") {
     method = "Twist Oligo Pools or IDT oPool (30 bp inserts)";
   } else {
     // Full gene synthesis
@@ -915,6 +946,7 @@ function updateSynthesisMethod(seqLen) {
 function updateFootnoteAssumptions(seqLen) {
   const usortmAssumption = document.getElementById("usortm-assumption");
   const traditionalAssumption = document.getElementById("traditional-assumption");
+  const libraryType = document.querySelector('input[name="library-type"]:checked').value;
 
   // Update uSort-M assumption based on length
   if (seqLen <= 300) {
@@ -923,8 +955,15 @@ function updateFootnoteAssumptions(seqLen) {
     usortmAssumption.innerHTML = `pool of 30 bp inserts from <a href="library-design.html#library-size-skew">commercial vendor</a> assembled into ${seqLen} bp gene to generate substitution library`;
   }
 
-  // Update traditional assumption based on length
-  traditionalAssumption.innerHTML = `Direct gene fragment synthesis from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
+  // Update comparison assumption based on mode
+  const compLabel = document.getElementById("comparison-method-label");
+  if (libraryType === 'sdm') {
+    compLabel.textContent = "SDM";
+    traditionalAssumption.innerHTML = `Site-directed mutagenesis per construct (Q5 SDM kit, IDT primers, NEB competent cells)`;
+  } else {
+    compLabel.textContent = "Direct Synthesis";
+    traditionalAssumption.innerHTML = `Direct gene fragment synthesis from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
+  }
 }
 
 function updateTimeline(plates, libSize, seqLen) {
@@ -1026,11 +1065,7 @@ window.addEventListener("resize", updateUI);
 
 // Library type toggle
 document.querySelectorAll('input[name="library-type"]').forEach(radio => {
-  radio.addEventListener("change", () => {
-    const seqLen = parseInt(document.getElementById("seq-length").value) || 300;
-    updateSynthesisMethod(seqLen);
-    updateFootnoteAssumptions(seqLen);
-  });
+  radio.addEventListener("change", updateUI);
 });
 
 // Initial render

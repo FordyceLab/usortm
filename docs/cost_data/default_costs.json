@@ -1,12 +1,12 @@
 {
   "usortm": {
-    "synthesis": 1373.33,
+    "synthesis": 1374.02,
     "cloning": 53.6,
     "sorting": 202.5,
     "barcoding": 488.65,
     "sequencing": 500,
     "hitpicking": 79.68,
-    "total": 2697.76
+    "total": 2698.45
   },
   "traditional": {
     "synthesis": 10500.0,
@@ -15,9 +15,18 @@
     "sequencing": 500,
     "total": 17174.75
   },
-  "savings": 6.37,
+  "sdm": {
+    "primers": 4800.0,
+    "q5_sdm_kit": 1314.0,
+    "transformation": 1320.0,
+    "consumables": 250.0,
+    "sequencing": 500,
+    "total": 8184.0
+  },
+  "savings": 6.36,
   "per_variant_usortm": 5.4,
   "per_variant_traditional": 34.35,
+  "per_variant_sdm": 16.37,
   "wells": 2000,
   "plates": 6,
   "timeline": {

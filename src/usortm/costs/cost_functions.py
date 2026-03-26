@@ -5,6 +5,18 @@ import pandas as pd
 
 from usortm.costs.method_loader import load_all_methods, compute_cost, find_methods
 
+# --- SDM Kit Prices (NEB catalog, 2026) ---
+SDM_Q5_KIT_PRICE = 219.0         # NEB E0554S, 96 reactions
+SDM_Q5_KIT_REACTIONS = 96
+SDM_HIFI_KIT_PRICE = 247.0       # NEB E2621L, 96 reactions
+SDM_HIFI_KIT_REACTIONS = 96
+SDM_COMP_CELLS_PRICE = 220.0     # NEB C2987I, 96 transformations
+SDM_COMP_CELLS_REACTIONS = 96
+SDM_PRIMER_COST_PER_BP = 0.24    # $/bp, IDT standard desalted (all formats)
+SDM_PRIMER_LENGTH = 20           # bp per primer
+SDM_PRIMERS_PER_GENE = 2         # forward + reverse
+SDM_CONSUMABLES_PER_SAMPLE = 0.50
+
 # Map legacy method keys to TOML slugs
 _METHOD_SLUG_MAP = {
     'idt_eblocks': 'idt_eblocks',
@@ -95,6 +107,119 @@ def parsed_genefragments_sequencing_cost(fragment_length, library_size):
         cost+=50
 
     return cost
+
+# --- Site-Directed Mutagenesis (SDM) Costs ---
+
+def sdm_primer_cost(n_genes):
+    """Cost of mutagenic primers for SDM.
+
+    Two primers per gene (forward + reverse), 20 bp each, at $0.24/bp.
+    """
+    per_primer = SDM_PRIMER_COST_PER_BP * SDM_PRIMER_LENGTH
+    return n_genes * SDM_PRIMERS_PER_GENE * per_primer
+
+
+def sdm_kit_cost(n_genes, include_hifi=False):
+    """Cost of Q5 SDM kit and optional HiFi Assembly kit.
+
+    Kits are purchased in units of 96 reactions, so cost is stepwise.
+    """
+    n_kits = math.ceil(n_genes / SDM_Q5_KIT_REACTIONS)
+    cost = n_kits * SDM_Q5_KIT_PRICE
+    if include_hifi:
+        n_hifi_kits = math.ceil(n_genes / SDM_HIFI_KIT_REACTIONS)
+        cost += n_hifi_kits * SDM_HIFI_KIT_PRICE
+    return cost
+
+
+def sdm_transformation_cost(n_genes):
+    """Cost of competent cells for SDM transformations.
+
+    NEB 5-alpha (C2987I) in 96-reaction packs.
+    """
+    n_packs = math.ceil(n_genes / SDM_COMP_CELLS_REACTIONS)
+    return n_packs * SDM_COMP_CELLS_PRICE
+
+
+def sdm_consumables_cost(n_genes):
+    """Consumables cost for SDM (plates, tips, etc.)."""
+    return n_genes * SDM_CONSUMABLES_PER_SAMPLE
+
+
+def sdm_total_cost(n_genes, seq_length, include_hifi=False):
+    """Total cost for site-directed mutagenesis of n_genes constructs.
+
+    Includes primers, Q5 SDM kit, optional HiFi assembly, transformation,
+    consumables, and sequencing verification.
+
+    Args:
+        n_genes: Number of individual mutations (one SDM reaction each).
+        seq_length: Sequence length in bp (for sequencing cost).
+        include_hifi: Whether to include HiFi Assembly step.
+
+    Returns:
+        Total cost in USD.
+    """
+    cost = sdm_primer_cost(n_genes)
+    cost += sdm_kit_cost(n_genes, include_hifi=include_hifi)
+    cost += sdm_transformation_cost(n_genes)
+    cost += sdm_consumables_cost(n_genes)
+    cost += parsed_genefragments_sequencing_cost(seq_length, n_genes)
+    return cost
+
+
+def generate_sdm_costs(library_sizes, seq_lengths, include_hifi=False):
+    """Tabulate SDM costs for given library sizes and sequence lengths.
+
+    Returns a DataFrame matching the schema of generate_commercial_costs
+    and get_usortm_costs.
+    """
+    step_funcs = {
+        'Primers': lambda n, sl: sdm_primer_cost(n),
+        'Q5 SDM Kit': lambda n, sl: sdm_kit_cost(n, include_hifi=False),
+        'Transformation': lambda n, sl: sdm_transformation_cost(n),
+        'Consumables': lambda n, sl: sdm_consumables_cost(n),
+        'Sequencing': lambda n, sl: parsed_genefragments_sequencing_cost(sl, n),
+    }
+    if include_hifi:
+        step_funcs['HiFi Assembly'] = lambda n, sl: (
+            math.ceil(n / SDM_HIFI_KIT_REACTIONS) * SDM_HIFI_KIT_PRICE
+        )
+
+    records = []
+    for seq_length in seq_lengths:
+        for n in library_sizes:
+            step_costs = []
+            for step_name, func in step_funcs.items():
+                cost = func(n, seq_length)
+                cost_int = int(cost)
+                cpv = cost_int / n if n > 0 else 0
+                records.append({
+                    "Length": int(seq_length),
+                    "Library Size": int(n),
+                    "Vendor": "SDM",
+                    "Product": "Q5 SDM Kit",
+                    "Step": step_name,
+                    "Cost": cost_int,
+                    "CPV": cpv,
+                })
+                step_costs.append(cost_int)
+
+            if step_costs:
+                total_cost = sum(step_costs)
+                total_cpv = total_cost / n if n > 0 else 0
+                records.append({
+                    "Length": int(seq_length),
+                    "Library Size": int(n),
+                    "Vendor": "SDM",
+                    "Product": "Q5 SDM Kit",
+                    "Step": "Total",
+                    "Cost": total_cost,
+                    "CPV": total_cpv,
+                })
+
+    return pd.DataFrame(records)
+
 
 def generate_commercial_costs(fragment_sizes, library_sizes, assembly_method, steps=None):
     """Tabulate all commercial gene fragment synthesis costs.
