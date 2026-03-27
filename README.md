@@ -62,6 +62,7 @@ usortm demux my_project/ --fastq sequencing-data.fastq --library-csv variants.cs
 usortm pick my_project/
 
 # 5. Create final report
+#    Generates HTML summary, CSVs, and a shareable zip file
 usortm report my_project/
 ```
 
@@ -73,7 +74,37 @@ usortm report my_project/
 | `plan` | Initialize project from variant list |
 | `demux` | Demultiplex sequencing data (LevSeq barcodes via dorado, reference alignment, consensus, variant calling) |
 | `pick` | Generate Integra ASSIST hit-picking list (ordered by input library) |
-| `report` | Generate final plate maps, coverage stats, and HTML summary |
+| `reorder` | Export synthesis order for dropout variants (unrecovered after round 1) |
+| `merge` | Merge hit-picking lists from multiple rounds into a single final pick list |
+| `report` | Generate final plate maps, coverage stats, HTML summary, and shareable zip |
+
+### Multi-round workflow (recovering dropouts)
+
+After round 1 pick, variants that were not recovered (dropouts) can be re-synthesized and run through a second round of uSort-M to maximize library coverage.
+
+```bash
+# After round 1 pick completes, export a synthesis order for dropout variants
+usortm reorder my_project/
+
+# [Re-synthesize dropouts and perform wet lab for round 2]
+
+# Plan round 2 against the existing project
+usortm plan dropouts.csv --output my_project/ --round 2
+
+# Demultiplex round 2 sequencing data
+usortm demux my_project/ --fastq round2-data.fastq --round 2
+
+# Pick round 2 hits
+usortm pick my_project/ --round 2
+
+# Merge round 1 and round 2 picks into a single final list
+usortm merge my_project/
+
+# Generate the merged report (covers both rounds)
+usortm report my_project/ --round merged
+```
+
+After `usortm merge`, the combined Integra ASSIST pick list is written to `my_project/merged/pick/Integra ASSIST Input/`. Variants are placed at their library-ordered positions across both rounds, with round 2 hits filling in wherever round 1 did not recover.
 
 ### Example: Cost Estimate
 

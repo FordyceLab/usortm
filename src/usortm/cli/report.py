@@ -36,6 +36,14 @@ def report(
         "--format", "-f",
         help="Output format: csv, html, json, or all",
     ),
+    round_id: Optional[str] = typer.Option(
+        None,
+        "--round",
+        help=(
+            "Which round to report on: '1' (default), '2', '3', …, or 'merged'. "
+            "Use 'merged' after running 'usortm merge'."
+        ),
+    ),
 ):
     """
     Generate final report and plate maps.
@@ -66,11 +74,72 @@ def report(
     with open(state_file) as f:
         project = json.load(f)
 
-    # Check if demux has been run
-    if "workflow_steps" not in project or not project["workflow_steps"].get("demux", {}).get("completed"):
-        console.print("[red]Error:[/red] No demultiplexing results found.")
-        console.print("Run 'usortm demux' first to process sequencing data.")
-        raise typer.Exit(1)
+    # ------------------------------------------------------------------
+    # Resolve round-specific context
+    # ------------------------------------------------------------------
+    round_id = (round_id or "1").strip().lower()
+
+    if round_id == "merged":
+        # Merged report: uses merged/well_assignments.csv (no demux_summary)
+        merged_wa = project_dir / "merged" / "well_assignments.csv"
+        if not merged_wa.exists():
+            console.print("[red]Error:[/red] No merged results found.")
+            console.print("Run 'usortm merge' first to combine rounds.")
+            raise typer.Exit(1)
+        well_assignments_file = merged_wa
+        demux_summary: dict = {}   # no single pipeline summary for merged
+        effective_project = project  # use full library_size from master state
+        effective_project_dir = project_dir
+        report_dir = project_dir / "merged" / "report"
+        # For merged, strip the 'round' column added by merge (not expected by existing loaders)
+        well_data = _load_well_assignments_merged(merged_wa)
+        # Build per-round context for the HTML report
+        merged_context = _build_merged_html_context(project, project_dir, well_data)
+    elif round_id != "1":
+        # Round N > 1
+        try:
+            round_num = int(round_id)
+        except ValueError:
+            console.print(f"[red]Error:[/red] Unknown --round value '{round_id}'. Use '1', '2', … or 'merged'.")
+            raise typer.Exit(1)
+        round_dir = project_dir / "rounds" / str(round_num)
+        round_state_file = round_dir / "usortm_round.json"
+        if not round_state_file.exists():
+            console.print(f"[red]Error:[/red] Round {round_num} has not been planned.")
+            raise typer.Exit(1)
+        with open(round_state_file) as f:
+            effective_project = json.load(f)
+        demux_output = round_dir / "demux_output"
+        well_assignments_file = demux_output / "well_assignments.csv"
+        demux_summary_file = demux_output / "demux_summary.json"
+        if not well_assignments_file.exists():
+            console.print(f"[red]Error:[/red] Round {round_num} demux results not found.")
+            console.print(f"Run: [cyan]usortm demux {project_dir}/ --round {round_num}[/cyan]")
+            raise typer.Exit(1)
+        demux_summary = json.load(open(demux_summary_file)) if demux_summary_file.exists() else {}
+        well_data = _load_well_assignments(well_assignments_file)
+        effective_project_dir = round_dir
+        report_dir = round_dir / "report"
+        merged_context = None
+    else:
+        # Round 1 (default)
+        if "workflow_steps" not in project or not project["workflow_steps"].get("demux", {}).get("completed"):
+            console.print("[red]Error:[/red] No demultiplexing results found.")
+            console.print("Run 'usortm demux' first to process sequencing data.")
+            raise typer.Exit(1)
+        demux_output = project_dir / "demux_output"
+        well_assignments_file = demux_output / "well_assignments.csv"
+        demux_summary_file = demux_output / "demux_summary.json"
+        if not well_assignments_file.exists() or not demux_summary_file.exists():
+            console.print("[red]Error:[/red] Demux results incomplete")
+            raise typer.Exit(1)
+        well_data = _load_well_assignments(well_assignments_file)
+        with open(demux_summary_file) as f:
+            demux_summary = json.load(f)
+        effective_project = project
+        effective_project_dir = project_dir
+        report_dir = project_dir / "report"
+        merged_context = None
 
     console.print()
     console.print(Panel.fit(
@@ -79,24 +148,10 @@ def report(
     ))
     console.print()
 
-    # Load demux results
-    demux_output = project_dir / "demux_output"
-    well_assignments_file = demux_output / "well_assignments.csv"
-    demux_summary_file = demux_output / "demux_summary.json"
-
-    if not well_assignments_file.exists() or not demux_summary_file.exists():
-        console.print(f"[red]Error:[/red] Demux results incomplete")
-        raise typer.Exit(1)
-
-    well_data = _load_well_assignments(well_assignments_file)
-    with open(demux_summary_file) as f:
-        demux_summary = json.load(f)
-
-    console.print(f"[green]✓[/green] Loaded demux results ({len(well_data)} wells with data)")
+    console.print(f"[green]\u2713[/green] Loaded {'merged' if round_id == 'merged' else f'round {round_id}'} results ({len(well_data)} wells with data)")
 
     # Create report directory
-    report_dir = project_dir / "report"
-    report_dir.mkdir(exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate reports based on format
     generated_files = []
@@ -112,32 +167,36 @@ def report(
         generated_files.append(final_mapping_file)
 
         missing_variants_file = report_dir / "missing_variants.csv"
-        _save_missing_variants(project, well_data, missing_variants_file, project_dir)
+        _save_missing_variants(effective_project, well_data, missing_variants_file, effective_project_dir)
         generated_files.append(missing_variants_file)
 
         library_recovery_file = report_dir / "library_recovery.csv"
-        _save_library_recovery(project, well_data, library_recovery_file, project_dir)
+        _save_library_recovery(effective_project, well_data, library_recovery_file, effective_project_dir)
         generated_files.append(library_recovery_file)
 
     if format in ["json", "all"]:
         # Generate JSON report
         json_file = report_dir / "report.json"
-        _save_json_report(project, demux_summary, well_data, json_file)
+        _save_json_report(effective_project, demux_summary, well_data, json_file)
         generated_files.append(json_file)
 
     if format in ["html", "all"]:
         # Generate HTML report
         html_file = report_dir / "summary.html"
-        _save_html_report(project, demux_summary, well_data, html_file, project_dir)
+        _save_html_report(effective_project, demux_summary, well_data, html_file, effective_project_dir,
+                          merged_context=merged_context)
         generated_files.append(html_file)
 
     # Display summary
     console.print()
-    console.print("[green]✓[/green] Reports generated!")
+    console.print("[green]\u2713[/green] Reports generated!")
     console.print()
 
     for file_path in generated_files:
-        console.print(f"  • {file_path.relative_to(project_dir)}")
+        try:
+            console.print(f"  \u2022 {file_path.relative_to(project_dir)}")
+        except ValueError:
+            console.print(f"  \u2022 {file_path}")
 
     console.print()
 
@@ -151,14 +210,15 @@ def report(
     stats_table.add_column("Metric", style="muted")
     stats_table.add_column("Value", justify="right")
 
-    stats_table.add_row("Library size", f"{project.get('library_size', 'N/A')}")
-    stats_table.add_row("Input reads", f"{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}")
-    stats_table.add_row("Wells with data", f"{demux_summary.get('wells_with_data', 0):,}")
+    stats_table.add_row("Library size", f"{effective_project.get('library_size', 'N/A')}")
+    if demux_summary:
+        stats_table.add_row("Input reads", f"{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}")
+        stats_table.add_row("Wells with data", f"{demux_summary.get('wells_with_data', 0):,}")
 
     unique_variants = _count_unique_variants(well_data)
     stats_table.add_row("Unique variants", f"{unique_variants}")
 
-    library_size = project.get("library_size", 0)
+    library_size = effective_project.get("library_size", 0)
     if library_size and library_size > 0:
         coverage_pct = min((unique_variants / library_size) * 100, 100.0)
         stats_table.add_row("Library coverage", f"{coverage_pct:.1f}%")
@@ -198,11 +258,87 @@ def report(
         console.print(tier_table)
         console.print()
 
+    # ------------------------------------------------------------------
+    # Build and save shareable zip
+    # ------------------------------------------------------------------
+    if round_id == "merged":
+        pick_dir = project_dir / "merged" / "pick"
+    elif round_id != "1":
+        pick_dir = project_dir / "rounds" / round_id / "pick"
+    else:
+        pick_dir = project_dir / "pick"
+
+    zip_label = "merged" if round_id == "merged" else f"round{round_id}"
+    zip_path = project_dir / f"usortm_report_{zip_label}.zip"
+    _make_report_zip(zip_path, generated_files, pick_dir, project_dir, round_id)
+    console.print(f"[green]\u2713[/green] Shareable zip: {zip_path.name}")
+    console.print()
+
+
+def _make_report_zip(
+    zip_path: Path,
+    report_files: list,
+    pick_dir: Path,
+    project_dir: Path,
+    round_id: str,
+) -> None:
+    """Bundle report files, pick list, and pileup HTMLs into a shareable zip.
+
+    Internal zip structure::
+
+        report/
+            summary.html
+            plate_maps.csv
+            ...
+        pick/
+            hitlist_integra_assist*.csv
+            README.txt
+        pileup/
+            well_*.html
+    """
+    import zipfile
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # Report files (CSV, JSON, HTML)
+        for f in report_files:
+            if f.exists():
+                zf.write(f, f"report/{f.name}")
+
+        # Integra ASSIST pick list
+        integra_dir = pick_dir / "Integra ASSIST Input"
+        if integra_dir.exists():
+            for f in integra_dir.iterdir():
+                if f.is_file():
+                    zf.write(f, f"pick/{f.name}")
+
+        # Pileup HTMLs — collect from all relevant round pick dirs,
+        # prefixing filenames with round number to avoid collisions.
+        if round_id == "merged":
+            r1_pileup = project_dir / "pick" / "pileup"
+            if r1_pileup.exists():
+                for f in sorted(r1_pileup.glob("*.html")):
+                    zf.write(f, f"pileup/R1_{f.name}")
+            rounds_root = project_dir / "rounds"
+            if rounds_root.exists():
+                for rdir in sorted(rounds_root.iterdir()):
+                    try:
+                        rnum = int(rdir.name)
+                    except ValueError:
+                        continue
+                    rp = rdir / "pick" / "pileup"
+                    if rp.exists():
+                        for f in sorted(rp.glob("*.html")):
+                            zf.write(f, f"pileup/R{rnum}_{f.name}")
+        else:
+            single_pileup = pick_dir / "pileup"
+            if single_pileup.exists():
+                for f in sorted(single_pileup.glob("*.html")):
+                    zf.write(f, f"pileup/{f.name}")
+
 
 def _load_well_assignments(assignments_file: Path) -> list:
-    """Load well assignments from demux output."""
+    """Load well assignments from a per-round demux output CSV."""
     well_data = []
-
     with open(assignments_file, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -213,8 +349,100 @@ def _load_well_assignments(assignments_file: Path) -> list:
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
             })
-
     return well_data
+
+
+def _build_merged_html_context(project: dict, project_dir: Path, merged_well_data: list) -> dict:
+    """Build per-round context dict for the merged HTML report.
+
+    Returns a dict with:
+      round_nums         - sorted list of round numbers
+      total_input_reads  - sum of total_reads from each round's demux_summary
+      round_well_data    - {round_num: [wells]} split from merged_well_data
+      round_library_sizes- {round_num: int}
+      round_demux_dirs   - {round_num: Path}  for plate maps
+    """
+    # Determine available rounds from project state
+    round_library_sizes: dict[int, int] = {}
+    round_demux_dirs: dict[int, Path] = {}
+    total_input_reads = 0
+
+    # Round 1
+    if (project_dir / "demux_output" / "well_assignments.csv").exists():
+        round_library_sizes[1] = project.get("library_size", 0)
+        round_demux_dirs[1] = project_dir / "demux_output"
+        dsf = project_dir / "demux_output" / "demux_summary.json"
+        if dsf.exists():
+            with open(dsf) as f:
+                ds = json.load(f)
+            total_input_reads += ds.get("input_reads", ds.get("total_reads", 0))
+
+    # Rounds N > 1
+    for rnum_str, rinfo in project.get("rounds", {}).items():
+        rnum = int(rnum_str)
+        demux_output = project_dir / rinfo.get("demux_output", f"rounds/{rnum}/demux_output")
+        if (demux_output / "well_assignments.csv").exists():
+            round_library_sizes[rnum] = rinfo.get("library_size", 0)
+            round_demux_dirs[rnum] = demux_output
+            dsf = demux_output / "demux_summary.json"
+            if dsf.exists():
+                with open(dsf) as f:
+                    ds = json.load(f)
+                total_input_reads += ds.get("input_reads", ds.get("total_reads", 0))
+
+    round_nums = sorted(round_demux_dirs.keys())
+
+    # Split merged_well_data by round (plate IDs are "R{n}_{plate}")
+    round_well_data: dict[int, list] = {}
+    for w in merged_well_data:
+        pid = w["plate"]  # e.g. "R1.3" after label substitution, but raw data still "R1_3"
+        # Plate prefix may already have been transformed to "R1.3" by the loader,
+        # so split on both "." and "_"
+        prefix = pid.split(".")[0].split("_")[0]
+        try:
+            rnum = int(prefix.lstrip("Rr"))
+        except ValueError:
+            rnum = 1
+        round_well_data.setdefault(rnum, []).append(w)
+
+    return {
+        "round_nums": round_nums,
+        "total_input_reads": total_input_reads,
+        "round_well_data": round_well_data,
+        "round_library_sizes": round_library_sizes,
+        "round_demux_dirs": round_demux_dirs,
+    }
+
+
+def _load_well_assignments_merged(assignments_file: Path,
+                                   min_plate_reads: int = 20) -> list:
+    """Load well assignments from the merged well_assignments.csv.
+
+    The merged CSV has an extra leading 'round' column; this function
+    strips it so the returned dicts match the standard format.
+
+    Plates whose total read count is below ``min_plate_reads`` are dropped —
+    they are almost certainly barcode-switching artefacts from a neighbouring
+    real plate rather than genuine data.
+    """
+    raw: list[dict] = []
+    with open(assignments_file, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            raw.append({
+                "plate": f"R{row['round']}_{row['plate']}",  # prefix with round
+                "well": row["well"],
+                "variant": row["variant"],
+                "reads": int(row["reads"]),
+                "consensus_fraction": float(row["consensus_fraction"]),
+            })
+
+    # Compute total reads per prefixed plate and drop ghost plates
+    plate_totals: dict[str, int] = {}
+    for w in raw:
+        plate_totals[w["plate"]] = plate_totals.get(w["plate"], 0) + w["reads"]
+
+    return [w for w in raw if plate_totals[w["plate"]] >= min_plate_reads]
 
 
 def _save_plate_maps(well_data: list, output_file: Path):
@@ -612,8 +840,22 @@ def _make_plate_bar_bokeh(plate_reads: dict):
     def _fmt(n: int) -> str:
         return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:,}"
 
-    sorted_plates = sorted(plate_reads.items(), key=lambda x: int(x[0]))
-    plates = [str(p) for p, _ in sorted_plates]
+    def _plate_sort_key(item):
+        pid = str(item[0])
+        try:
+            return (0, int(pid), "")
+        except ValueError:
+            # "R{round}_{plate}" format from merged reports
+            parts = pid.split("_", 1)
+            try:
+                round_n = int(parts[0].lstrip("Rr")) if parts[0] else 0
+                plate_n = int(parts[1]) if len(parts) > 1 else 0
+                return (round_n, plate_n, pid)
+            except (ValueError, IndexError):
+                return (0, 0, pid)
+
+    sorted_plates = sorted(plate_reads.items(), key=_plate_sort_key)
+    plates = [str(p).replace("_", ".") for p, _ in sorted_plates]
     reads = [r for _, r in sorted_plates]
     max_reads = max(reads) or 1
     colors = [_cmap_hex(r / max_reads) for r in reads]
@@ -961,9 +1203,11 @@ def _make_recovery_curve_bokeh(
 
 
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
-                      output_file: Path, project_dir: Path = None):
+                      output_file: Path, project_dir: Path = None,
+                      merged_context: dict = None):
     """Save interactive HTML summary report with embedded plate maps."""
     import html as _html
+    import os as _os
 
     # Calculate statistics — strip |cons_check suffix before counting
     unique_variants = _count_unique_variants(well_data)
@@ -978,6 +1222,13 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     true_sampling = (wells_gt_20 / library_size) if library_size else None
     true_sampling_display = f"{true_sampling:.1f} fold" if true_sampling is not None else "N/A"
     true_sampling_note = f"{wells_gt_20:,} wells with &gt;20 reads"
+
+    # Merged-report overrides for header chips
+    round_label = "Merged" if merged_context else str(project.get("round", 1))
+    input_reads = (
+        merged_context["total_input_reads"] if merged_context
+        else demux_summary.get("input_reads", demux_summary.get("total_reads", 0))
+    )
 
     # Quality bins / recovery tiers
     bins_data = _compute_quality_bins(well_data, library_size) if library_size else None
@@ -1170,15 +1421,60 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         # Escape for double-quoted HTML attribute value
         content = content.replace("&", "&amp;").replace('"', "&quot;")
 
-        rel = str(html_path.relative_to(project_dir))
-        link = f'<p><a href="../{rel}" target="_blank">Open full size ↗</a></p>'
+        # Compute correct relative path from the report file to the embedded file,
+        # regardless of how deep the report is nested.
+        rel = _os.path.relpath(str(html_path.resolve()), str(output_file.parent.resolve()))
+        link = f'<p><a href="{rel}" target="_blank">Open full size ↗</a></p>'
         return (
             link
             + f'<iframe srcdoc="{content}" width="100%" height="{height}" '
             f'style="border:none;"></iframe>'
         )
 
-    if project_dir:
+    if merged_context:
+        # Show each round's demux plate map in sequence, filtering ghost plates
+        round_map_parts = []
+        for rnum in merged_context["round_nums"]:
+            rdir = merged_context["round_demux_dirs"].get(rnum)
+            if not rdir:
+                continue
+            # Re-generate plate map from read_df.csv with ghost-plate filter applied,
+            # so barcode-switching artefacts (< 20 reads/plate) are not shown.
+            read_df_csv = rdir / "read_df.csv"
+            filtered_pm = rdir / "plate_map_filtered.html"
+            _pm_generated = False
+            if read_df_csv.exists():
+                try:
+                    import pandas as _pd
+                    from usortm.demux.viz import save_plate_map_html as _save_pm
+                    _rdf = _pd.read_csv(read_df_csv)
+                    if not _rdf.empty:
+                        _plate_col = _rdf["well_pos"].str.split("_").str[0]
+                        _plate_totals = _plate_col.groupby(_plate_col).transform("count")
+                        _rdf = _rdf[_plate_totals >= 20]
+                    if not _rdf.empty:
+                        _save_pm(_rdf, str(filtered_pm), title=f"Round {rnum} Demux Plate Map")
+                        _pm_generated = True
+                except Exception:
+                    pass
+            pm = filtered_pm if _pm_generated else (rdir / "plate_map.html")
+            if pm.exists():
+                round_map_parts.append(
+                    f"<h3>Round {rnum} Demux Plate Map</h3>"
+                    f"<p>Interactive plate map showing per-well read depth and variant composition.</p>"
+                    f"{_embed_srcdoc(pm, 620)}"
+                )
+        if round_map_parts:
+            plate_map_section = (
+                "\n    <h2>Demux Plate Maps</h2>\n    "
+                + "\n    ".join(round_map_parts)
+                + "\n"
+            )
+        # Merged pick plate map (generated by merge command)
+        merged_pick_map = project_dir / "merged" / "pick" / "pick_plate_map.html"
+        if merged_pick_map.exists():
+            pick_plate_iframe = _embed_srcdoc(merged_pick_map, 780)
+    elif project_dir:
         demux_plate_map = project_dir / "demux_output" / "plate_map.html"
         if demux_plate_map.exists():
             plate_map_section = f"""
@@ -1193,12 +1489,19 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         if pick_plate_map.exists():
             pick_plate_iframe = _embed_srcdoc(pick_plate_map, 780)
 
-    # Pick summary stat box (inline in library section)
+    # Pick summary stat box — for merged use project["merged"] state
+    if merged_context:
+        merge_state = project.get("merged", {})
+        pick_state = merge_state  # unified interface below
+    else:
+        pick_state = project.get("workflow_steps", {}).get("pick", {})
+
     pick_stat_box = ""
     if pick_state.get("completed"):
+        _tier_val = pick_state.get("tier", "") or ""
         tier_sub = (
-            f'<div class="stat-sub">Tier {pick_state["tier"]} filter</div>'
-            if pick_state.get("tier") else ""
+            f'<div class="stat-sub">Tier {_tier_val} filter</div>'
+            if _tier_val and _tier_val != "none" else ""
         )
         pick_stat_box = (
             f'<div class="stat-box" style="margin-top:1rem;">'
@@ -1208,8 +1511,58 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             f'</div>'
         )
 
-    # Library Recovery section — tier chips + recovery curve side by side
-    library_section = f"""
+    # Library Recovery section
+    if merged_context and tiers:
+        # Per-round table + merged summary row
+        def _tier_cell(count: int, pct: float) -> str:
+            return f'<td>{count} <span style="color:var(--muted);font-size:0.85rem;">({pct:.1f}%)</span></td>'
+
+        round_rows = ""
+        for rnum in merged_context["round_nums"]:
+            rsize = merged_context["round_library_sizes"].get(rnum, 0)
+            rwells = merged_context["round_well_data"].get(rnum, [])
+            if rwells and rsize:
+                rbins = _compute_quality_bins(rwells, rsize)
+                rt = rbins["recovery_tiers"]
+                round_rows += (
+                    f'<tr>'
+                    f'<td>Round {rnum} <span style="color:var(--muted);font-size:0.85rem;">(n={rsize})</span></td>'
+                    f'{_tier_cell(rt["A"]["count"], rt["A"]["pct"])}'
+                    f'{_tier_cell(rt["B"]["count"], rt["B"]["pct"])}'
+                    f'{_tier_cell(rt["C"]["count"], rt["C"]["pct"])}'
+                    f'</tr>'
+                )
+
+        merged_row = (
+            f'<tr class="merged-recovery-row">'
+            f'<td><strong>Merged</strong> <span style="color:var(--muted);font-size:0.85rem;">(n={library_size})</span></td>'
+            f'{_tier_cell(tiers["A"]["count"], tiers["A"]["pct"])}'
+            f'{_tier_cell(tiers["B"]["count"], tiers["B"]["pct"])}'
+            f'{_tier_cell(tiers["C"]["count"], tiers["C"]["pct"])}'
+            f'</tr>'
+        )
+
+        library_section = f"""
+    <h2>Library Recovery</h2>
+    <p class="note">All tiers require &gt;90% consensus and count unique variants per round.
+    Tiers are cumulative (B includes A, C includes B).</p>
+    <table style="margin-bottom:1rem;">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th>Tier A &nbsp;&geq;100 reads</th>
+          <th>Tier B &nbsp;&geq;50 reads</th>
+          <th>Tier C &nbsp;&geq;20 reads</th>
+        </tr>
+      </thead>
+      <tbody>
+        {round_rows}
+        {merged_row}
+      </tbody>
+    </table>
+"""
+    elif tier_boxes:
+        library_section = f"""
     <h2>Library Recovery</h2>
     <div class="recovery-row">
         <div class="recovery-tiers">
@@ -1220,7 +1573,9 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         </div>
         {recovery_curve_html}
     </div>
-""" if tier_boxes else ""
+"""
+    else:
+        library_section = ""
 
     # Hit Picking section — only rendered when pick step is complete
     pick_completed = pick_state.get("completed", False)
@@ -1532,6 +1887,14 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             flex: 0 0 420px;
             max-width: 420px;
         }}
+        .merged-recovery-row {{
+            background: var(--hover-bg);
+            font-weight: 600;
+            border-top: 2px solid var(--accent);
+        }}
+        .merged-recovery-row td {{
+            border-top: 2px solid var(--accent);
+        }}
     </style>
 </head>
 <body>
@@ -1559,11 +1922,11 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         </div>
         <div class="stat-box">
             <div class="stat-label">Input Reads</div>
-            <div class="stat-value">{demux_summary.get('input_reads', demux_summary.get('total_reads', 0)):,}</div>
+            <div class="stat-value">{input_reads:,}</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Round</div>
-            <div class="stat-value">{project.get('round', 1)}</div>
+            <div class="stat-value">{round_label}</div>
         </div>
     </div>
 

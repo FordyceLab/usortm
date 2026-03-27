@@ -86,6 +86,12 @@ def pick(
         "--include-flank-errors/--exclude-flank-errors",
         help="Include wells with flanking region mismatches in pick list.",
     ),
+    round_num: int = typer.Option(
+        1,
+        "--round", "-r",
+        help="Sequencing round to pick from (1 for initial sort, 2+ for re-order rounds).",
+        min=1,
+    ),
 ):
     """
     Generate hit-picking list from demultiplexing results.
@@ -107,11 +113,45 @@ def pick(
     with open(state_file) as f:
         project = json.load(f)
 
-    # Check if demux has been run
-    if "workflow_steps" not in project or not project["workflow_steps"].get("demux", {}).get("completed"):
-        console.print("[red]Error:[/red] No demultiplexing results found.")
-        console.print("Run 'usortm demux' first to process sequencing data.")
-        raise typer.Exit(1)
+    # ------------------------------------------------------------------
+    # Resolve round-specific context
+    # ------------------------------------------------------------------
+    round_state_file: Optional[Path] = None
+    round_state: Optional[dict] = None
+
+    if round_num > 1:
+        round_dir = project_dir / "rounds" / str(round_num)
+        round_state_file = round_dir / "usortm_round.json"
+        if not round_state_file.exists():
+            console.print(f"[red]Error:[/red] Round {round_num} has not been planned yet.")
+            console.print(
+                f"Run: [cyan]usortm plan <variants.csv> "
+                f"--output {project_dir}/ --round {round_num}[/cyan]"
+            )
+            raise typer.Exit(1)
+        with open(round_state_file) as f:
+            round_state = json.load(f)
+        if not round_state.get("workflow_steps", {}).get("demux", {}).get("completed"):
+            console.print(f"[red]Error:[/red] Round {round_num} demux not completed.")
+            console.print(f"Run: [cyan]usortm demux {project_dir}/ --round {round_num}[/cyan]")
+            raise typer.Exit(1)
+        demux_output = round_dir / "demux_output"
+        pick_dir_base = round_dir / "pick"
+        # For round > 1, use the round-specific variants for library order
+        round_variants_file = round_dir / "variants.csv"
+        effective_project = round_state
+        effective_project_dir = round_dir
+    else:
+        # Check if demux has been run for round 1
+        if "workflow_steps" not in project or not project["workflow_steps"].get("demux", {}).get("completed"):
+            console.print("[red]Error:[/red] No demultiplexing results found.")
+            console.print("Run 'usortm demux' first to process sequencing data.")
+            raise typer.Exit(1)
+        demux_output = project_dir / "demux_output"
+        pick_dir_base = project_dir / "pick"
+        round_variants_file = None
+        effective_project = project
+        effective_project_dir = project_dir
 
     console.print()
     console.print(Panel.fit(
@@ -121,7 +161,6 @@ def pick(
     console.print()
 
     # Load demux results
-    demux_output = project_dir / "demux_output"
     well_assignments_file = demux_output / "well_assignments.csv"
 
     if not well_assignments_file.exists():
@@ -154,7 +193,15 @@ def pick(
         console.print(f"[green]\u2713[/green] Loaded {len(target_variants)} target variants")
 
     # Load library ordering from variants file (if available)
-    library_order, lib_path_tried = _load_library_order(project, project_dir=project_dir)
+    # For round > 1, use the round-specific variants CSV so the per-round
+    # pick list is ordered by the reorder set (not the full 500-variant library).
+    if round_variants_file is not None and round_variants_file.exists():
+        library_order, lib_path_tried = _load_library_order(
+            {"variants_file": str(round_variants_file)},
+            project_dir=effective_project_dir,
+        )
+    else:
+        library_order, lib_path_tried = _load_library_order(project, project_dir=project_dir)
     if library_order is not None:
         console.print(f"[green]\u2713[/green] Library order loaded ({len(library_order)} variants)")
     else:
@@ -191,8 +238,8 @@ def pick(
         raise typer.Exit(1)
 
     # Determine output file path
-    pick_dir = project_dir / "pick"
-    pick_dir.mkdir(exist_ok=True)
+    pick_dir = pick_dir_base
+    pick_dir.mkdir(parents=True, exist_ok=True)
 
     integra_dir = pick_dir / "Integra ASSIST Input"
     integra_dir.mkdir(exist_ok=True)
@@ -213,7 +260,7 @@ def pick(
         try:
             from usortm.demux.streakout import generate_pick_pileups
 
-            demux_output_dir = project_dir / "demux_output"
+            demux_output_dir = demux_output
             n_hits = len([h for h in pick_list if not h.get("empty")])
 
             with Progress(
@@ -275,9 +322,20 @@ def pick(
     }
     if tier:
         pick_state["tier"] = tier
-    project["workflow_steps"]["pick"] = pick_state
-    with open(state_file, "w") as f:
-        json.dump(project, f, indent=2)
+
+    if round_num > 1:
+        round_state["workflow_steps"]["pick"] = pick_state
+        with open(round_state_file, "w") as f:
+            json.dump(round_state, f, indent=2)
+        project.setdefault("rounds", {}).setdefault(str(round_num), {}).setdefault(
+            "workflow_steps", {}
+        )["pick"] = pick_state
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
+    else:
+        project["workflow_steps"]["pick"] = pick_state
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
 
     # Display summary
     console.print()
@@ -308,12 +366,30 @@ def pick(
     console.print(summary_table)
     console.print()
 
-    console.print("[green]✓[/green] Pick list generated!")
+    console.print("[green]\u2713[/green] Pick list generated!")
     console.print(f"  Output: {output_file}")
     console.print(f"  README: {output_file.parent / 'README.txt'}")
     console.print()
-    console.print("[bold]Next step:[/bold]")
-    console.print(f"  [cyan]usortm report {project_dir}/[/cyan]  → Generate final report")
+
+    # Determine whether a multi-round merge is possible
+    has_other_rounds = bool(project.get("rounds")) and any(
+        str(k) != str(round_num) for k in project["rounds"]
+    )
+
+    if round_num > 1 or has_other_rounds:
+        console.print("[bold]Next step:[/bold]")
+        console.print(
+            f"  [cyan]usortm merge {project_dir}/[/cyan]  "
+            "\u2192 Merge all rounds into final pick list"
+        )
+        if round_num == 1:
+            console.print(
+                f"  [cyan]usortm report {project_dir}/[/cyan]  "
+                "\u2192 Generate round 1 report only"
+            )
+    else:
+        console.print("[bold]Next step:[/bold]")
+        console.print(f"  [cyan]usortm report {project_dir}/[/cyan]  \u2192 Generate final report")
     console.print()
 
 
