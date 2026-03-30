@@ -11,6 +11,7 @@ from .demux_cmd import demux
 from .pick import pick
 from .reorder import reorder
 from .report import report
+from .merge import merge
 from .config_cmd import config_app
 from .platemap import platemap
 
@@ -53,6 +54,7 @@ def main(
         [cyan]demux[/cyan]     Demultiplex sequencing data
         [cyan]pick[/cyan]      Generate hit-picking list
         [cyan]reorder[/cyan]   Export synthesis order for dropout variants
+        [cyan]merge[/cyan]     Merge picks from multiple rounds
         [cyan]report[/cyan]    Generate final plate maps
 
     [bold]Utility commands:[/bold]
@@ -69,8 +71,9 @@ app.command(name="plan")(plan)
 app.command(name="demux")(demux)
 app.command(name="pick")(pick)
 app.command(name="reorder")(reorder)
+app.command(name="merge")(merge)
 app.command(name="report")(report)
 app.command(name="platemap")(platemap)
 app.add_typer(config_app, name="config")
 
-__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "report", "platemap"]
+__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "merge", "report", "platemap"]

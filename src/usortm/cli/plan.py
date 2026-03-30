@@ -107,6 +107,17 @@ def plan(
 
     console.print(f"[green]✓[/green] Loaded [cyan]{library_size}[/cyan] variants from {variants_file.name}")
 
+    # Subsequent rounds: plan a dropout/reorder sequencing run
+    if round_num > 1:
+        _plan_round_n(
+            variants=variants,
+            output_dir=output_dir,
+            round_num=round_num,
+            barcode_kit=barcode_kit,
+            seq_length=seq_length,
+        )
+        return
+
     # Select synthesis method (determines skew for simulation)
     synthesis_method_slug = None
     if skew is None:
@@ -654,6 +665,137 @@ def _prompt_synthesis_method(seq_length: int, library_size: int):
         return None
 
     return answer
+
+
+def _plan_round_n(
+    variants: list[dict],
+    output_dir: Path,
+    round_num: int,
+    barcode_kit: str,
+    seq_length: int,
+):
+    """Plan a subsequent (dropout/reorder) sequencing round for an existing project.
+
+    Creates ``rounds/{round_num}/`` inside the project directory and writes
+    the round state.  The parent project's ``usortm_project.json`` is updated
+    with the new round entry.
+
+    Args:
+        variants: Parsed variant list (the dropout/reorder sequences).
+        output_dir: Existing project directory (must contain usortm_project.json).
+        round_num: Round number (2, 3, …).
+        colonies_per_construct: Number of colonies picked per construct.
+        barcode_kit: Barcode kit name ('levseq').
+        seq_length: Variable-region length in bp.
+    """
+    state_file = output_dir / PROJECT_STATE_FILE
+    if not state_file.exists():
+        console.print(f"[red]Error:[/red] No existing project found at {output_dir}")
+        console.print("Run 'usortm plan <variants.csv>' (without --round) to create round 1 first.")
+        raise typer.Exit(1)
+
+    with open(state_file) as f:
+        project = json.load(f)
+
+    n_constructs = len(variants)
+
+    # Inherit n_plates from the parent project so all LevSeq barcode plates
+    # from round 1 are included in the Dorado config (e.g. if the user used
+    # plate 4 barcodes, n_plates must be >= 4 for those reads to be found).
+    demux_n_plates = project.get("n_plates", 1)
+
+    round_dir = output_dir / "rounds" / str(round_num)
+    round_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print()
+    summary_table = Table(
+        title=f"Round {round_num} Plan",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+    )
+    summary_table.add_column("Parameter", style="muted")
+    summary_table.add_column("Value", justify="right")
+    summary_table.add_column("Parameter", style="muted")
+    summary_table.add_column("Value", justify="right")
+
+    summary_table.add_row(
+        "Constructs", f"{n_constructs}",
+        "Sequence length", f"{seq_length} bp",
+    )
+    summary_table.add_row(
+        "Barcode kit", barcode_kit,
+        "Demux n_plates (from round 1)", f"{demux_n_plates}",
+    )
+    summary_table.add_row(
+        "Round", str(round_num),
+        "Parent project", str(output_dir.name),
+    )
+    console.print(summary_table)
+    console.print()
+
+    # Generate barcodes into the round directory
+    _generate_barcode_assignments(demux_n_plates, barcode_kit, round_dir)
+
+    # Copy variants
+    _save_variants(variants, round_dir / "variants.csv")
+
+    # Write round state
+    round_state = {
+        "created": datetime.now().isoformat(),
+        "round": round_num,
+        "n_constructs": n_constructs,
+        "n_plates": demux_n_plates,
+        "library_size": n_constructs,
+        "seq_length": seq_length,
+        "barcode_kit": barcode_kit,
+        "variants_file": str((round_dir / "variants.csv").absolute()),
+        "demux_output": str((round_dir / "demux_output").relative_to(output_dir)),
+        "pick_dir": str((round_dir / "pick").relative_to(output_dir)),
+        "workflow_steps": {
+            "plan": {"completed": True, "timestamp": datetime.now().isoformat()},
+            "demux": {"completed": False},
+            "pick": {"completed": False},
+        },
+    }
+
+    with open(round_dir / "usortm_round.json", "w") as f:
+        json.dump(round_state, f, indent=2)
+
+    # Update master project JSON
+    project.setdefault("rounds", {})
+    project["rounds"][str(round_num)] = {
+        "variants_file": round_state["variants_file"],
+        "n_constructs": n_constructs,
+        "library_size": n_constructs,
+        "seq_length": seq_length,
+        "n_plates": demux_n_plates,
+        "barcode_kit": barcode_kit,
+        "demux_output": round_state["demux_output"],
+        "pick_dir": round_state["pick_dir"],
+        "workflow_steps": {
+            k: v.copy() for k, v in round_state["workflow_steps"].items()
+        },
+    }
+    with open(state_file, "w") as f:
+        json.dump(project, f, indent=2)
+
+    console.print("[green]\u2713[/green] Generated round files:")
+    console.print(f"  \u2022 {round_dir}/variants.csv ({n_constructs} constructs)")
+    console.print(f"  \u2022 {round_dir}/usortm_round.json (round state)")
+    console.print(f"  \u2022 {round_dir}/barcodes/ (barcode assignments)")
+    console.print()
+    console.print(
+        f"[bold]Note:[/bold] Use the same [cyan]mask_config.toml[/cyan] as round 1 "
+        f"(already in {output_dir}/)"
+    )
+    console.print()
+    console.print("[bold]Next step:[/bold]")
+    console.print(
+        f"  [cyan]usortm demux {output_dir}/ "
+        f"--fastq <data.fastq> --round {round_num}[/cyan]"
+    )
+    console.print()
 
 
 def _write_default_mask_config(output_dir: Path):

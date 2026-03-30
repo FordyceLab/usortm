@@ -262,7 +262,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     )
     fig.patches(
         "doublet_xs", "doublet_ys", source=src,
-        fill_color="#dc2626", fill_alpha=1.0, line_color=None
+        fill_color="#C6C6C6", fill_alpha=1.0, line_color=None
     )
     fig.patches(
         "streakout_xs", "streakout_ys", source=src,

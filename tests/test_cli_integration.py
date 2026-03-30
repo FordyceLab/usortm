@@ -256,20 +256,46 @@ def test_estimate_command():
 
 
 def test_plan_command_with_round_option(tmp_path, library_csv):
-    """Plan should accept --round without shadowing Python's round()."""
+    """Plan --round 2 should add a round-2 entry to an existing project."""
     project_dir = tmp_path / "round_test"
+
+    # Round 1: create the base project first
     result = runner.invoke(app, [
         "plan",
         str(library_csv),
         "--output", str(project_dir),
         "--seq-length", "300",
-        "--round", "2",
+        "--skew", "4.0",
     ])
     assert result.exit_code == 0
 
+    # Round 2: plan the dropout set against the existing project
+    dropout_csv = tmp_path / "dropouts.csv"
+    with open(dropout_csv, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["name", "sequence"])
+        for i in range(3):
+            writer.writerow([f"variant_{i}", "A" * 200])
+
+    result2 = runner.invoke(app, [
+        "plan",
+        str(dropout_csv),
+        "--output", str(project_dir),
+        "--seq-length", "200",
+        "--round", "2",
+    ])
+    assert result2.exit_code == 0, result2.output
+
+    # Master project JSON should now have a 'rounds' entry for round 2
     with open(project_dir / "usortm_project.json") as f:
         state = json.load(f)
-    assert state["round"] == 2
+    assert "rounds" in state
+    assert "2" in state["rounds"]
+    assert state["rounds"]["2"]["n_constructs"] == 3
+
+    # Round-specific state file should exist
+    assert (project_dir / "rounds" / "2" / "usortm_round.json").exists()
+    assert (project_dir / "rounds" / "2" / "variants.csv").exists()
 
 
 # ===================================================================

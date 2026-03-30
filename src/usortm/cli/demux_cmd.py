@@ -115,6 +115,12 @@ def demux(
             "Defaults to cutinase backbone masks."
         ),
     ),
+    round_num: int = typer.Option(
+        1,
+        "--round",
+        help="Sequencing round to demultiplex (1 for initial sort, 2+ for re-order rounds).",
+        min=1,
+    ),
 ):
     """
     Demultiplex sequencing data for a [#4096E3]uSort-M[/#4096E3] project.
@@ -145,6 +151,41 @@ def demux(
     with open(state_file) as f:
         project = json.load(f)
 
+    # ------------------------------------------------------------------
+    # Resolve round-specific paths and parameters
+    # ------------------------------------------------------------------
+    round_state_file: Optional[Path] = None
+    round_state: Optional[dict] = None
+
+    if round_num > 1:
+        round_dir = project_dir / "rounds" / str(round_num)
+        round_state_file = round_dir / "usortm_round.json"
+        if not round_state_file.exists():
+            console.print(f"[red]Error:[/red] Round {round_num} has not been planned yet.")
+            console.print(
+                f"Run: [cyan]usortm plan <variants.csv> "
+                f"--output {project_dir}/ --round {round_num}[/cyan]"
+            )
+            raise typer.Exit(1)
+        with open(round_state_file) as f:
+            round_state = json.load(f)
+        demux_output = project_dir / "rounds" / str(round_num) / "demux_output"
+        effective_params = round_state  # n_plates, barcode_kit, library_size from round
+
+        # Auto-use round variants as library reference when not explicitly provided
+        if library_csv is None and reference is None:
+            round_variants = round_dir / "variants.csv"
+            if round_variants.exists():
+                library_csv = round_variants
+                console.print(
+                    f"[green]\u2713[/green] Auto-using round {round_num} variants "
+                    f"as reference: {round_variants}"
+                )
+    else:
+        demux_output = project_dir / "demux_output"
+        effective_params = project
+        round_dir = None
+
     console.print()
     console.print(Panel.fit(
         "[brand]uSort-M[/brand] Demultiplexing",
@@ -160,7 +201,7 @@ def demux(
     ):
         from usortm.demux.utils import csv_to_reference_fasta
         csv_source = reference
-        ref_fasta_path = project_dir / "demux_output" / "library_reference.fasta"
+        ref_fasta_path = demux_output / "library_reference.fasta"
         ref_fasta_path.parent.mkdir(parents=True, exist_ok=True)
         csv_to_reference_fasta(
             csv_path=str(csv_source),
@@ -181,7 +222,7 @@ def demux(
                 "provided. Using --library-csv (overrides --reference)."
             )
         from usortm.demux.utils import csv_to_reference_fasta
-        ref_fasta_path = project_dir / "demux_output" / "library_reference.fasta"
+        ref_fasta_path = demux_output / "library_reference.fasta"
         ref_fasta_path.parent.mkdir(parents=True, exist_ok=True)
         csv_to_reference_fasta(
             csv_path=str(library_csv),
@@ -222,9 +263,8 @@ def demux(
             # Interactive preset selection
             mask_config = _prompt_preset_selection()
 
-    # Create output directory
-    demux_output = project_dir / "demux_output"
-    demux_output.mkdir(exist_ok=True)
+    # Create output directory (path already resolved for the correct round above)
+    demux_output.mkdir(parents=True, exist_ok=True)
 
     # If directory, concatenate all FASTQs into a single file
     if fastq.is_dir():
@@ -250,7 +290,7 @@ def demux(
             min_fraction=min_fraction,
             threads=threads,
             workers=workers,
-            project_params=project,
+            project_params=effective_params,
             progress_callback=on_progress,
             mask_config=mask_config,
             subsample=subsample,
@@ -260,8 +300,8 @@ def demux(
 
         progress.update(task, description="Done!", completed=True)
 
-    # Save results
-    _save_demux_results(results, demux_output, project=project)
+    # Save results (skip recovery-curve simulation for round > 1)
+    _save_demux_results(results, demux_output, project=(None if round_num > 1 else project))
 
     # Build streakout wells set for plate map annotation
     streakout_wells = set()
@@ -289,6 +329,10 @@ def demux(
                     "verifying your reference FASTA."
                 )
             else:
+                # Filter out ghost plates (< 20 total reads = likely barcode switching)
+                _plate_col = read_df["well_pos"].str.split("_").str[0]
+                _plate_totals = _plate_col.groupby(_plate_col).transform("count")
+                read_df = read_df[_plate_totals >= 20]
                 plate_map_path = demux_output / "plate_map.html"
                 save_plate_map_html(
                     read_df, str(plate_map_path),
@@ -307,7 +351,7 @@ def demux(
         console.print(f"[yellow]Warning:[/yellow] Could not generate plate map: {e}")
 
     # Update project state
-    project["workflow_steps"]["demux"] = {
+    demux_step_data = {
         "completed": True,
         "timestamp": datetime.now().isoformat(),
         "fastq": str(fastq.absolute()),
@@ -318,8 +362,21 @@ def demux(
         "wells_with_data": results["wells_with_data"],
     }
 
-    with open(state_file, "w") as f:
-        json.dump(project, f, indent=2)
+    if round_num > 1:
+        # Update round-specific state file
+        round_state["workflow_steps"]["demux"] = demux_step_data
+        with open(round_state_file, "w") as f:
+            json.dump(round_state, f, indent=2)
+        # Sync step status to master project JSON
+        project.setdefault("rounds", {}).setdefault(str(round_num), {}).setdefault(
+            "workflow_steps", {}
+        )["demux"] = demux_step_data
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
+    else:
+        project["workflow_steps"]["demux"] = demux_step_data
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
 
     # Display summary table
     console.print()
@@ -383,12 +440,13 @@ def demux(
                     console.print(f"  {label}: {count:,} wells")
             console.print()
 
+    round_flag = f" --round {round_num}" if round_num > 1 else ""
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
     console.print()
     console.print("[bold]Next step:[/bold]")
     console.print(
-        f"  [cyan]usortm pick {project_dir}/[/cyan]  "
+        f"  [cyan]usortm pick {project_dir}/{round_flag}[/cyan]  "
         "\u2192 Generate hit-picking list"
     )
     console.print()
