@@ -5,8 +5,8 @@
     "traditional_cost": 6017.48,
     "traditional_min": 6017.48,
     "traditional_max": 7417.48,
-    "sdm_cost": 1444.0,
-    "sdm_cost_max": 1691.0
+    "sdm_cost": 1729.7,
+    "sdm_cost_max": 1976.7
   },
   {
     "library_size": 75,
@@ -14,8 +14,8 @@
     "traditional_cost": 8776.21,
     "traditional_min": 8776.21,
     "traditional_max": 10876.21,
-    "sdm_cost": 1696.5,
-    "sdm_cost_max": 1943.5
+    "sdm_cost": 2118.1,
+    "sdm_cost_max": 2365.1
   },
   {
     "library_size": 100,
@@ -23,8 +23,8 @@
     "traditional_cost": 11534.95,
     "traditional_min": 11534.95,
     "traditional_max": 14334.95,
-    "sdm_cost": 2388.0,
-    "sdm_cost_max": 2882.0
+    "sdm_cost": 2945.0,
+    "sdm_cost_max": 3439.0
   },
   {
     "library_size": 125,
@@ -32,8 +32,8 @@
     "traditional_cost": 14293.69,
     "traditional_min": 14293.69,
     "traditional_max": 17793.69,
-    "sdm_cost": 2640.5,
-    "sdm_cost_max": 3134.5
+    "sdm_cost": 3347.8,
+    "sdm_cost_max": 3841.8
   },
   {
     "library_size": 150,
@@ -41,8 +41,8 @@
     "traditional_cost": 17052.43,
     "traditional_min": 17052.43,
     "traditional_max": 21252.43,
-    "sdm_cost": 2893.0,
-    "sdm_cost_max": 3387.0
+    "sdm_cost": 3735.7,
+    "sdm_cost_max": 4229.7
   },
   {
     "library_size": 175,
@@ -50,8 +50,8 @@
     "traditional_cost": 19811.16,
     "traditional_min": 19811.16,
     "traditional_max": 24711.16,
-    "sdm_cost": 3145.5,
-    "sdm_cost_max": 3639.5
+    "sdm_cost": 4563.1,
+    "sdm_cost_max": 5304.1
   },
   {
     "library_size": 200,
@@ -59,8 +59,8 @@
     "traditional_cost": 22569.9,
     "traditional_min": 22569.9,
     "traditional_max": 28169.9,
-    "sdm_cost": 3837.0,
-    "sdm_cost_max": 4578.0
+    "sdm_cost": 4951.0,
+    "sdm_cost_max": 5692.0
   },
   {
     "library_size": 225,
@@ -68,8 +68,8 @@
     "traditional_cost": 25328.64,
     "traditional_min": 25328.64,
     "traditional_max": 31628.64,
-    "sdm_cost": 4089.5,
-    "sdm_cost_max": 4830.5
+    "sdm_cost": 5353.8,
+    "sdm_cost_max": 6094.8
   },
   {
     "library_size": 250,
@@ -77,8 +77,8 @@
     "traditional_cost": 28087.38,
     "traditional_min": 28087.38,
     "traditional_max": 35087.38,
-    "sdm_cost": 4342.0,
-    "sdm_cost_max": 5083.0
+    "sdm_cost": 5741.7,
+    "sdm_cost_max": 6482.7
   },
   {
     "library_size": 275,
@@ -86,8 +86,8 @@
     "traditional_cost": 30846.11,
     "traditional_min": 30846.11,
     "traditional_max": 38546.11,
-    "sdm_cost": 4594.5,
-    "sdm_cost_max": 5335.5
+    "sdm_cost": 6569.1,
+    "sdm_cost_max": 7557.1
   },
   {
     "library_size": 300,
@@ -95,8 +95,8 @@
     "traditional_cost": 33604.85,
     "traditional_min": 33604.85,
     "traditional_max": 42004.85,
-    "sdm_cost": 5286.0,
-    "sdm_cost_max": 6274.0
+    "sdm_cost": 6957.0,
+    "sdm_cost_max": 7945.0
   },
   {
     "library_size": 325,
@@ -104,8 +104,8 @@
     "traditional_cost": 36363.59,
     "traditional_min": 36363.59,
     "traditional_max": 45463.59,
-    "sdm_cost": 5538.5,
-    "sdm_cost_max": 6526.5
+    "sdm_cost": 7359.8,
+    "sdm_cost_max": 8347.8
   },
   {
     "library_size": 350,
@@ -113,8 +113,8 @@
     "traditional_cost": 39122.33,
     "traditional_min": 39122.33,
     "traditional_max": 48922.33,
-    "sdm_cost": 5791.0,
-    "sdm_cost_max": 6779.0
+    "sdm_cost": 8186.7,
+    "sdm_cost_max": 9421.7
   },
   {
     "library_size": 375,
@@ -122,8 +122,8 @@
     "traditional_cost": 41881.06,
     "traditional_min": 41881.06,
     "traditional_max": 52381.06,
-    "sdm_cost": 6043.5,
-    "sdm_cost_max": 7031.5
+    "sdm_cost": 8575.1,
+    "sdm_cost_max": 9810.1
   },
   {
     "library_size": 400,
@@ -131,8 +131,8 @@
     "traditional_cost": 44639.8,
     "traditional_min": 44639.8,
     "traditional_max": 55839.8,
-    "sdm_cost": 6735.0,
-    "sdm_cost_max": 7970.0
+    "sdm_cost": 8963.0,
+    "sdm_cost_max": 10198.0
   },
   {
     "library_size": 425,
@@ -140,8 +140,8 @@
     "traditional_cost": 47398.54,
     "traditional_min": 47398.54,
     "traditional_max": 59298.54,
-    "sdm_cost": 6987.5,
-    "sdm_cost_max": 8222.5
+    "sdm_cost": 9365.8,
+    "sdm_cost_max": 10600.8
   },
   {
     "library_size": 450,
@@ -149,8 +149,8 @@
     "traditional_cost": 50157.28,
     "traditional_min": 50157.28,
     "traditional_max": 62757.28,
-    "sdm_cost": 7240.0,
-    "sdm_cost_max": 8475.0
+    "sdm_cost": 10192.7,
+    "sdm_cost_max": 11674.7
   },
   {
     "library_size": 475,
@@ -158,8 +158,8 @@
     "traditional_cost": 52916.01,
     "traditional_min": 52916.01,
     "traditional_max": 66216.01,
-    "sdm_cost": 7492.5,
-    "sdm_cost_max": 8727.5
+    "sdm_cost": 10581.1,
+    "sdm_cost_max": 12063.1
   },
   {
     "library_size": 500,
@@ -167,8 +167,8 @@
     "traditional_cost": 55674.75,
     "traditional_min": 55674.75,
     "traditional_max": 69674.75,
-    "sdm_cost": 8184.0,
-    "sdm_cost_max": 9666.0
+    "sdm_cost": 10969.0,
+    "sdm_cost_max": 12451.0
   },
   {
     "library_size": 525,
@@ -176,8 +176,8 @@
     "traditional_cost": 58433.49,
     "traditional_min": 58433.49,
     "traditional_max": 73133.49,
-    "sdm_cost": 8436.5,
-    "sdm_cost_max": 9918.5
+    "sdm_cost": 11810.8,
+    "sdm_cost_max": 13539.8
   },
   {
     "library_size": 550,
@@ -185,8 +185,8 @@
     "traditional_cost": 61192.23,
     "traditional_min": 61192.23,
     "traditional_max": 76592.23,
-    "sdm_cost": 8689.0,
-    "sdm_cost_max": 10171.0
+    "sdm_cost": 12198.7,
+    "sdm_cost_max": 13927.7
   },
   {
     "library_size": 575,
@@ -194,8 +194,8 @@
     "traditional_cost": 63950.97,
     "traditional_min": 63950.97,
     "traditional_max": 80050.97,
-    "sdm_cost": 8941.5,
-    "sdm_cost_max": 10423.5
+    "sdm_cost": 12587.1,
+    "sdm_cost_max": 14316.1
   },
   {
     "library_size": 600,
@@ -203,8 +203,8 @@
     "traditional_cost": 66709.7,
     "traditional_min": 66709.7,
     "traditional_max": 83509.7,
-    "sdm_cost": 9633.0,
-    "sdm_cost_max": 11362.0
+    "sdm_cost": 12975.0,
+    "sdm_cost_max": 14704.0
   },
   {
     "library_size": 625,
@@ -212,8 +212,8 @@
     "traditional_cost": 69468.44,
     "traditional_min": 69468.44,
     "traditional_max": 86968.44,
-    "sdm_cost": 9885.5,
-    "sdm_cost_max": 11614.5
+    "sdm_cost": 13816.8,
+    "sdm_cost_max": 15792.8
   },
   {
     "library_size": 650,
@@ -221,8 +221,8 @@
     "traditional_cost": 72227.18,
     "traditional_min": 72227.18,
     "traditional_max": 90427.18,
-    "sdm_cost": 10138.0,
-    "sdm_cost_max": 11867.0
+    "sdm_cost": 14204.7,
+    "sdm_cost_max": 16180.7
   },
   {
     "library_size": 675,
@@ -230,8 +230,8 @@
     "traditional_cost": 74985.92,
     "traditional_min": 74985.92,
     "traditional_max": 93885.92,
-    "sdm_cost": 10829.5,
-    "sdm_cost_max": 12805.5
+    "sdm_cost": 14593.1,
+    "sdm_cost_max": 16569.1
   },
   {
     "library_size": 700,
@@ -239,8 +239,8 @@
     "traditional_cost": 77744.65,
     "traditional_min": 77744.65,
     "traditional_max": 97344.65,
-    "sdm_cost": 11082.0,
-    "sdm_cost_max": 13058.0
+    "sdm_cost": 15420.0,
+    "sdm_cost_max": 17643.0
   },
   {
     "library_size": 725,
@@ -248,8 +248,8 @@
     "traditional_cost": 80503.39,
     "traditional_min": 80503.39,
     "traditional_max": 100803.39,
-    "sdm_cost": 11334.5,
-    "sdm_cost_max": 13310.5
+    "sdm_cost": 15822.8,
+    "sdm_cost_max": 18045.8
   },
   {
     "library_size": 750,
@@ -257,8 +257,8 @@
     "traditional_cost": 83262.13,
     "traditional_min": 83262.13,
     "traditional_max": 104262.13,
-    "sdm_cost": 11587.0,
-    "sdm_cost_max": 13563.0
+    "sdm_cost": 16210.7,
+    "sdm_cost_max": 18433.7
   },
   {
     "library_size": 775,
@@ -266,8 +266,8 @@
     "traditional_cost": 86020.87,
     "traditional_min": 86020.87,
     "traditional_max": 107720.87,
-    "sdm_cost": 12278.5,
-    "sdm_cost_max": 14501.5
+    "sdm_cost": 16599.1,
+    "sdm_cost_max": 18822.1
   },
   {
     "library_size": 800,
@@ -275,8 +275,8 @@
     "traditional_cost": 88779.6,
     "traditional_min": 88779.6,
     "traditional_max": 111179.6,
-    "sdm_cost": 12531.0,
-    "sdm_cost_max": 14754.0
+    "sdm_cost": 17426.0,
+    "sdm_cost_max": 19896.0
   },
   {
     "library_size": 825,
@@ -284,8 +284,8 @@
     "traditional_cost": 91538.34,
     "traditional_min": 91538.34,
     "traditional_max": 114638.34,
-    "sdm_cost": 12783.5,
-    "sdm_cost_max": 15006.5
+    "sdm_cost": 17828.8,
+    "sdm_cost_max": 20298.8
   },
   {
     "library_size": 850,
@@ -293,8 +293,8 @@
     "traditional_cost": 94297.08,
     "traditional_min": 94297.08,
     "traditional_max": 118097.08,
-    "sdm_cost": 13036.0,
-    "sdm_cost_max": 15259.0
+    "sdm_cost": 18216.7,
+    "sdm_cost_max": 20686.7
   },
   {
     "library_size": 875,
@@ -302,8 +302,8 @@
     "traditional_cost": 97055.82,
     "traditional_min": 97055.82,
     "traditional_max": 121555.82,
-    "sdm_cost": 13727.5,
-    "sdm_cost_max": 16197.5
+    "sdm_cost": 19044.1,
+    "sdm_cost_max": 21761.1
   },
   {
     "library_size": 900,
@@ -311,8 +311,8 @@
     "traditional_cost": 99814.55,
     "traditional_min": 99814.55,
     "traditional_max": 125014.55,
-    "sdm_cost": 13980.0,
-    "sdm_cost_max": 16450.0
+    "sdm_cost": 19432.0,
+    "sdm_cost_max": 22149.0
   },
   {
     "library_size": 925,
@@ -320,8 +320,8 @@
     "traditional_cost": 102573.29,
     "traditional_min": 102573.29,
     "traditional_max": 128473.29,
-    "sdm_cost": 14232.5,
-    "sdm_cost_max": 16702.5
+    "sdm_cost": 19834.8,
+    "sdm_cost_max": 22551.8
   },
   {
     "library_size": 950,
@@ -329,8 +329,8 @@
     "traditional_cost": 105332.03,
     "traditional_min": 105332.03,
     "traditional_max": 131932.03,
-    "sdm_cost": 14485.0,
-    "sdm_cost_max": 16955.0
+    "sdm_cost": 20222.7,
+    "sdm_cost_max": 22939.7
   },
   {
     "library_size": 975,
@@ -338,8 +338,8 @@
     "traditional_cost": 108090.77,
     "traditional_min": 108090.77,
     "traditional_max": 135390.77,
-    "sdm_cost": 15176.5,
-    "sdm_cost_max": 17893.5
+    "sdm_cost": 21050.1,
+    "sdm_cost_max": 24014.1
   },
   {
     "library_size": 1000,
@@ -347,8 +347,8 @@
     "traditional_cost": 110849.51,
     "traditional_min": 110849.51,
     "traditional_max": 138849.51,
-    "sdm_cost": 15429.0,
-    "sdm_cost_max": 18146.0
+    "sdm_cost": 21438.0,
+    "sdm_cost_max": 24402.0
   },
   {
     "library_size": 1025,
@@ -356,8 +356,8 @@
     "traditional_cost": 113608.24,
     "traditional_min": 113608.24,
     "traditional_max": 142308.24,
-    "sdm_cost": 15681.5,
-    "sdm_cost_max": 18398.5
+    "sdm_cost": 21840.8,
+    "sdm_cost_max": 24804.8
   },
   {
     "library_size": 1050,
@@ -365,8 +365,8 @@
     "traditional_cost": 116366.98,
     "traditional_min": 116366.98,
     "traditional_max": 145766.98,
-    "sdm_cost": 15934.0,
-    "sdm_cost_max": 18651.0
+    "sdm_cost": 22667.7,
+    "sdm_cost_max": 25878.7
   },
   {
     "library_size": 1075,
@@ -374,8 +374,8 @@
     "traditional_cost": 119125.72,
     "traditional_min": 119125.72,
     "traditional_max": 149225.72,
-    "sdm_cost": 16625.5,
-    "sdm_cost_max": 19589.5
+    "sdm_cost": 23056.1,
+    "sdm_cost_max": 26267.1
   },
   {
     "library_size": 1100,
@@ -383,8 +383,8 @@
     "traditional_cost": 121884.46,
     "traditional_min": 121884.46,
     "traditional_max": 152684.46,
-    "sdm_cost": 16878.0,
-    "sdm_cost_max": 19842.0
+    "sdm_cost": 23444.0,
+    "sdm_cost_max": 26655.0
   },
   {
     "library_size": 1125,
@@ -392,8 +392,8 @@
     "traditional_cost": 124643.19,
     "traditional_min": 124643.19,
     "traditional_max": 156143.19,
-    "sdm_cost": 17130.5,
-    "sdm_cost_max": 20094.5
+    "sdm_cost": 23846.8,
+    "sdm_cost_max": 27057.8
   },
   {
     "library_size": 1150,
@@ -401,8 +401,8 @@
     "traditional_cost": 127401.93,
     "traditional_min": 127401.93,
     "traditional_max": 159601.93,
-    "sdm_cost": 17383.0,
-    "sdm_cost_max": 20347.0
+    "sdm_cost": 24673.7,
+    "sdm_cost_max": 28131.7
   },
   {
     "library_size": 1175,
@@ -410,8 +410,8 @@
     "traditional_cost": 130160.67,
     "traditional_min": 130160.67,
     "traditional_max": 163060.67,
-    "sdm_cost": 18074.5,
-    "sdm_cost_max": 21285.5
+    "sdm_cost": 25062.1,
+    "sdm_cost_max": 28520.1
   },
   {
     "library_size": 1200,
@@ -419,8 +419,8 @@
     "traditional_cost": 132919.41,
     "traditional_min": 132919.41,
     "traditional_max": 166519.41,
-    "sdm_cost": 18327.0,
-    "sdm_cost_max": 21538.0
+    "sdm_cost": 25450.0,
+    "sdm_cost_max": 28908.0
   },
   {
     "library_size": 1225,
@@ -428,8 +428,8 @@
     "traditional_cost": 135678.14,
     "traditional_min": 135678.14,
     "traditional_max": 169978.14,
-    "sdm_cost": 18579.5,
-    "sdm_cost_max": 21790.5
+    "sdm_cost": 26291.8,
+    "sdm_cost_max": 29996.8
   },
   {
     "library_size": 1250,
@@ -437,8 +437,8 @@
     "traditional_cost": 138436.88,
     "traditional_min": 138436.88,
     "traditional_max": 173436.88,
-    "sdm_cost": 19271.0,
-    "sdm_cost_max": 22729.0
+    "sdm_cost": 26679.7,
+    "sdm_cost_max": 30384.7
   },
   {
     "library_size": 1275,
@@ -446,8 +446,8 @@
     "traditional_cost": 141195.62,
     "traditional_min": 141195.62,
     "traditional_max": 176895.62,
-    "sdm_cost": 19523.5,
-    "sdm_cost_max": 22981.5
+    "sdm_cost": 27068.1,
+    "sdm_cost_max": 30773.1
   },
   {
     "library_size": 1300,
@@ -455,8 +455,8 @@
     "traditional_cost": 143954.36,
     "traditional_min": 143954.36,
     "traditional_max": 180354.36,
-    "sdm_cost": 19776.0,
-    "sdm_cost_max": 23234.0
+    "sdm_cost": 27456.0,
+    "sdm_cost_max": 31161.0
   },
   {
     "library_size": 1325,
@@ -464,8 +464,8 @@
     "traditional_cost": 146713.09,
     "traditional_min": 146713.09,
     "traditional_max": 183813.09,
-    "sdm_cost": 20028.5,
-    "sdm_cost_max": 23486.5
+    "sdm_cost": 28297.8,
+    "sdm_cost_max": 32249.8
   },
   {
     "library_size": 1350,
@@ -473,8 +473,8 @@
     "traditional_cost": 149471.83,
     "traditional_min": 149471.83,
     "traditional_max": 187271.83,
-    "sdm_cost": 20720.0,
-    "sdm_cost_max": 24425.0
+    "sdm_cost": 28685.7,
+    "sdm_cost_max": 32637.7
   },
   {
     "library_size": 1375,
@@ -482,8 +482,8 @@
     "traditional_cost": 152230.57,
     "traditional_min": 152230.57,
     "traditional_max": 190730.57,
-    "sdm_cost": 20972.5,
-    "sdm_cost_max": 24677.5
+    "sdm_cost": 29074.1,
+    "sdm_cost_max": 33026.1
   },
   {
     "library_size": 1400,
@@ -491,8 +491,8 @@
     "traditional_cost": 154989.31,
     "traditional_min": 154989.31,
     "traditional_max": 194189.31,
-    "sdm_cost": 21225.0,
-    "sdm_cost_max": 24930.0
+    "sdm_cost": 29901.0,
+    "sdm_cost_max": 34100.0
   },
   {
     "library_size": 1425,
@@ -500,8 +500,8 @@
     "traditional_cost": 157748.04,
     "traditional_min": 157748.04,
     "traditional_max": 197648.04,
-    "sdm_cost": 21477.5,
-    "sdm_cost_max": 25182.5
+    "sdm_cost": 30303.8,
+    "sdm_cost_max": 34502.8
   },
   {
     "library_size": 1450,
@@ -509,8 +509,8 @@
     "traditional_cost": 160506.78,
     "traditional_min": 160506.78,
     "traditional_max": 201106.78,
-    "sdm_cost": 22169.0,
-    "sdm_cost_max": 26121.0
+    "sdm_cost": 30691.7,
+    "sdm_cost_max": 34890.7
   },
   {
     "library_size": 1475,
@@ -518,8 +518,8 @@
     "traditional_cost": 163265.52,
     "traditional_min": 163265.52,
     "traditional_max": 204565.52,
-    "sdm_cost": 22421.5,
-    "sdm_cost_max": 26373.5
+    "sdm_cost": 31080.1,
+    "sdm_cost_max": 35279.1
   },
   {
     "library_size": 1500,
@@ -527,8 +527,8 @@
     "traditional_cost": 166024.26,
     "traditional_min": 166024.26,
     "traditional_max": 208024.26,
-    "sdm_cost": 22674.0,
-    "sdm_cost_max": 26626.0
+    "sdm_cost": 31907.0,
+    "sdm_cost_max": 36353.0
   },
   {
     "library_size": 1525,
@@ -536,8 +536,8 @@
     "traditional_cost": 168783.0,
     "traditional_min": 168783.0,
     "traditional_max": 211483.0,
-    "sdm_cost": 22926.5,
-    "sdm_cost_max": 26878.5
+    "sdm_cost": 32309.8,
+    "sdm_cost_max": 36755.8
   },
   {
     "library_size": 1550,
@@ -545,8 +545,8 @@
     "traditional_cost": 171541.73,
     "traditional_min": 171541.73,
     "traditional_max": 214941.73,
-    "sdm_cost": 23618.0,
-    "sdm_cost_max": 27817.0
+    "sdm_cost": 32697.7,
+    "sdm_cost_max": 37143.7
   },
   {
     "library_size": 1575,
@@ -554,8 +554,8 @@
     "traditional_cost": 174300.47,
     "traditional_min": 174300.47,
     "traditional_max": 218400.47,
-    "sdm_cost": 23870.5,
-    "sdm_cost_max": 28069.5
+    "sdm_cost": 33525.1,
+    "sdm_cost_max": 38218.1
   },
   {
     "library_size": 1600,
@@ -563,8 +563,8 @@
     "traditional_cost": 177059.21,
     "traditional_min": 177059.21,
     "traditional_max": 221859.21,
-    "sdm_cost": 24123.0,
-    "sdm_cost_max": 28322.0
+    "sdm_cost": 33913.0,
+    "sdm_cost_max": 38606.0
   },
   {
     "library_size": 1625,
@@ -572,8 +572,8 @@
     "traditional_cost": 179817.95,
     "traditional_min": 179817.95,
     "traditional_max": 225317.95,
-    "sdm_cost": 24375.5,
-    "sdm_cost_max": 28574.5
+    "sdm_cost": 34315.8,
+    "sdm_cost_max": 39008.8
   },
   {
     "library_size": 1650,
@@ -581,8 +581,8 @@
     "traditional_cost": 182576.68,
     "traditional_min": 182576.68,
     "traditional_max": 228776.68,
-    "sdm_cost": 25067.0,
-    "sdm_cost_max": 29513.0
+    "sdm_cost": 34703.7,
+    "sdm_cost_max": 39396.7
   },
   {
     "library_size": 1675,
@@ -590,8 +590,8 @@
     "traditional_cost": 185335.42,
     "traditional_min": 185335.42,
     "traditional_max": 232235.42,
-    "sdm_cost": 25319.5,
-    "sdm_cost_max": 29765.5
+    "sdm_cost": 35531.1,
+    "sdm_cost_max": 40471.1
   },
   {
     "library_size": 1700,
@@ -599,8 +599,8 @@
     "traditional_cost": 188094.16,
     "traditional_min": 188094.16,
     "traditional_max": 235694.16,
-    "sdm_cost": 25572.0,
-    "sdm_cost_max": 30018.0
+    "sdm_cost": 35919.0,
+    "sdm_cost_max": 40859.0
   },
   {
     "library_size": 1725,
@@ -608,8 +608,8 @@
     "traditional_cost": 190852.9,
     "traditional_min": 190852.9,
     "traditional_max": 239152.9,
-    "sdm_cost": 25824.5,
-    "sdm_cost_max": 30270.5
+    "sdm_cost": 36321.8,
+    "sdm_cost_max": 41261.8
   },
   {
     "library_size": 1750,
@@ -617,8 +617,8 @@
     "traditional_cost": 193611.63,
     "traditional_min": 193611.63,
     "traditional_max": 242611.63,
-    "sdm_cost": 26516.0,
-    "sdm_cost_max": 31209.0
+    "sdm_cost": 37148.7,
+    "sdm_cost_max": 42335.7
   },
   {
     "library_size": 1775,
@@ -626,8 +626,8 @@
     "traditional_cost": 196370.37,
     "traditional_min": 196370.37,
     "traditional_max": 246070.37,
-    "sdm_cost": 26768.5,
-    "sdm_cost_max": 31461.5
+    "sdm_cost": 37537.1,
+    "sdm_cost_max": 42724.1
   },
   {
     "library_size": 1800,
@@ -635,8 +635,8 @@
     "traditional_cost": 199129.11,
     "traditional_min": 199129.11,
     "traditional_max": 249529.11,
-    "sdm_cost": 27021.0,
-    "sdm_cost_max": 31714.0
+    "sdm_cost": 37925.0,
+    "sdm_cost_max": 43112.0
   },
   {
     "library_size": 1825,
@@ -644,8 +644,8 @@
     "traditional_cost": 201887.85,
     "traditional_min": 201887.85,
     "traditional_max": 252987.85,
-    "sdm_cost": 27712.5,
-    "sdm_cost_max": 32652.5
+    "sdm_cost": 38327.8,
+    "sdm_cost_max": 43514.8
   },
   {
     "library_size": 1850,
@@ -653,8 +653,8 @@
     "traditional_cost": 204646.58,
     "traditional_min": 204646.58,
     "traditional_max": 256446.58,
-    "sdm_cost": 27965.0,
-    "sdm_cost_max": 32905.0
+    "sdm_cost": 39154.7,
+    "sdm_cost_max": 44588.7
   },
   {
     "library_size": 1875,
@@ -662,8 +662,8 @@
     "traditional_cost": 207405.32,
     "traditional_min": 207405.32,
     "traditional_max": 259905.32,
-    "sdm_cost": 28217.5,
-    "sdm_cost_max": 33157.5
+    "sdm_cost": 39543.1,
+    "sdm_cost_max": 44977.1
   },
   {
     "library_size": 1900,
@@ -671,8 +671,8 @@
     "traditional_cost": 210164.06,
     "traditional_min": 210164.06,
     "traditional_max": 263364.06,
-    "sdm_cost": 28470.0,
-    "sdm_cost_max": 33410.0
+    "sdm_cost": 39931.0,
+    "sdm_cost_max": 45365.0
   },
   {
     "library_size": 1925,
@@ -680,8 +680,8 @@
     "traditional_cost": 212922.8,
     "traditional_min": 212922.8,
     "traditional_max": 266822.8,
-    "sdm_cost": 29161.5,
-    "sdm_cost_max": 34348.5
+    "sdm_cost": 40772.8,
+    "sdm_cost_max": 46453.8
   },
   {
     "library_size": 1950,
@@ -689,8 +689,8 @@
     "traditional_cost": 215681.54,
     "traditional_min": 215681.54,
     "traditional_max": 270281.54,
-    "sdm_cost": 29414.0,
-    "sdm_cost_max": 34601.0
+    "sdm_cost": 41160.7,
+    "sdm_cost_max": 46841.7
   },
   {
     "library_size": 1975,
@@ -698,8 +698,8 @@
     "traditional_cost": 218440.27,
     "traditional_min": 218440.27,
     "traditional_max": 273740.27,
-    "sdm_cost": 29666.5,
-    "sdm_cost_max": 34853.5
+    "sdm_cost": 41549.1,
+    "sdm_cost_max": 47230.1
   },
   {
     "library_size": 2000,
@@ -707,8 +707,8 @@
     "traditional_cost": 221199.01,
     "traditional_min": 221199.01,
     "traditional_max": 277199.01,
-    "sdm_cost": 29919.0,
-    "sdm_cost_max": 35106.0
+    "sdm_cost": 41937.0,
+    "sdm_cost_max": 47618.0
   },
   {
     "library_size": 2025,
@@ -716,8 +716,8 @@
     "traditional_cost": 223957.75,
     "traditional_min": 223957.75,
     "traditional_max": 280657.75,
-    "sdm_cost": 30610.5,
-    "sdm_cost_max": 36044.5
+    "sdm_cost": 42778.8,
+    "sdm_cost_max": 48706.8
   },
   {
     "library_size": 2050,
@@ -725,8 +725,8 @@
     "traditional_cost": 226716.49,
     "traditional_min": 226716.49,
     "traditional_max": 284116.49,
-    "sdm_cost": 30863.0,
-    "sdm_cost_max": 36297.0
+    "sdm_cost": 43166.7,
+    "sdm_cost_max": 49094.7
   },
   {
     "library_size": 2075,
@@ -734,8 +734,8 @@
     "traditional_cost": 229475.22,
     "traditional_min": 229475.22,
     "traditional_max": 287575.22,
-    "sdm_cost": 31115.5,
-    "sdm_cost_max": 36549.5
+    "sdm_cost": 43555.1,
+    "sdm_cost_max": 49483.1
   },
   {
     "library_size": 2100,
@@ -743,8 +743,8 @@
     "traditional_cost": 232233.96,
     "traditional_min": 232233.96,
     "traditional_max": 291033.96,
-    "sdm_cost": 31368.0,
-    "sdm_cost_max": 36802.0
+    "sdm_cost": 44382.0,
+    "sdm_cost_max": 50557.0
   },
   {
     "library_size": 2125,
@@ -752,8 +752,8 @@
     "traditional_cost": 234992.7,
     "traditional_min": 234992.7,
     "traditional_max": 294492.7,
-    "sdm_cost": 32059.5,
-    "sdm_cost_max": 37740.5
+    "sdm_cost": 44784.8,
+    "sdm_cost_max": 50959.8
   },
   {
     "library_size": 2150,
@@ -761,8 +761,8 @@
     "traditional_cost": 237751.44,
     "traditional_min": 237751.44,
     "traditional_max": 297951.44,
-    "sdm_cost": 32312.0,
-    "sdm_cost_max": 37993.0
+    "sdm_cost": 45172.7,
+    "sdm_cost_max": 51347.7
   },
   {
     "library_size": 2175,
@@ -770,8 +770,8 @@
     "traditional_cost": 240510.17,
     "traditional_min": 240510.17,
     "traditional_max": 301410.17,
-    "sdm_cost": 32564.5,
-    "sdm_cost_max": 38245.5
+    "sdm_cost": 45561.1,
+    "sdm_cost_max": 51736.1
   },
   {
     "library_size": 2200,
@@ -779,8 +779,8 @@
     "traditional_cost": 243268.91,
     "traditional_min": 243268.91,
     "traditional_max": 304868.91,
-    "sdm_cost": 32817.0,
-    "sdm_cost_max": 38498.0
+    "sdm_cost": 46388.0,
+    "sdm_cost_max": 52810.0
   },
   {
     "library_size": 2225,
@@ -788,8 +788,8 @@
     "traditional_cost": 246027.65,
     "traditional_min": 246027.65,
     "traditional_max": 308327.65,
-    "sdm_cost": 33508.5,
-    "sdm_cost_max": 39436.5
+    "sdm_cost": 46790.8,
+    "sdm_cost_max": 53212.8
   },
   {
     "library_size": 2250,
@@ -797,8 +797,8 @@
     "traditional_cost": 248786.39,
     "traditional_min": 248786.39,
     "traditional_max": 311786.39,
-    "sdm_cost": 33761.0,
-    "sdm_cost_max": 39689.0
+    "sdm_cost": 47178.7,
+    "sdm_cost_max": 53600.7
   },
   {
     "library_size": 2275,
@@ -806,8 +806,8 @@
     "traditional_cost": 251545.12,
     "traditional_min": 251545.12,
     "traditional_max": 315245.12,
-    "sdm_cost": 34013.5,
-    "sdm_cost_max": 39941.5
+    "sdm_cost": 48006.1,
+    "sdm_cost_max": 54675.1
   },
   {
     "library_size": 2300,
@@ -815,8 +815,8 @@
     "traditional_cost": 254303.86,
     "traditional_min": 254303.86,
     "traditional_max": 318703.86,
-    "sdm_cost": 34266.0,
-    "sdm_cost_max": 40194.0
+    "sdm_cost": 48394.0,
+    "sdm_cost_max": 55063.0
   },
   {
     "library_size": 2325,
@@ -824,8 +824,8 @@
     "traditional_cost": 257062.6,
     "traditional_min": 257062.6,
     "traditional_max": 322162.6,
-    "sdm_cost": 34957.5,
-    "sdm_cost_max": 41132.5
+    "sdm_cost": 48796.8,
+    "sdm_cost_max": 55465.8
   },
   {
     "library_size": 2350,
@@ -833,8 +833,8 @@
     "traditional_cost": 259821.34,
     "traditional_min": 259821.34,
     "traditional_max": 325621.34,
-    "sdm_cost": 35210.0,
-    "sdm_cost_max": 41385.0
+    "sdm_cost": 49184.7,
+    "sdm_cost_max": 55853.7
   },
   {
     "library_size": 2375,
@@ -842,8 +842,8 @@
     "traditional_cost": 262580.07,
     "traditional_min": 262580.07,
     "traditional_max": 329080.07,
-    "sdm_cost": 35462.5,
-    "sdm_cost_max": 41637.5
+    "sdm_cost": 50012.1,
+    "sdm_cost_max": 56928.1
   },
   {
     "library_size": 2400,
@@ -851,8 +851,8 @@
     "traditional_cost": 265338.81,
     "traditional_min": 265338.81,
     "traditional_max": 332538.81,
-    "sdm_cost": 35715.0,
-    "sdm_cost_max": 41890.0
+    "sdm_cost": 50400.0,
+    "sdm_cost_max": 57316.0
   },
   {
     "library_size": 2425,
@@ -860,8 +860,8 @@
     "traditional_cost": 268097.55,
     "traditional_min": 268097.55,
     "traditional_max": 335997.55,
-    "sdm_cost": 36406.5,
-    "sdm_cost_max": 42828.5
+    "sdm_cost": 50802.8,
+    "sdm_cost_max": 57718.8
   },
   {
     "library_size": 2450,
@@ -869,8 +869,8 @@
     "traditional_cost": 270856.29,
     "traditional_min": 270856.29,
     "traditional_max": 339456.29,
-    "sdm_cost": 36659.0,
-    "sdm_cost_max": 43081.0
+    "sdm_cost": 51629.7,
+    "sdm_cost_max": 58792.7
   },
   {
     "library_size": 2475,
@@ -878,8 +878,8 @@
     "traditional_cost": 273615.03,
     "traditional_min": 273615.03,
     "traditional_max": 342915.03,
-    "sdm_cost": 36911.5,
-    "sdm_cost_max": 43333.5
+    "sdm_cost": 52018.1,
+    "sdm_cost_max": 59181.1
   },
   {
     "library_size": 2500,
@@ -887,8 +887,8 @@
     "traditional_cost": 276373.76,
     "traditional_min": 276373.76,
     "traditional_max": 346373.76,
-    "sdm_cost": 37603.0,
-    "sdm_cost_max": 44272.0
+    "sdm_cost": 52406.0,
+    "sdm_cost_max": 59569.0
   },
   {
     "library_size": 2525,
@@ -896,8 +896,8 @@
     "traditional_cost": 279132.5,
     "traditional_min": 279132.5,
     "traditional_max": 349832.5,
-    "sdm_cost": 37855.5,
-    "sdm_cost_max": 44524.5
+    "sdm_cost": 52808.8,
+    "sdm_cost_max": 59971.8
   },
   {
     "library_size": 2550,
@@ -905,8 +905,8 @@
     "traditional_cost": 281891.24,
     "traditional_min": 281891.24,
     "traditional_max": 353291.24,
-    "sdm_cost": 38108.0,
-    "sdm_cost_max": 44777.0
+    "sdm_cost": 53635.7,
+    "sdm_cost_max": 61045.7
   },
   {
     "library_size": 2575,
@@ -914,8 +914,8 @@
     "traditional_cost": 284649.98,
     "traditional_min": 284649.98,
     "traditional_max": 356749.98,
-    "sdm_cost": 38360.5,
-    "sdm_cost_max": 45029.5
+    "sdm_cost": 54024.1,
+    "sdm_cost_max": 61434.1
   },
   {
     "library_size": 2600,
@@ -923,8 +923,8 @@
     "traditional_cost": 287408.71,
     "traditional_min": 287408.71,
     "traditional_max": 360208.71,
-    "sdm_cost": 39052.0,
-    "sdm_cost_max": 45968.0
+    "sdm_cost": 54412.0,
+    "sdm_cost_max": 61822.0
   },
   {
     "library_size": 2625,
@@ -932,8 +932,8 @@
     "traditional_cost": 290167.45,
     "traditional_min": 290167.45,
     "traditional_max": 363667.45,
-    "sdm_cost": 39304.5,
-    "sdm_cost_max": 46220.5
+    "sdm_cost": 55253.8,
+    "sdm_cost_max": 62910.8
   },
   {
     "library_size": 2650,
@@ -941,8 +941,8 @@
     "traditional_cost": 292926.19,
     "traditional_min": 292926.19,
     "traditional_max": 367126.19,
-    "sdm_cost": 39557.0,
-    "sdm_cost_max": 46473.0
+    "sdm_cost": 55641.7,
+    "sdm_cost_max": 63298.7
   },
   {
     "library_size": 2675,
@@ -950,8 +950,8 @@
     "traditional_cost": 295684.93,
     "traditional_min": 295684.93,
     "traditional_max": 370584.93,
-    "sdm_cost": 39809.5,
-    "sdm_cost_max": 46725.5
+    "sdm_cost": 56030.1,
+    "sdm_cost_max": 63687.1
   },
   {
     "library_size": 2700,
@@ -959,8 +959,8 @@
     "traditional_cost": 298443.66,
     "traditional_min": 298443.66,
     "traditional_max": 374043.66,
-    "sdm_cost": 40501.0,
-    "sdm_cost_max": 47664.0
+    "sdm_cost": 56418.0,
+    "sdm_cost_max": 64075.0
   },
   {
     "library_size": 2725,
@@ -968,8 +968,8 @@
     "traditional_cost": 301202.4,
     "traditional_min": 301202.4,
     "traditional_max": 377502.4,
-    "sdm_cost": 40753.5,
-    "sdm_cost_max": 47916.5
+    "sdm_cost": 57259.8,
+    "sdm_cost_max": 65163.8
   },
   {
     "library_size": 2750,
@@ -977,8 +977,8 @@
     "traditional_cost": 303961.14,
     "traditional_min": 303961.14,
     "traditional_max": 380961.14,
-    "sdm_cost": 41006.0,
-    "sdm_cost_max": 48169.0
+    "sdm_cost": 57647.7,
+    "sdm_cost_max": 65551.7
   },
   {
     "library_size": 2775,
@@ -986,8 +986,8 @@
     "traditional_cost": 306719.88,
     "traditional_min": 306719.88,
     "traditional_max": 384419.88,
-    "sdm_cost": 41258.5,
-    "sdm_cost_max": 48421.5
+    "sdm_cost": 58036.1,
+    "sdm_cost_max": 65940.1
   },
   {
     "library_size": 2800,
@@ -995,8 +995,8 @@
     "traditional_cost": 309478.61,
     "traditional_min": 309478.61,
     "traditional_max": 387878.61,
-    "sdm_cost": 41950.0,
-    "sdm_cost_max": 49360.0
+    "sdm_cost": 58863.0,
+    "sdm_cost_max": 67014.0
   },
   {
     "library_size": 2825,
@@ -1004,8 +1004,8 @@
     "traditional_cost": 312237.35,
     "traditional_min": 312237.35,
     "traditional_max": 391337.35,
-    "sdm_cost": 42202.5,
-    "sdm_cost_max": 49612.5
+    "sdm_cost": 59265.8,
+    "sdm_cost_max": 67416.8
   },
   {
     "library_size": 2850,
@@ -1013,8 +1013,8 @@
     "traditional_cost": 314996.09,
     "traditional_min": 314996.09,
     "traditional_max": 394796.09,
-    "sdm_cost": 42455.0,
-    "sdm_cost_max": 49865.0
+    "sdm_cost": 59653.7,
+    "sdm_cost_max": 67804.7
   },
   {
     "library_size": 2875,
@@ -1022,8 +1022,8 @@
     "traditional_cost": 317754.83,
     "traditional_min": 317754.83,
     "traditional_max": 398254.83,
-    "sdm_cost": 42707.5,
-    "sdm_cost_max": 50117.5
+    "sdm_cost": 60042.1,
+    "sdm_cost_max": 68193.1
   },
   {
     "library_size": 2900,
@@ -1031,8 +1031,8 @@
     "traditional_cost": 320513.57,
     "traditional_min": 320513.57,
     "traditional_max": 401713.57,
-    "sdm_cost": 43399.0,
-    "sdm_cost_max": 51056.0
+    "sdm_cost": 60869.0,
+    "sdm_cost_max": 69267.0
   },
   {
     "library_size": 2925,
@@ -1040,8 +1040,8 @@
     "traditional_cost": 323272.3,
     "traditional_min": 323272.3,
     "traditional_max": 405172.3,
-    "sdm_cost": 43651.5,
-    "sdm_cost_max": 51308.5
+    "sdm_cost": 61271.8,
+    "sdm_cost_max": 69669.8
   },
   {
     "library_size": 2950,
@@ -1049,8 +1049,8 @@
     "traditional_cost": 326031.04,
     "traditional_min": 326031.04,
     "traditional_max": 408631.04,
-    "sdm_cost": 43904.0,
-    "sdm_cost_max": 51561.0
+    "sdm_cost": 61659.7,
+    "sdm_cost_max": 70057.7
   },
   {
     "library_size": 2975,
@@ -1058,8 +1058,8 @@
     "traditional_cost": 328789.78,
     "traditional_min": 328789.78,
     "traditional_max": 412089.78,
-    "sdm_cost": 44156.5,
-    "sdm_cost_max": 51813.5
+    "sdm_cost": 62487.1,
+    "sdm_cost_max": 71132.1
   },
   {
     "library_size": 3000,
@@ -1067,8 +1067,8 @@
     "traditional_cost": 331548.52,
     "traditional_min": 331548.52,
     "traditional_max": 415548.52,
-    "sdm_cost": 44848.0,
-    "sdm_cost_max": 52752.0
+    "sdm_cost": 62875.0,
+    "sdm_cost_max": 71520.0
   },
   {
     "library_size": 3025,
@@ -1076,8 +1076,8 @@
     "traditional_cost": 334307.25,
     "traditional_min": 334307.25,
     "traditional_max": 419007.25,
-    "sdm_cost": 45100.5,
-    "sdm_cost_max": 53004.5
+    "sdm_cost": 63277.8,
+    "sdm_cost_max": 71922.8
   },
   {
     "library_size": 3050,
@@ -1085,8 +1085,8 @@
     "traditional_cost": 337065.99,
     "traditional_min": 337065.99,
     "traditional_max": 422465.99,
-    "sdm_cost": 45353.0,
-    "sdm_cost_max": 53257.0
+    "sdm_cost": 63665.7,
+    "sdm_cost_max": 72310.7
   },
   {
     "library_size": 3075,
@@ -1094,8 +1094,8 @@
     "traditional_cost": 339824.73,
     "traditional_min": 339824.73,
     "traditional_max": 425924.73,
-    "sdm_cost": 46044.5,
-    "sdm_cost_max": 54195.5
+    "sdm_cost": 64493.1,
+    "sdm_cost_max": 73385.1
   },
   {
     "library_size": 3100,
@@ -1103,8 +1103,8 @@
     "traditional_cost": 342583.47,
     "traditional_min": 342583.47,
     "traditional_max": 429383.47,
-    "sdm_cost": 46297.0,
-    "sdm_cost_max": 54448.0
+    "sdm_cost": 64881.0,
+    "sdm_cost_max": 73773.0
   },
   {
     "library_size": 3125,
@@ -1112,8 +1112,8 @@
     "traditional_cost": 345342.2,
     "traditional_min": 345342.2,
     "traditional_max": 432842.2,
-    "sdm_cost": 46549.5,
-    "sdm_cost_max": 54700.5
+    "sdm_cost": 65283.8,
+    "sdm_cost_max": 74175.8
   },
   {
     "library_size": 3150,
@@ -1121,8 +1121,8 @@
     "traditional_cost": 348100.94,
     "traditional_min": 348100.94,
     "traditional_max": 436300.94,
-    "sdm_cost": 46802.0,
-    "sdm_cost_max": 54953.0
+    "sdm_cost": 66110.7,
+    "sdm_cost_max": 75249.7
   },
   {
     "library_size": 3175,
@@ -1130,8 +1130,8 @@
     "traditional_cost": 350859.68,
     "traditional_min": 350859.68,
     "traditional_max": 439759.68,
-    "sdm_cost": 47493.5,
-    "sdm_cost_max": 55891.5
+    "sdm_cost": 66499.1,
+    "sdm_cost_max": 75638.1
   },
   {
     "library_size": 3200,
@@ -1139,8 +1139,8 @@
     "traditional_cost": 353618.42,
     "traditional_min": 353618.42,
     "traditional_max": 443218.42,
-    "sdm_cost": 47746.0,
-    "sdm_cost_max": 56144.0
+    "sdm_cost": 66887.0,
+    "sdm_cost_max": 76026.0
   },
   {
     "library_size": 3225,
@@ -1148,8 +1148,8 @@
     "traditional_cost": 356377.15,
     "traditional_min": 356377.15,
     "traditional_max": 446677.15,
-    "sdm_cost": 47998.5,
-    "sdm_cost_max": 56396.5
+    "sdm_cost": 67289.8,
+    "sdm_cost_max": 76428.8
   },
   {
     "library_size": 3250,
@@ -1157,8 +1157,8 @@
     "traditional_cost": 359135.89,
     "traditional_min": 359135.89,
     "traditional_max": 450135.89,
-    "sdm_cost": 48251.0,
-    "sdm_cost_max": 56649.0
+    "sdm_cost": 68116.7,
+    "sdm_cost_max": 77502.7
   },
   {
     "library_size": 3275,
@@ -1166,8 +1166,8 @@
     "traditional_cost": 361894.63,
     "traditional_min": 361894.63,
     "traditional_max": 453594.63,
-    "sdm_cost": 48942.5,
-    "sdm_cost_max": 57587.5
+    "sdm_cost": 68505.1,
+    "sdm_cost_max": 77891.1
   },
   {
     "library_size": 3300,
@@ -1175,8 +1175,8 @@
     "traditional_cost": 364653.37,
     "traditional_min": 364653.37,
     "traditional_max": 457053.37,
-    "sdm_cost": 49195.0,
-    "sdm_cost_max": 57840.0
+    "sdm_cost": 68893.0,
+    "sdm_cost_max": 78279.0
   },
   {
     "library_size": 3325,
@@ -1184,8 +1184,8 @@
     "traditional_cost": 367412.1,
     "traditional_min": 367412.1,
     "traditional_max": 460512.1,
-    "sdm_cost": 49447.5,
-    "sdm_cost_max": 58092.5
+    "sdm_cost": 69734.8,
+    "sdm_cost_max": 79367.8
   },
   {
     "library_size": 3350,
@@ -1193,8 +1193,8 @@
     "traditional_cost": 370170.84,
     "traditional_min": 370170.84,
     "traditional_max": 463970.84,
-    "sdm_cost": 49700.0,
-    "sdm_cost_max": 58345.0
+    "sdm_cost": 70122.7,
+    "sdm_cost_max": 79755.7
   },
   {
     "library_size": 3375,
@@ -1202,8 +1202,8 @@
     "traditional_cost": 372929.58,
     "traditional_min": 372929.58,
     "traditional_max": 467429.58,
-    "sdm_cost": 50391.5,
-    "sdm_cost_max": 59283.5
+    "sdm_cost": 70511.1,
+    "sdm_cost_max": 80144.1
   },
   {
     "library_size": 3400,
@@ -1211,8 +1211,8 @@
     "traditional_cost": 375688.32,
     "traditional_min": 375688.32,
     "traditional_max": 470888.32,
-    "sdm_cost": 50644.0,
-    "sdm_cost_max": 59536.0
+    "sdm_cost": 70899.0,
+    "sdm_cost_max": 80532.0
   },
   {
     "library_size": 3425,
@@ -1220,8 +1220,8 @@
     "traditional_cost": 378447.06,
     "traditional_min": 378447.06,
     "traditional_max": 474347.06,
-    "sdm_cost": 50896.5,
-    "sdm_cost_max": 59788.5
+    "sdm_cost": 71740.8,
+    "sdm_cost_max": 81620.8
   },
   {
     "library_size": 3450,
@@ -1229,8 +1229,8 @@
     "traditional_cost": 381205.79,
     "traditional_min": 381205.79,
     "traditional_max": 477805.79,
-    "sdm_cost": 51149.0,
-    "sdm_cost_max": 60041.0
+    "sdm_cost": 72128.7,
+    "sdm_cost_max": 82008.7
   },
   {
     "library_size": 3475,
@@ -1238,8 +1238,8 @@
     "traditional_cost": 383964.53,
     "traditional_min": 383964.53,
     "traditional_max": 481264.53,
-    "sdm_cost": 51840.5,
-    "sdm_cost_max": 60979.5
+    "sdm_cost": 72517.1,
+    "sdm_cost_max": 82397.1
   },
   {
     "library_size": 3500,
@@ -1247,8 +1247,8 @@
     "traditional_cost": 386723.27,
     "traditional_min": 386723.27,
     "traditional_max": 484723.27,
-    "sdm_cost": 52093.0,
-    "sdm_cost_max": 61232.0
+    "sdm_cost": 73344.0,
+    "sdm_cost_max": 83471.0
   },
   {
     "library_size": 3525,
@@ -1256,8 +1256,8 @@
     "traditional_cost": 389482.01,
     "traditional_min": 389482.01,
     "traditional_max": 488182.01,
-    "sdm_cost": 52345.5,
-    "sdm_cost_max": 61484.5
+    "sdm_cost": 73746.8,
+    "sdm_cost_max": 83873.8
   },
   {
     "library_size": 3550,
@@ -1265,8 +1265,8 @@
     "traditional_cost": 392240.74,
     "traditional_min": 392240.74,
     "traditional_max": 491640.74,
-    "sdm_cost": 52598.0,
-    "sdm_cost_max": 61737.0
+    "sdm_cost": 74134.7,
+    "sdm_cost_max": 84261.7
   },
   {
     "library_size": 3575,
@@ -1274,8 +1274,8 @@
     "traditional_cost": 394999.48,
     "traditional_min": 394999.48,
     "traditional_max": 495099.48,
-    "sdm_cost": 53289.5,
-    "sdm_cost_max": 62675.5
+    "sdm_cost": 74523.1,
+    "sdm_cost_max": 84650.1
   },
   {
     "library_size": 3600,
@@ -1283,8 +1283,8 @@
     "traditional_cost": 397758.22,
     "traditional_min": 397758.22,
     "traditional_max": 498558.22,
-    "sdm_cost": 53542.0,
-    "sdm_cost_max": 62928.0
+    "sdm_cost": 75350.0,
+    "sdm_cost_max": 85724.0
   },
   {
     "library_size": 3625,
@@ -1292,8 +1292,8 @@
     "traditional_cost": 400516.96,
     "traditional_min": 400516.96,
     "traditional_max": 502016.96,
-    "sdm_cost": 53794.5,
-    "sdm_cost_max": 63180.5
+    "sdm_cost": 75752.8,
+    "sdm_cost_max": 86126.8
   },
   {
     "library_size": 3650,
@@ -1301,8 +1301,8 @@
     "traditional_cost": 403275.69,
     "traditional_min": 403275.69,
     "traditional_max": 505475.69,
-    "sdm_cost": 54486.0,
-    "sdm_cost_max": 64119.0
+    "sdm_cost": 76140.7,
+    "sdm_cost_max": 86514.7
   },
   {
     "library_size": 3675,
@@ -1310,8 +1310,8 @@
     "traditional_cost": 406034.43,
     "traditional_min": 406034.43,
     "traditional_max": 508934.43,
-    "sdm_cost": 54738.5,
-    "sdm_cost_max": 64371.5
+    "sdm_cost": 76968.1,
+    "sdm_cost_max": 87589.1
   },
   {
     "library_size": 3700,
@@ -1319,8 +1319,8 @@
     "traditional_cost": 408793.17,
     "traditional_min": 408793.17,
     "traditional_max": 512393.17,
-    "sdm_cost": 54991.0,
-    "sdm_cost_max": 64624.0
+    "sdm_cost": 77356.0,
+    "sdm_cost_max": 87977.0
   },
   {
     "library_size": 3725,
@@ -1328,8 +1328,8 @@
     "traditional_cost": 411551.91,
     "traditional_min": 411551.91,
     "traditional_max": 515851.91,
-    "sdm_cost": 55243.5,
-    "sdm_cost_max": 64876.5
+    "sdm_cost": 77758.8,
+    "sdm_cost_max": 88379.8
   },
   {
     "library_size": 3750,
@@ -1337,8 +1337,8 @@
     "traditional_cost": 414310.64,
     "traditional_min": 414310.64,
     "traditional_max": 519310.64,
-    "sdm_cost": 55935.0,
-    "sdm_cost_max": 65815.0
+    "sdm_cost": 78146.7,
+    "sdm_cost_max": 88767.7
   },
   {
     "library_size": 3775,
@@ -1346,8 +1346,8 @@
     "traditional_cost": 417069.38,
     "traditional_min": 417069.38,
     "traditional_max": 522769.38,
-    "sdm_cost": 56187.5,
-    "sdm_cost_max": 66067.5
+    "sdm_cost": 78974.1,
+    "sdm_cost_max": 89842.1
   },
   {
     "library_size": 3800,
@@ -1355,8 +1355,8 @@
     "traditional_cost": 419828.12,
     "traditional_min": 419828.12,
     "traditional_max": 526228.12,
-    "sdm_cost": 56440.0,
-    "sdm_cost_max": 66320.0
+    "sdm_cost": 79362.0,
+    "sdm_cost_max": 90230.0
   },
   {
     "library_size": 3825,
@@ -1364,8 +1364,8 @@
     "traditional_cost": 422586.86,
     "traditional_min": 422586.86,
     "traditional_max": 529686.86,
-    "sdm_cost": 56692.5,
-    "sdm_cost_max": 66572.5
+    "sdm_cost": 79764.8,
+    "sdm_cost_max": 90632.8
   },
   {
     "library_size": 3850,
@@ -1373,8 +1373,8 @@
     "traditional_cost": 425345.6,
     "traditional_min": 425345.6,
     "traditional_max": 533145.6,
-    "sdm_cost": 57384.0,
-    "sdm_cost_max": 67511.0
+    "sdm_cost": 80591.7,
+    "sdm_cost_max": 91706.7
   },
   {
     "library_size": 3875,
@@ -1382,8 +1382,8 @@
     "traditional_cost": 428104.33,
     "traditional_min": 428104.33,
     "traditional_max": 536604.33,
-    "sdm_cost": 57636.5,
-    "sdm_cost_max": 67763.5
+    "sdm_cost": 80980.1,
+    "sdm_cost_max": 92095.1
   },
   {
     "library_size": 3900,
@@ -1391,8 +1391,8 @@
     "traditional_cost": 430863.07,
     "traditional_min": 430863.07,
     "traditional_max": 540063.07,
-    "sdm_cost": 57889.0,
-    "sdm_cost_max": 68016.0
+    "sdm_cost": 81368.0,
+    "sdm_cost_max": 92483.0
   },
   {
     "library_size": 3925,
@@ -1400,8 +1400,8 @@
     "traditional_cost": 433621.81,
     "traditional_min": 433621.81,
     "traditional_max": 543521.81,
-    "sdm_cost": 58141.5,
-    "sdm_cost_max": 68268.5
+    "sdm_cost": 81770.8,
+    "sdm_cost_max": 92885.8
   },
   {
     "library_size": 3950,
@@ -1409,8 +1409,8 @@
     "traditional_cost": 436380.55,
     "traditional_min": 436380.55,
     "traditional_max": 546980.55,
-    "sdm_cost": 58833.0,
-    "sdm_cost_max": 69207.0
+    "sdm_cost": 82597.7,
+    "sdm_cost_max": 93959.7
   },
   {
     "library_size": 3975,
@@ -1418,8 +1418,8 @@
     "traditional_cost": 439139.28,
     "traditional_min": 439139.28,
     "traditional_max": 550439.28,
-    "sdm_cost": 59085.5,
-    "sdm_cost_max": 69459.5
+    "sdm_cost": 82986.1,
+    "sdm_cost_max": 94348.1
   },
   {
     "library_size": 4000,
@@ -1427,8 +1427,8 @@
     "traditional_cost": 441898.02,
     "traditional_min": 441898.02,
     "traditional_max": 553898.02,
-    "sdm_cost": 59338.0,
-    "sdm_cost_max": 69712.0
+    "sdm_cost": 83374.0,
+    "sdm_cost_max": 94736.0
   },
   {
     "library_size": 4025,
@@ -1436,8 +1436,8 @@
     "traditional_cost": 444656.76,
     "traditional_min": 444656.76,
     "traditional_max": 557356.76,
-    "sdm_cost": 59590.5,
-    "sdm_cost_max": 69964.5
+    "sdm_cost": 84215.8,
+    "sdm_cost_max": 95824.8
   },
   {
     "library_size": 4050,
@@ -1445,8 +1445,8 @@
     "traditional_cost": 447415.5,
     "traditional_min": 447415.5,
     "traditional_max": 560815.5,
-    "sdm_cost": 60282.0,
-    "sdm_cost_max": 70903.0
+    "sdm_cost": 84603.7,
+    "sdm_cost_max": 96212.7
   },
   {
     "library_size": 4075,
@@ -1454,8 +1454,8 @@
     "traditional_cost": 450174.23,
     "traditional_min": 450174.23,
     "traditional_max": 564274.23,
-    "sdm_cost": 60534.5,
-    "sdm_cost_max": 71155.5
+    "sdm_cost": 84992.1,
+    "sdm_cost_max": 96601.1
   },
   {
     "library_size": 4100,
@@ -1463,8 +1463,8 @@
     "traditional_cost": 452932.97,
     "traditional_min": 452932.97,
     "traditional_max": 567732.97,
-    "sdm_cost": 60787.0,
-    "sdm_cost_max": 71408.0
+    "sdm_cost": 85380.0,
+    "sdm_cost_max": 96989.0
   },
   {
     "library_size": 4125,
@@ -1472,8 +1472,8 @@
     "traditional_cost": 455691.71,
     "traditional_min": 455691.71,
     "traditional_max": 571191.71,
-    "sdm_cost": 61039.5,
-    "sdm_cost_max": 71660.5
+    "sdm_cost": 86221.8,
+    "sdm_cost_max": 98077.8
   },
   {
     "library_size": 4150,
@@ -1481,8 +1481,8 @@
     "traditional_cost": 458450.45,
     "traditional_min": 458450.45,
     "traditional_max": 574650.45,
-    "sdm_cost": 61731.0,
-    "sdm_cost_max": 72599.0
+    "sdm_cost": 86609.7,
+    "sdm_cost_max": 98465.7
   },
   {
     "library_size": 4175,
@@ -1490,8 +1490,8 @@
     "traditional_cost": 461209.18,
     "traditional_min": 461209.18,
     "traditional_max": 578109.18,
-    "sdm_cost": 61983.5,
-    "sdm_cost_max": 72851.5
+    "sdm_cost": 86998.1,
+    "sdm_cost_max": 98854.1
   },
   {
     "library_size": 4200,
@@ -1499,8 +1499,8 @@
     "traditional_cost": 463967.92,
     "traditional_min": 463967.92,
     "traditional_max": 581567.92,
-    "sdm_cost": 62236.0,
-    "sdm_cost_max": 73104.0
+    "sdm_cost": 87825.0,
+    "sdm_cost_max": 99928.0
   },
   {
     "library_size": 4225,
@@ -1508,8 +1508,8 @@
     "traditional_cost": 466726.66,
     "traditional_min": 466726.66,
     "traditional_max": 585026.66,
-    "sdm_cost": 62927.5,
-    "sdm_cost_max": 74042.5
+    "sdm_cost": 88227.8,
+    "sdm_cost_max": 100330.8
   },
   {
     "library_size": 4250,
@@ -1517,8 +1517,8 @@
     "traditional_cost": 469485.4,
     "traditional_min": 469485.4,
     "traditional_max": 588485.4,
-    "sdm_cost": 63180.0,
-    "sdm_cost_max": 74295.0
+    "sdm_cost": 88615.7,
+    "sdm_cost_max": 100718.7
   },
   {
     "library_size": 4275,
@@ -1526,8 +1526,8 @@
     "traditional_cost": 472244.13,
     "traditional_min": 472244.13,
     "traditional_max": 591944.13,
-    "sdm_cost": 63432.5,
-    "sdm_cost_max": 74547.5
+    "sdm_cost": 89004.1,
+    "sdm_cost_max": 101107.1
   },
   {
     "library_size": 4300,
@@ -1535,8 +1535,8 @@
     "traditional_cost": 475002.87,
     "traditional_min": 475002.87,
     "traditional_max": 595402.87,
-    "sdm_cost": 63685.0,
-    "sdm_cost_max": 74800.0
+    "sdm_cost": 89831.0,
+    "sdm_cost_max": 102181.0
   },
   {
     "library_size": 4325,
@@ -1544,8 +1544,8 @@
     "traditional_cost": 477761.61,
     "traditional_min": 477761.61,
     "traditional_max": 598861.61,
-    "sdm_cost": 64376.5,
-    "sdm_cost_max": 75738.5
+    "sdm_cost": 90233.8,
+    "sdm_cost_max": 102583.8
   },
   {
     "library_size": 4350,
@@ -1553,8 +1553,8 @@
     "traditional_cost": 480520.35,
     "traditional_min": 480520.35,
     "traditional_max": 602320.35,
-    "sdm_cost": 64629.0,
-    "sdm_cost_max": 75991.0
+    "sdm_cost": 90621.7,
+    "sdm_cost_max": 102971.7
   },
   {
     "library_size": 4375,
@@ -1562,8 +1562,8 @@
     "traditional_cost": 483279.09,
     "traditional_min": 483279.09,
     "traditional_max": 605779.09,
-    "sdm_cost": 64881.5,
-    "sdm_cost_max": 76243.5
+    "sdm_cost": 91449.1,
+    "sdm_cost_max": 104046.1
   },
   {
     "library_size": 4400,
@@ -1571,8 +1571,8 @@
     "traditional_cost": 486037.82,
     "traditional_min": 486037.82,
     "traditional_max": 609237.82,
-    "sdm_cost": 65134.0,
-    "sdm_cost_max": 76496.0
+    "sdm_cost": 91837.0,
+    "sdm_cost_max": 104434.0
   },
   {
     "library_size": 4425,
@@ -1580,8 +1580,8 @@
     "traditional_cost": 488796.56,
     "traditional_min": 488796.56,
     "traditional_max": 612696.56,
-    "sdm_cost": 65825.5,
-    "sdm_cost_max": 77434.5
+    "sdm_cost": 92239.8,
+    "sdm_cost_max": 104836.8
   },
   {
     "library_size": 4450,
@@ -1589,8 +1589,8 @@
     "traditional_cost": 491555.3,
     "traditional_min": 491555.3,
     "traditional_max": 616155.3,
-    "sdm_cost": 66078.0,
-    "sdm_cost_max": 77687.0
+    "sdm_cost": 92627.7,
+    "sdm_cost_max": 105224.7
   },
   {
     "library_size": 4475,
@@ -1598,8 +1598,8 @@
     "traditional_cost": 494314.04,
     "traditional_min": 494314.04,
     "traditional_max": 619614.04,
-    "sdm_cost": 66330.5,
-    "sdm_cost_max": 77939.5
+    "sdm_cost": 93455.1,
+    "sdm_cost_max": 106299.1
   },
   {
     "library_size": 4500,
@@ -1607,8 +1607,8 @@
     "traditional_cost": 497072.77,
     "traditional_min": 497072.77,
     "traditional_max": 623072.77,
-    "sdm_cost": 66583.0,
-    "sdm_cost_max": 78192.0
+    "sdm_cost": 93843.0,
+    "sdm_cost_max": 106687.0
   },
   {
     "library_size": 4525,
@@ -1616,8 +1616,8 @@
     "traditional_cost": 499831.51,
     "traditional_min": 499831.51,
     "traditional_max": 626531.51,
-    "sdm_cost": 67274.5,
-    "sdm_cost_max": 79130.5
+    "sdm_cost": 94245.8,
+    "sdm_cost_max": 107089.8
   },
   {
     "library_size": 4550,
@@ -1625,8 +1625,8 @@
     "traditional_cost": 502590.25,
     "traditional_min": 502590.25,
     "traditional_max": 629990.25,
-    "sdm_cost": 67527.0,
-    "sdm_cost_max": 79383.0
+    "sdm_cost": 95072.7,
+    "sdm_cost_max": 108163.7
   },
   {
     "library_size": 4575,
@@ -1634,8 +1634,8 @@
     "traditional_cost": 505348.99,
     "traditional_min": 505348.99,
     "traditional_max": 633448.99,
-    "sdm_cost": 67779.5,
-    "sdm_cost_max": 79635.5
+    "sdm_cost": 95461.1,
+    "sdm_cost_max": 108552.1
   },
   {
     "library_size": 4600,
@@ -1643,8 +1643,8 @@
     "traditional_cost": 508107.72,
     "traditional_min": 508107.72,
     "traditional_max": 636907.72,
-    "sdm_cost": 68032.0,
-    "sdm_cost_max": 79888.0
+    "sdm_cost": 95849.0,
+    "sdm_cost_max": 108940.0
   },
   {
     "library_size": 4625,
@@ -1652,8 +1652,8 @@
     "traditional_cost": 510866.46,
     "traditional_min": 510866.46,
     "traditional_max": 640366.46,
-    "sdm_cost": 68723.5,
-    "sdm_cost_max": 80826.5
+    "sdm_cost": 96251.8,
+    "sdm_cost_max": 109342.8
   },
   {
     "library_size": 4650,
@@ -1661,8 +1661,8 @@
     "traditional_cost": 513625.2,
     "traditional_min": 513625.2,
     "traditional_max": 643825.2,
-    "sdm_cost": 68976.0,
-    "sdm_cost_max": 81079.0
+    "sdm_cost": 97078.7,
+    "sdm_cost_max": 110416.7
   },
   {
     "library_size": 4675,
@@ -1670,8 +1670,8 @@
     "traditional_cost": 516383.94,
     "traditional_min": 516383.94,
     "traditional_max": 647283.94,
-    "sdm_cost": 69228.5,
-    "sdm_cost_max": 81331.5
+    "sdm_cost": 97467.1,
+    "sdm_cost_max": 110805.1
   },
   {
     "library_size": 4700,
@@ -1679,8 +1679,8 @@
     "traditional_cost": 519142.67,
     "traditional_min": 519142.67,
     "traditional_max": 650742.67,
-    "sdm_cost": 69481.0,
-    "sdm_cost_max": 81584.0
+    "sdm_cost": 97855.0,
+    "sdm_cost_max": 111193.0
   },
   {
     "library_size": 4725,
@@ -1688,8 +1688,8 @@
     "traditional_cost": 521901.41,
     "traditional_min": 521901.41,
     "traditional_max": 654201.41,
-    "sdm_cost": 70172.5,
-    "sdm_cost_max": 82522.5
+    "sdm_cost": 98696.8,
+    "sdm_cost_max": 112281.8
   },
   {
     "library_size": 4750,
@@ -1697,8 +1697,8 @@
     "traditional_cost": 524660.15,
     "traditional_min": 524660.15,
     "traditional_max": 657660.15,
-    "sdm_cost": 70425.0,
-    "sdm_cost_max": 82775.0
+    "sdm_cost": 99084.7,
+    "sdm_cost_max": 112669.7
   },
   {
     "library_size": 4775,
@@ -1706,8 +1706,8 @@
     "traditional_cost": 527418.89,
     "traditional_min": 527418.89,
     "traditional_max": 661118.89,
-    "sdm_cost": 70677.5,
-    "sdm_cost_max": 83027.5
+    "sdm_cost": 99473.1,
+    "sdm_cost_max": 113058.1
   },
   {
     "library_size": 4800,
@@ -1715,8 +1715,8 @@
     "traditional_cost": 530177.62,
     "traditional_min": 530177.62,
     "traditional_max": 664577.62,
-    "sdm_cost": 70930.0,
-    "sdm_cost_max": 83280.0
+    "sdm_cost": 99861.0,
+    "sdm_cost_max": 113446.0
   },
   {
     "library_size": 4825,
@@ -1724,8 +1724,8 @@
     "traditional_cost": 532936.36,
     "traditional_min": 532936.36,
     "traditional_max": 668036.36,
-    "sdm_cost": 71621.5,
-    "sdm_cost_max": 84218.5
+    "sdm_cost": 100702.8,
+    "sdm_cost_max": 114534.8
   },
   {
     "library_size": 4850,
@@ -1733,8 +1733,8 @@
     "traditional_cost": 535695.1,
     "traditional_min": 535695.1,
     "traditional_max": 671495.1,
-    "sdm_cost": 71874.0,
-    "sdm_cost_max": 84471.0
+    "sdm_cost": 101090.7,
+    "sdm_cost_max": 114922.7
   },
   {
     "library_size": 4875,
@@ -1742,8 +1742,8 @@
     "traditional_cost": 538453.84,
     "traditional_min": 538453.84,
     "traditional_max": 674953.84,
-    "sdm_cost": 72126.5,
-    "sdm_cost_max": 84723.5
+    "sdm_cost": 101479.1,
+    "sdm_cost_max": 115311.1
   },
   {
     "library_size": 4900,
@@ -1751,8 +1751,8 @@
     "traditional_cost": 541212.58,
     "traditional_min": 541212.58,
     "traditional_max": 678412.58,
-    "sdm_cost": 72818.0,
-    "sdm_cost_max": 85662.0
+    "sdm_cost": 102306.0,
+    "sdm_cost_max": 116385.0
   },
   {
     "library_size": 4925,
@@ -1760,8 +1760,8 @@
     "traditional_cost": 543971.31,
     "traditional_min": 543971.31,
     "traditional_max": 681871.31,
-    "sdm_cost": 73070.5,
-    "sdm_cost_max": 85914.5
+    "sdm_cost": 102708.8,
+    "sdm_cost_max": 116787.8
   },
   {
     "library_size": 4950,
@@ -1769,8 +1769,8 @@
     "traditional_cost": 546730.05,
     "traditional_min": 546730.05,
     "traditional_max": 685330.05,
-    "sdm_cost": 73323.0,
-    "sdm_cost_max": 86167.0
+    "sdm_cost": 103096.7,
+    "sdm_cost_max": 117175.7
   },
   {
     "library_size": 4975,
@@ -1778,8 +1778,8 @@
     "traditional_cost": 549488.79,
     "traditional_min": 549488.79,
     "traditional_max": 688788.79,
-    "sdm_cost": 73575.5,
-    "sdm_cost_max": 86419.5
+    "sdm_cost": 103924.1,
+    "sdm_cost_max": 118250.1
   },
   {
     "library_size": 5000,
@@ -1787,7 +1787,7 @@
     "traditional_cost": 552247.53,
     "traditional_min": 552247.53,
     "traditional_max": 692247.53,
-    "sdm_cost": 74267.0,
-    "sdm_cost_max": 87358.0
+    "sdm_cost": 104312.0,
+    "sdm_cost_max": 118638.0
   }
 ]

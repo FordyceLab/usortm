@@ -16,17 +16,17 @@
     "total": 17174.75
   },
   "sdm": {
-    "primers": 4800.0,
+    "primers": 7560.0,
     "q5_sdm_kit": 1314.0,
     "transformation": 1320.0,
-    "consumables": 250.0,
+    "consumables": 275.0,
     "sequencing": 500,
-    "total": 8184.0
+    "total": 10969.0
   },
   "savings": 6.36,
   "per_variant_usortm": 5.4,
   "per_variant_traditional": 34.35,
-  "per_variant_sdm": 16.37,
+  "per_variant_sdm": 21.94,
   "wells": 2000,
   "plates": 6,
   "timeline": {

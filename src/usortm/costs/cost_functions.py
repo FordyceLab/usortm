@@ -13,9 +13,11 @@ SDM_HIFI_KIT_REACTIONS = 96
 SDM_COMP_CELLS_PRICE = 220.0     # NEB C2987I, 96 transformations
 SDM_COMP_CELLS_REACTIONS = 96
 SDM_PRIMER_COST_PER_BP = 0.24    # $/bp, IDT standard desalted (all formats)
-SDM_PRIMER_LENGTH = 20           # bp per primer
+SDM_PRIMER_LENGTH = 30           # bp per primer (NEB recommends 25-45 bp for Q5 SDM)
 SDM_PRIMERS_PER_GENE = 2         # forward + reverse
 SDM_CONSUMABLES_PER_SAMPLE = 0.50
+SDM_FAILURE_RATE = 0.10           # ~10% failure rate with 30 nt primers + automated design
+SDM_RECLONE_PRIMER_REDESIGN_FRAC = 0.50  # ~50% of failures need redesigned primers
 
 # Map legacy method keys to TOML slugs
 _METHOD_SLUG_MAP = {
@@ -110,80 +112,109 @@ def parsed_genefragments_sequencing_cost(fragment_length, library_size):
 
 # --- Site-Directed Mutagenesis (SDM) Costs ---
 
-def sdm_primer_cost(n_genes):
+def _sdm_total_reactions(n_genes, failure_rate=SDM_FAILURE_RATE):
+    """Total SDM reactions including recloning of failures.
+
+    At a given failure rate, failed constructs require additional reactions
+    (kit, cells, consumables) but not new primers.
+    """
+    n_failures = math.ceil(n_genes * failure_rate)
+    return n_genes + n_failures, n_failures
+
+
+def sdm_primer_cost(n_genes, failure_rate=SDM_FAILURE_RATE):
     """Cost of mutagenic primers for SDM.
 
-    Two primers per gene (forward + reverse), 20 bp each, at $0.24/bp.
+    Two primers per gene (forward + reverse), 30 bp each, at $0.24/bp.
+    Initial primers are ordered once. ~50% of failed constructs need
+    redesigned primers (1 new primer pair per redesign).
     """
     per_primer = SDM_PRIMER_COST_PER_BP * SDM_PRIMER_LENGTH
-    return n_genes * SDM_PRIMERS_PER_GENE * per_primer
+    # Initial primer order
+    cost = n_genes * SDM_PRIMERS_PER_GENE * per_primer
+    # Reclone primer redesigns
+    _, n_failures = _sdm_total_reactions(n_genes, failure_rate)
+    n_redesigns = math.ceil(n_failures * SDM_RECLONE_PRIMER_REDESIGN_FRAC)
+    cost += n_redesigns * SDM_PRIMERS_PER_GENE * per_primer
+    return cost
 
 
-def sdm_kit_cost(n_genes, include_hifi=False):
+def sdm_kit_cost(n_genes, include_hifi=False, failure_rate=SDM_FAILURE_RATE):
     """Cost of Q5 SDM kit and optional HiFi Assembly kit.
 
     Kits are purchased in units of 96 reactions, so cost is stepwise.
+    Accounts for recloning of failed reactions.
     """
-    n_kits = math.ceil(n_genes / SDM_Q5_KIT_REACTIONS)
+    total_rxns, _ = _sdm_total_reactions(n_genes, failure_rate)
+    n_kits = math.ceil(total_rxns / SDM_Q5_KIT_REACTIONS)
     cost = n_kits * SDM_Q5_KIT_PRICE
     if include_hifi:
-        n_hifi_kits = math.ceil(n_genes / SDM_HIFI_KIT_REACTIONS)
+        n_hifi_kits = math.ceil(total_rxns / SDM_HIFI_KIT_REACTIONS)
         cost += n_hifi_kits * SDM_HIFI_KIT_PRICE
     return cost
 
 
-def sdm_transformation_cost(n_genes):
+def sdm_transformation_cost(n_genes, failure_rate=SDM_FAILURE_RATE):
     """Cost of competent cells for SDM transformations.
 
     NEB 5-alpha (C2987I) in 96-reaction packs.
+    Accounts for recloning of failed reactions.
     """
-    n_packs = math.ceil(n_genes / SDM_COMP_CELLS_REACTIONS)
+    total_rxns, _ = _sdm_total_reactions(n_genes, failure_rate)
+    n_packs = math.ceil(total_rxns / SDM_COMP_CELLS_REACTIONS)
     return n_packs * SDM_COMP_CELLS_PRICE
 
 
-def sdm_consumables_cost(n_genes):
-    """Consumables cost for SDM (plates, tips, etc.)."""
-    return n_genes * SDM_CONSUMABLES_PER_SAMPLE
+def sdm_consumables_cost(n_genes, failure_rate=SDM_FAILURE_RATE):
+    """Consumables cost for SDM (plates, tips, etc.).
+
+    Accounts for recloning of failed reactions.
+    """
+    total_rxns, _ = _sdm_total_reactions(n_genes, failure_rate)
+    return total_rxns * SDM_CONSUMABLES_PER_SAMPLE
 
 
-def sdm_total_cost(n_genes, seq_length, include_hifi=False):
+def sdm_total_cost(n_genes, seq_length, include_hifi=False, failure_rate=SDM_FAILURE_RATE):
     """Total cost for site-directed mutagenesis of n_genes constructs.
 
-    Includes primers, Q5 SDM kit, optional HiFi assembly, transformation,
-    consumables, and sequencing verification.
+    Includes primers (with redesign for ~50% of failures), Q5 SDM kit,
+    optional HiFi assembly, transformation, consumables, and sequencing
+    verification. Accounts for ~10% failure rate requiring recloning.
 
     Args:
         n_genes: Number of individual mutations (one SDM reaction each).
         seq_length: Sequence length in bp (for sequencing cost).
         include_hifi: Whether to include HiFi Assembly step.
+        failure_rate: Expected fraction of reactions that fail and need recloning.
 
     Returns:
         Total cost in USD.
     """
-    cost = sdm_primer_cost(n_genes)
-    cost += sdm_kit_cost(n_genes, include_hifi=include_hifi)
-    cost += sdm_transformation_cost(n_genes)
-    cost += sdm_consumables_cost(n_genes)
+    cost = sdm_primer_cost(n_genes, failure_rate=failure_rate)
+    cost += sdm_kit_cost(n_genes, include_hifi=include_hifi, failure_rate=failure_rate)
+    cost += sdm_transformation_cost(n_genes, failure_rate=failure_rate)
+    cost += sdm_consumables_cost(n_genes, failure_rate=failure_rate)
     cost += parsed_genefragments_sequencing_cost(seq_length, n_genes)
     return cost
 
 
-def generate_sdm_costs(library_sizes, seq_lengths, include_hifi=False):
+def generate_sdm_costs(library_sizes, seq_lengths, include_hifi=False, failure_rate=SDM_FAILURE_RATE):
     """Tabulate SDM costs for given library sizes and sequence lengths.
 
     Returns a DataFrame matching the schema of generate_commercial_costs
     and get_usortm_costs.
     """
     step_funcs = {
-        'Primers': lambda n, sl: sdm_primer_cost(n),
-        'Q5 SDM Kit': lambda n, sl: sdm_kit_cost(n, include_hifi=False),
-        'Transformation': lambda n, sl: sdm_transformation_cost(n),
-        'Consumables': lambda n, sl: sdm_consumables_cost(n),
+        'Primers': lambda n, sl: sdm_primer_cost(n, failure_rate=failure_rate),
+        'Q5 SDM Kit': lambda n, sl: sdm_kit_cost(n, include_hifi=False, failure_rate=failure_rate),
+        'Transformation': lambda n, sl: sdm_transformation_cost(n, failure_rate=failure_rate),
+        'Consumables': lambda n, sl: sdm_consumables_cost(n, failure_rate=failure_rate),
         'Sequencing': lambda n, sl: parsed_genefragments_sequencing_cost(sl, n),
     }
     if include_hifi:
+        total_rxns_fn = lambda n: _sdm_total_reactions(n, failure_rate)[0]
         step_funcs['HiFi Assembly'] = lambda n, sl: (
-            math.ceil(n / SDM_HIFI_KIT_REACTIONS) * SDM_HIFI_KIT_PRICE
+            math.ceil(total_rxns_fn(n) / SDM_HIFI_KIT_REACTIONS) * SDM_HIFI_KIT_PRICE
         )
 
     records = []

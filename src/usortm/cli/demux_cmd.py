@@ -332,10 +332,10 @@ def demux(
     summary_table.add_column("Metric", style="muted")
     summary_table.add_column("Value", justify="right")
 
-    input_reads = results.get("input_reads", 0)
-    aligned_reads = results.get("aligned_reads", 0)
-    demuxed_reads = results.get("demuxed_reads", 0)
-    assigned_reads = results.get("assigned_reads", 0)
+    input_reads = results.get("input_reads") or 0
+    aligned_reads = results.get("aligned_reads") or 0
+    demuxed_reads = results.get("demuxed_reads") or 0
+    assigned_reads = results.get("assigned_reads") or 0
 
     def _pct(n: int, total: int) -> str:
         if total > 0:
@@ -718,6 +718,9 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         summary["read_len_hist"] = results["read_len_hist"]
     if "streakout" in results:
         summary["streakout"] = results["streakout"]
+    if "flank_5p_len" in results:
+        summary["flank_5p_len"] = results["flank_5p_len"]
+        summary["flank_3p_len"] = results["flank_3p_len"]
 
     # Pre-compute recovery curve if library_size is known
     if project:

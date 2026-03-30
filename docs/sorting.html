@@ -167,13 +167,13 @@
           <tbody>
             <tr>
               <td>384-well plates</td>
-              <td>Thermo Fisher (242757)</td>
-              <td>Black-walled, clear flat bottom</td>
+              <td>Thermo Fisher (242764)</td>
+              <td>Black-walled, transparent flat bottom (required for OD<sub>600</sub> reads)</td>
             </tr>
             <tr>
-              <td>Breathable seals</td>
-              <td>VWR (60941-086)</td>
-              <td>Allows gas exchange during growth</td>
+              <td>Adhesive foil seals</td>
+              <td>Thermo Fisher (AB0626)</td>
+              <td>Seal plates immediately after sorting</td>
             </tr>
             <tr>
               <td>LB + antibiotic</td>
@@ -216,13 +216,16 @@
 
         <h3>3. Configure Flow Cytometer</h3>
 
-        <p><strong>Recommended gating strategy:</strong></p>
-        <ul>
-          <li><strong>FSC vs. SSC</strong>: Gate on bacterial population (remove debris and doublets)</li>
-          <li><strong>Single-cell mode</strong>: Sort exactly 1 event per well</li>
-          <li><strong>Purity mode</strong>: Use highest purity setting to minimize contamination</li>
-          <li><strong>[To-do]</strong>: [Add full FACS protocol details]</li>
-        </ul>
+        <p><strong>Recommended gating strategy (two sequential gates):</strong></p>
+        <ol>
+          <li><strong>Gate 1 — SSC-A vs. FSC-A</strong>: Select cell events, discriminating bacteria from debris. Run a PBS-only control first to characterize the debris/non-cell scattering distribution, then set a stringent SSC-A threshold above the debris peak (~500 RFU) to reject contamination.</li>
+          <li><strong>Gate 2 — FSC-H vs. FSC-A</strong>: Select singlets (single cells), excluding doublets and aggregates.</li>
+        </ol>
+        <p>Use <strong>single-cell mode</strong> (1 event per well) with <strong>purity sort mode</strong> to minimize contamination.</p>
+
+        <div class="callout">
+          <strong>💡 Gating optimization:</strong> The primary cause of empty wells after sorting is <strong>debris contamination, not cell death</strong>. A debris peak at ~500 RFU SSC-A persists even through 0.22 µm filtration. More selective SSC-A gating eliminates this, boosting growth from 67% → 90.1%. Stringent gating is safe because sorted cell counts (~1,000–10,000) are far smaller than available cells (~10<sup>7</sup>), so rare library members are not excluded.
+        </div>
 
         <p><strong>Typical sort parameters:</strong></p>
         <div class="table-wrapper">
@@ -256,7 +259,7 @@
             </tr>
             <tr>
               <td>Sort rate</td>
-              <td>~500 events/sec</td>
+              <td>~70 wells/min (~500 events/sec)</td>
             </tr>
           </tbody>
         </table>
@@ -265,108 +268,63 @@
         <h3>4. Perform Sorting</h3>
         <ol>
           <li>Load cell suspension into flow cytometer</li>
-          <li>Set FSC/SSC gates to capture live bacterial population</li>
+          <li>Set FSC/SSC gates to capture live bacterial population (see gating strategy above)</li>
           <li>Load 384-well plate onto sorting stage</li>
           <li>Run calibration/alignment if needed</li>
           <li>Begin sort: 1 cell per well across all 384 wells</li>
-          <li>Remove plate when complete, seal with foil or plastic cover</li>
-          <li>Repeat steps 5 and 6 for additional plates</li>
+          <li>Remove plate when complete, centrifuge at 4,000 × <em>g</em> briefly to collect droplets at well bottoms</li>
+          <li>Seal with adhesive foil seals (Thermo AB0626) and keep on ice between sorts</li>
+          <li>Repeat steps 3–7 for additional plates</li>
         </ol>
-
-        <div class="callout">
-          <strong>💡 Tip:</strong> Ensure gating excludes debris (low FSC/SSC) and doublets.
-        </div>
 
         <h3>5. Outgrowth</h3>
         <ol>
-          <li>Incubate sorted plates at 37 °C for 12–16 hours (overnight)</li>
-          <li>Check for growth by visual inspection or OD<sub>600</sub> measurement</li>
-          <li>Expect 60–75% of wells to show growth (typical for single-cell sorts)</li>
+          <li>Incubate sorted plates at 37 °C for 17 hours, <strong>without shaking</strong> (important for observing single colonies at well bottom)</li>
+          <li>Score growth by OD<sub>600</sub> measurement: wells with OD<sub>600</sub> &gt; 0.05 are growth-positive</li>
+          <li>Expect 67–90% of wells to show growth, depending on gating stringency (see gating optimization above)</li>
+          <li>Prepare glycerol stocks during outgrowth: transfer 10 µL culture + 10 µL 50% glycerol to a fresh plate, seal, and store at −80 °C</li>
         </ol>
 
         <h2>Determining Sort Scale</h2>
 
-        <p>
-          The number of wells to sort depends on your library size and desired coverage. Use <code>usortm estimate</code>
-          to calculate the recommended oversampling:
-        </p>
-
-        <pre><code class="language-bash"># For a 500-variant library with default 4x oversampling
-usortm estimate --library-size 500
-
-# For a skewed library, increase oversampling
-usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
-
-        <p><strong>General guidelines:</strong></p>
-        <div class="table-wrapper">
-          <table>
-          <thead>
-            <tr>
-              <th>Library Size</th>
-              <th>Fold Sampling</th>
-              <th>Total Wells</th>
-              <th>Number of Plates</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>100</td>
-              <td>4×</td>
-              <td>400</td>
-              <td>2</td>
-            </tr>
-            <tr>
-              <td>500</td>
-              <td>4×</td>
-              <td>2,000</td>
-              <td>6</td>
-            </tr>
-            <tr>
-              <td>1,000</td>
-              <td>4×</td>
-              <td>4,000</td>
-              <td>11</td>
-            </tr>
-            <tr>
-              <td>2,000</td>
-              <td>6×</td>
-              <td>12,000</td>
-              <td>32</td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
-
         <style>
-          .cov-card { border: 1.5px solid var(--color-border); border-radius: 10px; padding: 1.25rem 1.5rem 1rem; margin: 1.5rem 0 0.5rem; background: var(--color-card-bg); }
-          .cov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1.1rem; margin-bottom: 0.9rem; }
-          .cov-label { font-size: 0.9rem; color: var(--color-text-muted); white-space: nowrap; }
+          .cov-controls { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.5rem 0 0.5rem; }
+          .cov-row { display: flex; align-items: center; gap: 0.5rem; }
+          .cov-label { font-size: 0.85rem; color: var(--color-text-muted); white-space: nowrap; }
           .cov-ticker { display: inline-flex; align-items: stretch; border: 1.5px solid var(--color-border); border-radius: 6px; overflow: hidden; transition: border-color 0.15s; }
           .cov-ticker:focus-within { border-color: var(--color-accent); }
-          .cov-btn { width: 32px; background: var(--color-bg-alt, #f0f0f0); border: none; cursor: pointer; font-size: 1.1rem; color: var(--color-text); transition: background 0.12s; }
+          .cov-btn { width: 28px; background: var(--color-bg-alt, #f0f0f0); border: none; cursor: pointer; font-size: 1rem; color: var(--color-text); transition: background 0.12s; }
           [data-theme="dark"] .cov-btn { background: #3a3a3c; }
           .cov-btn:hover { background: var(--color-accent); color: #fff; }
-          .cov-btn:disabled { opacity: 0.35; cursor: default; }
-          .cov-input { width: 60px; border: none; text-align: center; font-size: 1rem; background: transparent; color: var(--color-text); padding: 0.28rem 0; outline: none; -moz-appearance: textfield; }
+          .cov-input { width: 52px; border: none; text-align: center; font-size: 0.9rem; background: transparent; color: var(--color-text); padding: 0.2rem 0; outline: none; -moz-appearance: textfield; }
           .cov-input::-webkit-inner-spin-button, .cov-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-          .cov-unit { font-size: 0.9rem; color: var(--color-text-muted); }
-          .cov-select { padding: 0.28rem 0.6rem; border: 1.5px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-text); font-size: 0.88rem; cursor: pointer; outline: none; transition: border-color 0.15s; max-width: 280px; }
+          .cov-select { padding: 0.22rem 0.5rem; border: 1.5px solid var(--color-border); border-radius: 6px; background: transparent; color: var(--color-text); font-size: 0.85rem; cursor: pointer; outline: none; transition: border-color 0.15s; }
           .cov-select:focus { border-color: var(--color-accent); }
-          .cov-skew-row { display: flex; align-items: center; gap: 0.45rem; }
-          .cov-skew-btn { padding: 0.2rem 0.65rem; border: 1.5px solid var(--color-border); border-radius: 4px; background: transparent; color: var(--color-text); cursor: pointer; font-size: 0.85rem; transition: background 0.12s, border-color 0.12s; }
+          .cov-skew-row { display: flex; align-items: center; gap: 0.35rem; }
+          .cov-skew-btn { padding: 0.18rem 0.55rem; border: 1.5px solid var(--color-border); border-radius: 4px; background: transparent; color: var(--color-text); cursor: pointer; font-size: 0.82rem; transition: background 0.12s, border-color 0.12s; }
           .cov-skew-btn.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
-          .cov-divider { width: 100%; height: 0; border: none; border-top: 1px solid var(--color-border); margin: 0.35rem 0 0.75rem; }
-          .cov-chart-wrap { margin: 0.25rem 0 0.5rem; }
+          .cov-chart-wrap { margin: 0.25rem 0 0; }
           .cov-chart-wrap svg { width: 100%; height: auto; display: block; }
-          .cov-hint { font-size: 0.88rem; color: var(--color-text-muted); margin: 0.4rem 0 0; text-align: center; }
+          .cov-hint { font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0; line-height: 1.4; }
           .cov-hint strong { color: var(--color-text); }
-          @media (max-width: 560px) {
-            .cov-row { gap: 0.5rem 0.8rem; }
-            .cov-select { max-width: 100%; width: 100%; }
+          .sort-scale-layout { display: flex; gap: 1.5rem; align-items: flex-start; margin: 1rem 0; }
+          .sort-scale-text { flex: 1; min-width: 0; }
+          .sort-scale-text p { margin-top: 0; }
+          .sort-chip { flex: 1 1 0; min-width: 200px; border: 1.5px solid var(--color-border); border-radius: 10px; padding: 0.75rem 0.85rem 0.65rem; background: var(--color-sidebar); }
+          @media (max-width: 700px) {
+            .sort-scale-layout { flex-direction: column; }
+            .sort-chip { flex: unset; width: 100%; box-sizing: border-box; }
           }
         </style>
 
-        <div class="cov-card">
+        <div class="sort-scale-layout">
+        <div class="sort-scale-text">
+          <p>The number of wells to sort depends on your library size and the synthesis skew of your oligo pool. More skewed libraries require higher oversampling to ensure full coverage of rare variants.</p>
+          <p>Use the interactive chart to estimate how many plates to sort for 90% library coverage. Adjust the library size and pool type to match your experiment, then see the recommended plate count.</p>
+          <p>For exact numbers, see <a href="cli.html#estimate"><code>usortm estimate</code></a> in the CLI reference.</p>
+        </div>
+        <div class="sort-chip">
+        <div class="cov-controls">
           <div class="cov-row">
             <span class="cov-label">Library size:</span>
             <div class="cov-ticker">
@@ -374,22 +332,18 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
               <input type="number" id="covLibSize" class="cov-input" value="500" min="50" max="5000" step="50" />
               <button class="cov-btn" id="covPlus" aria-label="Increase">+</button>
             </div>
-            <span class="cov-unit">variants</span>
           </div>
           <div class="cov-row">
-            <span class="cov-label">Oligo pool product:</span>
+            <span class="cov-label">Pool:</span>
             <select id="covProduct" class="cov-select">
-              <option value="4" data-skew="4" selected>Twist Oligo Pools — skew 4×</option>
-              <option value="3" data-skew="3">Twist Cloned Oligo Pools — skew 3×</option>
-              <option value="5" data-skew="5">Twist Multiplexed Gene Fragments — skew 5×</option>
-              <option value="3b" data-skew="3">Twist Cloned MGF — skew 3×</option>
-              <option value="6" data-skew="6">Twist Gene Pools — skew 6×</option>
-              <option value="custom" data-skew="">Custom skew</option>
+              <option value="4" data-skew="4" selected>Twist Oligo Pools (4×)</option>
+              <option value="3" data-skew="3">Twist Cloned Oligo Pools (3×)</option>
+              <option value="5" data-skew="5">Twist MGF (5×)</option>
+              <option value="3b" data-skew="3">Twist Cloned MGF (3×)</option>
+              <option value="6" data-skew="6">Twist Gene Pools (6×)</option>
+              <option value="custom" data-skew="">Custom</option>
             </select>
-          </div>
-          <div class="cov-row" id="covCustomSkewRow" style="display:none;">
-            <span class="cov-label">Library skew:</span>
-            <div class="cov-skew-row" id="covSkewBtns">
+            <div class="cov-skew-row" id="covSkewBtns" style="display:none;">
               <button class="cov-skew-btn" data-skew="2">2×</button>
               <button class="cov-skew-btn active" data-skew="4">4×</button>
               <button class="cov-skew-btn" data-skew="5">5×</button>
@@ -397,10 +351,9 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
               <button class="cov-skew-btn" data-skew="8">8×</button>
             </div>
           </div>
-          <hr class="cov-divider" />
-          <div class="cov-chart-wrap" id="covChart"></div>
-          <p class="cov-hint" id="covHint"></p>
         </div>
+        <div class="cov-chart-wrap" id="covChart"></div>
+        <p class="cov-hint" id="covHint"></p>
 
         <script>
         (function () {
@@ -430,12 +383,11 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
           document.getElementById('covProduct').addEventListener('change', function(){
             var opt = this.options[this.selectedIndex];
             var skewVal = opt.getAttribute('data-skew');
-            var customRow = document.getElementById('covCustomSkewRow');
+            var skewBtns = document.getElementById('covSkewBtns');
             if (this.value === 'custom') {
-              customRow.style.display = '';
-              // curSkew stays as whatever the manual buttons have
+              skewBtns.style.display = '';
             } else {
-              customRow.style.display = 'none';
+              skewBtns.style.display = 'none';
               curSkew = parseInt(skewVal);
               render();
             }
@@ -459,21 +411,39 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
           }
           function nearestLib(n) { return LIB_SIZES[nearestIdx(n)]; }
 
+          var animMaxPlates = null, animRaf = null;
+
           function render() {
             if (!covData) return;
             var key = String(nearestLib(curLib));
             var skewKey = String(curSkew);
             var points = covData[key] && covData[key][skewKey];
             if (!points) return;
-            drawChart(points);
             updateHint(points);
+
+            var targetMax = Math.ceil(points[points.length - 1].fold * curLib / 384);
+            if (targetMax < 1) targetMax = 1;
+            if (animMaxPlates === null) { animMaxPlates = targetMax; drawChart(points, targetMax); return; }
+
+            if (animRaf) { cancelAnimationFrame(animRaf); animRaf = null; }
+            var startMax = animMaxPlates, startTime = null;
+            function step(ts) {
+              if (!startTime) startTime = ts;
+              var prog = Math.min((ts - startTime) / 320, 1);
+              var t = 1 - Math.pow(1 - prog, 3); // ease-out cubic
+              animMaxPlates = startMax + (targetMax - startMax) * t;
+              drawChart(points, animMaxPlates);
+              if (prog < 1) animRaf = requestAnimationFrame(step);
+              else { animMaxPlates = targetMax; animRaf = null; }
+            }
+            animRaf = requestAnimationFrame(step);
           }
 
-          function drawChart(points) {
-            var W = 440, H = 440, ML = 44, MR = 16, MT = 14, MB = 50;
+          function drawChart(points, maxPlates) {
+            var W = 352, H = 352, ML = 46, MR = 14, MT = 12, MB = 44;
             var cW = W - ML - MR, cH = H - MT - MB;
-            var maxFold = points[points.length - 1].fold;
-            function xS(f){ return ML + (f / maxFold) * cW; }
+
+            function xS(fold){ return ML + (fold * curLib / 384 / maxPlates) * cW; }
             function yS(v){ return MT + (1 - v) * cH; }
 
             var meanPath = '', areaTop = '', areaBtm = [];
@@ -490,22 +460,50 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
             var yTicks = [0, 0.25, 0.5, 0.75, 1.0];
             var yTicksSvg = yTicks.map(function(v){
               return '<line x1="' + ML + '" y1="' + yS(v).toFixed(1) + '" x2="' + (ML+cW) + '" y2="' + yS(v).toFixed(1) + '" stroke="var(--color-border)" stroke-dasharray="3,3"/>'
-                + '<text x="' + (ML-6) + '" y="' + (yS(v)+4).toFixed(1) + '" text-anchor="end" font-size="11" fill="var(--color-text-muted)">' + (v*100).toFixed(0) + '%</text>';
+                + '<text x="' + (ML-6) + '" y="' + (yS(v)+4).toFixed(1) + '" text-anchor="end" font-size="12" fill="var(--color-text-muted)">' + (v*100).toFixed(0) + '%</text>';
             }).join('');
 
-            var xTicks = [1,2,3,4,6,8,10,12].filter(function(f){ return f <= maxFold + 0.1; });
-            var xTicksSvg = xTicks.map(function(f){
-              return '<line x1="' + xS(f).toFixed(1) + '" y1="' + (MT+cH) + '" x2="' + xS(f).toFixed(1) + '" y2="' + (MT+cH+5) + '" stroke="var(--color-border)"/>'
-                + '<text x="' + xS(f).toFixed(1) + '" y="' + (MT+cH+17) + '" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">' + f + '×</text>';
+            // Pick sensible plate tick spacing based on rounded max (stable during animation)
+            var maxPlatesRnd = Math.ceil(maxPlates);
+            var step = maxPlatesRnd <= 5 ? 1 : maxPlatesRnd <= 20 ? 5 : maxPlatesRnd <= 60 ? 10 : maxPlatesRnd <= 150 ? 25 : 50;
+            var xTicks = [];
+            for (var p = step; p <= maxPlatesRnd; p += step) xTicks.push(p);
+            var xTicksSvg = xTicks.map(function(pl){
+              var xp = (ML + (pl / maxPlates) * cW).toFixed(1);
+              return '<line x1="' + xp + '" y1="' + (MT+cH) + '" x2="' + xp + '" y2="' + (MT+cH+5) + '" stroke="var(--color-border)"/>'
+                + '<text x="' + xp + '" y="' + (MT+cH+18) + '" text-anchor="middle" font-size="12" fill="var(--color-text-muted)">' + pl + '</text>';
             }).join('');
+
+            // Find intersection of mean curve with y=0.9
+            var intersectSvg = '';
+            for (var ii = 0; ii < points.length - 1; ii++) {
+              if (points[ii].mean < 0.9 && points[ii+1].mean >= 0.9) {
+                var tt = (0.9 - points[ii].mean) / (points[ii+1].mean - points[ii].mean);
+                var iFold = points[ii].fold + tt * (points[ii+1].fold - points[ii].fold);
+                var ix = xS(iFold).toFixed(1), iy = yS(0.9).toFixed(1);
+                var ixBase = yS(0).toFixed(1);
+                var iPlates = Math.ceil(iFold * curLib / 384);
+                var iLabel = iPlates + ' plate' + (iPlates === 1 ? '' : 's');
+                intersectSvg = '<line x1="' + ix + '" y1="' + iy + '" x2="' + ix + '" y2="' + ixBase + '" stroke="var(--color-accent)" stroke-width="1" stroke-dasharray="4,3" opacity="0.9"/>'
+                  + '<circle cx="' + ix + '" cy="' + iy + '" r="5" fill="var(--color-accent)" stroke="var(--color-sidebar)" stroke-width="2"/>'
+                  + (function(){
+                      var bw = iLabel.length * 8.5 + 20, bh = 24, br = 5;
+                      var bx = parseFloat(ix) - bw / 2, by = parseFloat(ixBase) - 46;
+                      return '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh + '" rx="' + br + '" fill="var(--color-sidebar)" stroke="var(--color-accent)" stroke-width="1.5"/>'
+                        + '<text x="' + ix + '" y="' + (by + bh - 6).toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="600" fill="var(--color-accent)">' + iLabel + '</text>';
+                    })();
+                break;
+              }
+            }
 
             var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">'
               + yTicksSvg + xTicksSvg
               + '<path d="' + areaPath + '" fill="var(--color-accent)" fill-opacity="0.13"/>'
               + '<path d="' + meanPath + '" fill="none" stroke="var(--color-accent)" stroke-width="2.5" stroke-linejoin="round"/>'
-              + '<line x1="' + ML + '" y1="' + y90 + '" x2="' + (ML+cW) + '" y2="' + y90 + '" stroke="var(--color-accent)" stroke-width="1" stroke-dasharray="5,3" opacity="0.65"/>'
-              + '<text x="' + (ML+cW-3) + '" y="' + (parseFloat(y90)-5) + '" text-anchor="end" font-size="10" fill="var(--color-accent)">90%</text>'
-              + '<text x="' + (ML + cW/2) + '" y="' + (H-4) + '" text-anchor="middle" font-size="11" fill="var(--color-text-muted)">Fold sampling (wells ÷ library size)</text>'
+              + '<line x1="' + ML + '" y1="' + y90 + '" x2="' + (ML+cW) + '" y2="' + y90 + '" stroke="var(--color-accent)" stroke-width="1" stroke-dasharray="5,3" opacity="0.9"/>'
+              + '<text x="' + (ML+cW-3) + '" y="' + (parseFloat(y90)-5) + '" text-anchor="end" font-size="12" fill="var(--color-accent)">90%</text>'
+              + intersectSvg
+              + '<text x="' + (ML + cW/2) + '" y="' + (H-4) + '" text-anchor="middle" font-size="12" fill="var(--color-text-muted)">Plates sorted (384-well)</text>'
               + '</svg>';
 
             document.getElementById('covChart').innerHTML = svg;
@@ -535,6 +533,8 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
           }
         })();
         </script>
+        </div><!-- /.sort-chip -->
+        </div><!-- /.sort-scale-layout -->
 
         <h2>Quality Control</h2>
 
@@ -551,14 +551,14 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
           </thead>
           <tbody>
             <tr>
-              <td>Low growth rate (&lt;50%)</td>
-              <td>Cells stressed during sort</td>
-              <td>Keep cells on ice, reduce sort time, use fresher culture</td>
+              <td>Low growth rate (&lt;67%)</td>
+              <td>Debris contamination (primary cause), cell stress</td>
+              <td>Optimize SSC-A gating threshold above the debris peak (~500 RFU); keep cells on ice; use fresher culture</td>
             </tr>
             <tr>
-              <td>Very high growth rate (&gt;90%)</td>
+              <td>Doublets or &gt;95% growth</td>
               <td>Multiple cells per well</td>
-              <td>Check single-cell gating, reduce cell concentration</td>
+              <td>Tighten FSC-H vs. FSC-A singlet gate, reduce cell concentration</td>
             </tr>
             <tr>
               <td>Clogged nozzle</td>
@@ -573,7 +573,7 @@ usortm estimate --library-size 500 --fold-sampling 8 --skew 10</code></pre>
             <tr>
               <td>Uneven growth across plate</td>
               <td>Edge effects, evaporation</td>
-              <td>Use breathable seals, humidified incubator, avoid outer wells</td>
+              <td>Use a humidified incubator, avoid outer wells</td>
             </tr>
           </tbody>
         </table>

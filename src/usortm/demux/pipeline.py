@@ -80,8 +80,12 @@ def _extract_reads_gzip_aware(
     input_fastq: str,
     output_fastq: str,
     num_reads: int,
-) -> None:
-    """Extract the first *num_reads* from a FASTQ file (plain or gzipped)."""
+) -> int:
+    """Extract the first *num_reads* from a FASTQ file (plain or gzipped).
+
+    Returns the number of reads actually written (may be less than
+    *num_reads* if the input file is shorter).
+    """
     open_fn = gzip.open if input_fastq.endswith(".gz") else open
     reads_written = 0
     with open_fn(input_fastq, "rt") as fh_in, open(output_fastq, "w") as fh_out:
@@ -91,6 +95,7 @@ def _extract_reads_gzip_aware(
                 break
             fh_out.writelines(lines)
             reads_written += 1
+    return reads_written
 
 
 def run_levseq_pipeline(
@@ -170,28 +175,26 @@ def run_levseq_pipeline(
     fbc_fasta = write_levseq_fbc_fasta(config_dir)
     rbc_fasta = write_levseq_rbc_fasta(config_dir, n_barcodes=n_rbc)
 
-    # --- Count input reads ---
-    _progress("Counting input reads...")
-    input_reads = _count_fastq_reads(str(fastq))
-    logger.info("Input FASTQ contains %d reads", input_reads)
-
     # Pipeline stats accumulator
-    pipeline_stats = {"input_reads": input_reads}
+    pipeline_stats = {}
 
     # --- Subsample if requested ---
-    if subsample is not None and subsample < input_reads:
+    if subsample is not None:
         _progress(f"Subsampling to {subsample:,} reads...")
         sub_path = output_dir / "subsampled.fastq"
-        _extract_reads_gzip_aware(str(fastq), str(sub_path), subsample)
+        n_extracted = _extract_reads_gzip_aware(str(fastq), str(sub_path), subsample)
         fastq = sub_path
-        logger.info("Subsampled %d reads to %s", subsample, sub_path)
-        pipeline_stats["input_reads"] = subsample
+        pipeline_stats["input_reads"] = n_extracted
+        logger.info("Subsampled %d reads to %s", n_extracted, sub_path)
 
-    # --- Read length histogram ---
+    # --- Read length histogram (also provides read count) ---
     _progress("Computing read length histogram...")
     read_len_hist = _compute_read_length_hist(str(fastq))
     if read_len_hist:
         pipeline_stats["read_len_hist"] = read_len_hist
+        if "input_reads" not in pipeline_stats:
+            pipeline_stats["input_reads"] = read_len_hist.get("n_reads", 0)
+    input_reads = pipeline_stats.get("input_reads", 0)
 
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
@@ -314,37 +317,40 @@ def run_levseq_pipeline(
 
     # --- Stage 9: Per-well consensus ---
     if reference is not None:
-        _progress("Generating per-well consensus sequences...")
         ref_dir = output_dir / "reference_fasta"
         if vector_fasta is not None:
             _prepare_full_length_ref_fastas(reference, ref_dir, flank_5p, flank_3p)
         else:
             _prepare_single_ref_fastas(reference, ref_dir)
-        # When using --orient-ref, all reads map to the orient ref.
-        # Ensure its sequence is available in single_ref_fastas/ so
-        # the per-well consensus step can find it.
+
         if orient_ref is not None:
-            _prepare_single_ref_fastas(orient_ref, ref_dir)
+            # --- Orient-ref / vector-fasta mode ---
+            # The orient_ref (N-spacer) is fine for read orientation, but
+            # consensus must be generated against real per-variant references.
+            #
+            # Flow:
+            #   1. Write per-well FASTQs
+            #   2. Assign variants by aligning reads to the library
+            #   3. Generate consensus against per-variant full-length refs
 
-        well_df = utils.generate_per_well_consensus(
-            well_df,
-            read_df,
-            str(output_dir),
-            str(ref_dir),
-            minimap2_path=tool_paths["minimap2"],
-            samtools_path=tool_paths["samtools"],
-            workers=workers,
-        )
+            _progress("Writing per-well FASTQs...")
+            utils.write_per_well_fastqs(read_df, str(output_dir))
 
-        # --- Stage 9.5: Reassign refs from consensus (orient-ref mode) ---
-        if orient_ref is not None:
-            _progress("Reassigning variants from consensus sequences...")
-            well_df = utils.reassign_refs_from_consensus(well_df, str(reference))
+            _progress("Assigning variants from read alignments...")
+            well_fastqs_dir = str(output_dir / "wells" / "fastqs")
+            well_df = utils.assign_variants_from_reads(
+                well_df, read_df, str(reference),
+                well_fastqs_dir=well_fastqs_dir,
+                minimap2_path=tool_paths["minimap2"],
+                workers=workers,
+            )
 
-            # --- Stage 9.6: Re-align consensus to assigned refs ---
-            _progress("Re-aligning consensus to assigned references...")
-            well_df = utils.realign_consensus_to_assigned_refs(
-                well_df, str(ref_dir),
+            _progress("Generating consensus against assigned references...")
+            well_df = utils.generate_per_well_consensus(
+                well_df,
+                read_df,
+                str(output_dir),
+                str(ref_dir),
                 minimap2_path=tool_paths["minimap2"],
                 samtools_path=tool_paths["samtools"],
                 workers=workers,
@@ -362,6 +368,18 @@ def run_levseq_pipeline(
                 )
                 if "ref_id" in read_df.columns:
                     read_df["ref_id"] = read_df["well_pos"].map(well_to_ref)
+        else:
+            # --- Standard multi-ref mode ---
+            _progress("Generating per-well consensus sequences...")
+            well_df = utils.generate_per_well_consensus(
+                well_df,
+                read_df,
+                str(output_dir),
+                str(ref_dir),
+                minimap2_path=tool_paths["minimap2"],
+                samtools_path=tool_paths["samtools"],
+                workers=workers,
+            )
 
         # --- Stage 10: Variant calling ---
         _progress("Calling variants from consensus...")
@@ -396,12 +414,16 @@ def run_levseq_pipeline(
         if candidates:
             streakout_dir.mkdir(exist_ok=True)
             save_streakout_results(candidates, str(streakout_dir))
+            _flank_5p_len = len(flank_5p) if flank_5p is not None else 0
+            _flank_3p_len = len(flank_3p) if flank_3p is not None else 0
             for cand in candidates:
                 generate_well_pileup_html(
                     cand["global_well"], read_df, str(ref_dir), cand,
                     str(streakout_dir / f"well_{cand['plate']}_{cand['well']}.html"),
                     minimap2_path=tool_paths["minimap2"],
                     samtools_path=tool_paths["samtools"],
+                    flank_5p_len=_flank_5p_len,
+                    flank_3p_len=_flank_3p_len,
                 )
 
         pipeline_stats["streakout"] = {
@@ -424,6 +446,10 @@ def run_levseq_pipeline(
         min_reads=min_reads,
         pipeline_stats=pipeline_stats,
     )
+
+    if flank_5p is not None:
+        results["flank_5p_len"] = len(flank_5p)
+        results["flank_3p_len"] = len(flank_3p)
 
     return results
 
@@ -483,7 +509,9 @@ def _build_orient_ref_from_flanks(
     """Build a single-entry orientation reference from vector flanking regions.
 
     Creates a FASTA with: flank_5p + N*variable_len + flank_3p
-    minimap2 ignores the N spacer and anchors on the conserved flanking regions.
+    minimap2 anchors on the conserved flanking regions for read orientation.
+    The N spacer is not used for consensus — that happens downstream against
+    per-variant references.
     """
     seq = flank_5p + ("N" * variable_len) + flank_3p
     output_path.parent.mkdir(parents=True, exist_ok=True)

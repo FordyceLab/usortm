@@ -1064,6 +1064,18 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         if sort_result2.returncode != 0:
             print(f"Consensus alignment failed for {well}: samtools sort error: {sort_result2.stderr.strip()}")
             return well, None, None
+
+        # Add MD tags (required by _check_flanking_regions)
+        calmd_bam = cons_bam + ".calmd.bam"
+        with open(calmd_bam, "wb") as _fh:
+            subprocess.run(
+                [samtools_path, "calmd", "-b", cons_bam, str(ref_fa)],
+                stdout=_fh,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+        os.replace(calmd_bam, cons_bam)
+
     except Exception as e:
         print(f"Consensus alignment failed for {well}: {e}")
         return well, None, None
@@ -1087,13 +1099,18 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
     return well, cigar_str, cons_seq
 
 
-def reassign_refs_from_consensus(well_df, ref_fasta):
+def reassign_refs_from_consensus(well_df, ref_fasta,
+                                  flank_5p_len=0, flank_3p_len=0):
     """Reassign major_ref per well by matching consensus to library references.
 
-    When ``--orient-ref`` is used, every well's ``major_ref`` points to the
-    orient reference.  This function compares each well's consensus sequence
-    against the full variant library and picks the best-matching reference,
-    restoring per-well variant identity.
+    When ``--orient-ref`` or ``--vector-fasta`` is used, every well's
+    ``major_ref`` points to the orient reference.  This function compares each
+    well's consensus sequence against the full variant library and picks the
+    best-matching reference, restoring per-well variant identity.
+
+    When *flank_5p_len* / *flank_3p_len* are provided, the flanking regions
+    are stripped from the consensus before comparison so that only the
+    variable region is matched against the library entries.
 
     Uses numpy for fast vectorized comparison (~800 refs x ~2500 wells).
 
@@ -1101,6 +1118,8 @@ def reassign_refs_from_consensus(well_df, ref_fasta):
         well_df: DataFrame from generate_well_df / generate_per_well_consensus
             with ``cons_seq`` column.
         ref_fasta: Path to the full multi-entry reference FASTA.
+        flank_5p_len: Length of the 5' flanking region to strip from consensus.
+        flank_3p_len: Length of the 3' flanking region to strip from consensus.
 
     Returns:
         Updated well_df with corrected ``major_ref``, ``ref_seq``, ``ref_len``.
@@ -1128,6 +1147,13 @@ def reassign_refs_from_consensus(well_df, ref_fasta):
             continue
 
         cons_upper = cons.upper()
+
+        # Strip flanking regions so we compare only the variable portion
+        # against the library entries (which are variable-only).
+        if flank_5p_len or flank_3p_len:
+            end = len(cons_upper) - flank_3p_len if flank_3p_len else len(cons_upper)
+            cons_upper = cons_upper[flank_5p_len:end]
+
         cons_arr = np.frombuffer(cons_upper.encode(), dtype=np.uint8)
 
         # Pad or truncate to match ref_matrix width
@@ -1154,8 +1180,157 @@ def reassign_refs_from_consensus(well_df, ref_fasta):
     return well_df
 
 
+def assign_variants_from_reads(
+    well_df, read_df, ref_fasta,
+    well_fastqs_dir=None,
+    minimap2_path=None, workers=4,
+    reads_per_well=5,
+):
+    """Assign library variants to wells by aligning a sample of reads.
+
+    Samples up to *reads_per_well* reads from each per-well FASTQ and
+    aligns them against the multi-variant library FASTA in a single
+    minimap2 call. Only a fraction of total reads are aligned, making
+    this much faster than aligning everything.
+
+    Args:
+        well_df: Per-well summary DataFrame with ``global_well`` column.
+        read_df: Per-read DataFrame with ``well_pos`` and ``read_name``.
+        ref_fasta: Path to the multi-entry library reference FASTA.
+        well_fastqs_dir: Directory containing per-well FASTQ files.
+        minimap2_path: Path to minimap2 binary. Auto-detected if None.
+        workers: Number of minimap2 threads.
+        reads_per_well: Max reads to sample from each well for assignment.
+
+    Returns:
+        Updated well_df with ``major_ref``, ``ref_seq``, ``ref_len`` columns.
+    """
+    import tempfile
+    import glob as _glob
+    from collections import Counter
+
+    if minimap2_path is None:
+        minimap2_path = find_minimap2()
+
+    # Load library references for metadata lookup
+    ref_records = list(SeqIO.parse(ref_fasta, "fasta"))
+    ref_lookup = {rec.id: str(rec.seq) for rec in ref_records}
+
+    # Build a sampled FASTQ: up to reads_per_well reads from each well
+    tmp_obj = tempfile.TemporaryDirectory()
+    fq_path = os.path.join(tmp_obj.name, "sampled_reads.fastq")
+    n_sampled = 0
+
+    if well_fastqs_dir and os.path.isdir(well_fastqs_dir):
+        well_fqs = sorted(_glob.glob(os.path.join(well_fastqs_dir, "*.fastq")))
+        with open(fq_path, "w") as out:
+            for wf in well_fqs:
+                count = 0
+                with open(wf) as inf:
+                    while count < reads_per_well:
+                        lines = [inf.readline() for _ in range(4)]
+                        if not lines[0]:
+                            break
+                        out.writelines(lines)
+                        count += 1
+                        n_sampled += 1
+    else:
+        # Fallback: sample from read_df
+        sampled = read_df.groupby("well_pos").head(reads_per_well)
+        n_sampled = len(sampled)
+        with open(fq_path, "w") as fq:
+            for _, row in sampled.iterrows():
+                fq.write(f"@{row['read_name']}\n{row['read_seq']}\n+\n{row['read_qual']}\n")
+
+    print(f"Aligning {n_sampled:,} sampled reads ({reads_per_well}/well) "
+          f"to {len(ref_records)} library variants ({workers} threads)...")
+
+    mm2_log = os.path.join(os.path.dirname(ref_fasta), "minimap2_variant_assign.log")
+    mm2_stderr_fh = open(mm2_log, "w")
+    mm2 = subprocess.Popen(
+        [minimap2_path, "-x", "map-ont", "--secondary=no",
+         "-t", str(workers), ref_fasta, fq_path],
+        stdout=subprocess.PIPE, stderr=mm2_stderr_fh,
+    )
+
+    # Parse PAF output
+    # PAF columns: qname, qlen, qstart, qend, strand, tname, ...
+    read_to_ref = {}
+    for raw_line in mm2.stdout:
+        parts = raw_line.decode("utf-8", errors="replace").split("\t", 7)
+        if len(parts) < 6:
+            continue
+        read_name = parts[0].split("|")[0]
+        read_to_ref[read_name] = parts[5]  # target name
+
+    mm2.wait()
+    mm2_stderr_fh.close()
+    if mm2.returncode != 0:
+        with open(mm2_log) as f:
+            logger.warning("minimap2 variant assignment failed (rc=%d): %s",
+                           mm2.returncode, f.read()[:500])
+    tmp_obj.cleanup()
+
+    # Build well_pos lookup from read_df
+    read_to_well = dict(zip(read_df["read_name"], read_df["well_pos"]))
+
+    # Count per-well variant assignments
+    well_counts: dict[str, Counter] = {}
+    for read_name, ref_name in read_to_ref.items():
+        well = read_to_well.get(read_name)
+        if well is None:
+            continue
+        if well not in well_counts:
+            well_counts[well] = Counter()
+        well_counts[well][ref_name] += 1
+
+    # Assign majority variant to each well
+    n_assigned = 0
+    for well, counts in well_counts.items():
+        best_ref, best_count = counts.most_common(1)[0]
+        mask = well_df["global_well"] == well
+        if not mask.any():
+            continue
+        ref_seq = ref_lookup.get(best_ref, "")
+        well_df.loc[mask, "major_ref"] = best_ref
+        well_df.loc[mask, "ref_seq"] = ref_seq
+        well_df.loc[mask, "ref_len"] = len(ref_seq)
+        total = sum(counts.values())
+        well_df.loc[mask, "major_freq"] = best_count / total if total else 0
+        n_assigned += 1
+
+    print(f"  Assigned variants to {n_assigned:,} / {len(well_df):,} wells")
+    return well_df
+
+
+def write_per_well_fastqs(read_df, out_root):
+    """Write per-well FASTQ files from the read DataFrame.
+
+    Args:
+        read_df: Per-read DataFrame with well_pos, read_name, read_seq, read_qual.
+        out_root: Root output directory. FASTQs go to ``out_root/wells/fastqs/``.
+    """
+    wells_dir = os.path.join(out_root, "wells")
+    well_fastqs_dir = os.path.join(wells_dir, "fastqs")
+    os.makedirs(well_fastqs_dir, exist_ok=True)
+
+    all_wells = read_df["well_pos"].unique()
+    print("Writing per-well fastqs...")
+    for well in tqdm(all_wells):
+        current = read_df[read_df["well_pos"] == well]
+        out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
+        with open(out_path, "w") as f:
+            for _, row in current.iterrows():
+                f.write(
+                    f"@{row['read_name']}\n"
+                    f"{row['read_seq']}\n+\n"
+                    f"{row['read_qual']}\n"
+                )
+
+
 def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
-                               minimap2_path, samtools_path):
+                               minimap2_path, samtools_path,
+                               consensus_dir=None):
     """Align a single consensus sequence against a reference and return CIGAR.
 
     Args:
@@ -1189,6 +1364,18 @@ def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
             check=True,
         )
         mm2.wait()
+
+        # Add MD tags so get_aligned_pairs(with_seq=True) works in flank checking
+        calmd_bam = cons_bam + ".calmd.bam"
+        with open(calmd_bam, "wb") as _fh:
+            subprocess.run(
+                [samtools_path, "calmd", "-b", cons_bam, str(ref_fa)],
+                stdout=_fh,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+        os.replace(calmd_bam, cons_bam)
+
     except Exception as e:
         print(f"Re-alignment failed for {well}: {e}")
         return well, None
@@ -1203,12 +1390,20 @@ def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
     except Exception as e:
         print(f"CIGAR extraction failed for {well}: {e}")
 
+    # Overwrite the old orient-ref BAM so _check_flanking_regions
+    # reads the correct per-variant alignment
+    if consensus_dir is not None and cigar_str is not None:
+        import shutil
+        dest = os.path.join(consensus_dir, f"{well}_consensus_align.bam")
+        shutil.copy2(cons_bam, dest)
+
     return well, cigar_str
 
 
 def realign_consensus_to_assigned_refs(
     well_df, reference_dir,
     minimap2_path=None, samtools_path=None, workers=4,
+    consensus_dir=None,
 ):
     """Re-align consensus sequences against their newly assigned references.
 
@@ -1284,7 +1479,7 @@ def realign_consensus_to_assigned_refs(
         futures = {
             pool.submit(
                 _realign_single_consensus, well, cons, ref_fa, ref_mmi,
-                tmp_dir, minimap2_path, samtools_path,
+                tmp_dir, minimap2_path, samtools_path, consensus_dir,
             ): well
             for well, cons, ref_fa, ref_mmi in tasks
         }
@@ -1342,21 +1537,23 @@ def generate_per_well_consensus(
     os.makedirs(wells_dir, exist_ok=True)
     os.makedirs(well_fastqs_dir, exist_ok=True)
 
-    # 1) Write per-well FASTQs (sequential — fast I/O, sets up paths for parallel step)
+    # 1) Write per-well FASTQs if they don't exist yet
     all_wells = read_df['well_pos'].unique()
 
-    print("Writing per-well fastqs...")
-    for well in tqdm(all_wells):
-        current_per_well_df = read_df[read_df["well_pos"] == well]
-        out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
+    sample_fq = os.path.join(well_fastqs_dir, f"{all_wells[0]}.fastq")
+    if not os.path.exists(sample_fq):
+        print("Writing per-well fastqs...")
+        for well in tqdm(all_wells):
+            current_per_well_df = read_df[read_df["well_pos"] == well]
+            out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
 
-        with open(out_path, "w") as f:
-            for _, row in current_per_well_df.iterrows():
-                f.write(
-                    f"@{row['read_name']}\n"
-                    f"{row['read_seq']}\n+\n"
-                    f"{row['read_qual']}\n"
-                )
+            with open(out_path, "w") as f:
+                for _, row in current_per_well_df.iterrows():
+                    f.write(
+                        f"@{row['read_name']}\n"
+                        f"{row['read_seq']}\n+\n"
+                        f"{row['read_qual']}\n"
+                    )
 
     # Set up consensus output
     single_fasta_reference_dir = os.path.join(reference_dir, "single_ref_fastas")
@@ -1404,6 +1601,7 @@ def generate_per_well_consensus(
 
     # Pre-compute paths for all wells that have summary data
     well_paths = {}
+    n_skipped = 0
     for well in all_wells:
         if well not in well_set:
             continue
@@ -1411,6 +1609,9 @@ def generate_per_well_consensus(
         if ":" in major_ref:
             major_ref = major_ref.split(":")[-1]
         ref_fa = os.path.join(single_fasta_reference_dir, f"{major_ref}.fasta")
+        if not os.path.exists(ref_fa):
+            n_skipped += 1
+            continue
         mmi = ref_mmi_map.get(major_ref, ref_fa)
         well_paths[well] = {
             "ref_fa": ref_fa,
@@ -1420,6 +1621,9 @@ def generate_per_well_consensus(
             "cons_fa": os.path.join(well_consensus_dir, f"{well}_consensus.fasta"),
             "cons_bam": os.path.join(well_consensus_dir, f"{well}_consensus_align.bam"),
         }
+
+    if n_skipped:
+        logger.info("Skipped %d wells with no matching reference FASTA", n_skipped)
 
     # 2) Parallel consensus alignment
     print(f"Generating consensus alignments ({workers} workers)...")
@@ -1446,31 +1650,31 @@ def parse_vector_fasta(vector_fasta_path: str) -> tuple:
     """Parse a vector FASTA to extract 5' and 3' flanking sequences.
 
     The vector FASTA should contain a single entry where the variable region
-    is replaced with X characters (case-insensitive).
+    is replaced with X or N characters (case-insensitive).
 
     Args:
         vector_fasta_path: Path to vector FASTA file.
 
     Returns:
-        Tuple of (flank_5p, flank_3p) sequences flanking the X region.
+        Tuple of (flank_5p, flank_3p) sequences flanking the X/N region.
 
     Raises:
-        ValueError: If zero or multiple X regions are found, or if the
+        ValueError: If zero or multiple variable regions are found, or if the
             FASTA does not contain exactly one entry.
     """
     record = SeqIO.read(vector_fasta_path, "fasta")
     seq = str(record.seq)
 
-    x_regions = list(re.finditer(r"[Xx]+", seq))
+    x_regions = list(re.finditer(r"[XxNn]+", seq))
     if len(x_regions) == 0:
         raise ValueError(
-            f"No variable region (X characters) found in vector FASTA: "
+            f"No variable region (X or N characters) found in vector FASTA: "
             f"{vector_fasta_path}"
         )
     if len(x_regions) > 1:
         raise ValueError(
-            f"Multiple X regions found in vector FASTA ({len(x_regions)} "
-            f"regions). Expected exactly one contiguous run of X characters."
+            f"Multiple variable regions found in vector FASTA ({len(x_regions)} "
+            f"regions). Expected exactly one contiguous run of X or N characters."
         )
 
     match = x_regions[0]
@@ -1573,8 +1777,8 @@ def _check_flanking_regions(
         return result
 
     try:
-        with pysam.AlignmentFile(cons_bam, "rb") as bam:
-            reads = list(bam.fetch())
+        with pysam.AlignmentFile(cons_bam, "rb", check_sq=False) as bam:
+            reads = list(bam.fetch(until_eof=True))
             if not reads:
                 return result
             read = reads[0]
@@ -1585,7 +1789,11 @@ def _check_flanking_regions(
         return result
 
     # Get aligned pairs: list of (query_pos, ref_pos, ref_base)
-    pairs = read.get_aligned_pairs(with_seq=True)
+    # Requires MD tag (added by samtools calmd in _realign_single_consensus)
+    try:
+        pairs = read.get_aligned_pairs(with_seq=True)
+    except ValueError:
+        return result
 
     if variable_len is None or pd.isna(variable_len):
         return result

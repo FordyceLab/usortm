@@ -1619,6 +1619,19 @@ def generate_pick_pileups(
     if samtools_path is None:
         samtools_path = find_samtools()
 
+    # Load flank lengths from demux summary (present when --vector-fasta was used)
+    flank_5p_len = 0
+    flank_3p_len = 0
+    summary_path = os.path.join(demux_output_dir, "demux_summary.json")
+    if os.path.exists(summary_path):
+        try:
+            with open(summary_path) as _sf:
+                _summary = json.load(_sf)
+            flank_5p_len = int(_summary.get("flank_5p_len", 0))
+            flank_3p_len = int(_summary.get("flank_3p_len", 0))
+        except Exception:
+            pass
+
     # Load per-read sequences from demux output
     read_df_path = os.path.join(demux_output_dir, "read_df.csv")
     if not os.path.exists(read_df_path):
@@ -1711,6 +1724,8 @@ def generate_pick_pileups(
             minimap2_path=minimap2_path,
             samtools_path=samtools_path,
             ref_index=variant_mmi.get(task["variant"]),
+            flank_5p_len=flank_5p_len,
+            flank_3p_len=flank_3p_len,
         )
         return result, task
 

@@ -269,18 +269,16 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         fill_color="#2563eb", fill_alpha=1.0, line_color=None
     )
     fig.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
-    fig.add_tools(TapTool(renderers=[well_renderer]))
-    src.selected.js_on_change("indices", CustomJS(args=dict(src=src), code="""
+    fig.add_tools(TapTool(renderers=[well_renderer], callback=CustomJS(args=dict(src=src), code="""
         const indices = src.selected.indices;
         if (indices.length > 0) {
             const url = src.data['streakout_url'][indices[0]];
             if (url && url.length > 0) {
                 window.open(url, '_blank');
             }
+            src.selected.indices = [];
         }
-        // Always clear so wells don't stay highlighted
-        src.selected.indices = [];
-    """))
+    """)))
     fig.xaxis.ticker = list(range(1, 25))
     fig.grid.grid_line_color = None
 
@@ -555,17 +553,16 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         nonselection_fill_alpha=1.0, nonselection_line_alpha=1.0,
     )
     fig_obj.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
-    fig_obj.add_tools(TapTool(renderers=[well_renderer]))
-    src.selected.js_on_change("indices", CustomJS(args=dict(src=src), code="""
+    fig_obj.add_tools(TapTool(renderers=[well_renderer], callback=CustomJS(args=dict(src=src), code="""
         const indices = src.selected.indices;
         if (indices.length > 0) {
             const url = src.data['pileup_url'][indices[0]];
             if (url && url.length > 0) {
                 window.open(url, '_blank');
             }
+            src.selected.indices = [];
         }
-        src.selected.indices = [];
-    """))
+    """)))
     fig_obj.xaxis.ticker = list(range(1, n_cols + 1))
     fig_obj.grid.grid_line_color = None
 
