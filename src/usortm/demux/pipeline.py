@@ -468,7 +468,9 @@ def run_levseq_pipeline(
             save_streakout_results(candidates, str(streakout_dir))
             _flank_5p_len = len(flank_5p) if flank_5p is not None else 0
             _flank_3p_len = len(flank_3p) if flank_3p is not None else 0
+            well_bam_dir = output_dir / "wells" / "consensus"
             for cand in candidates:
+                _bam = str(well_bam_dir / f"{cand['global_well']}.bam")
                 generate_well_pileup_html(
                     cand["global_well"], read_df, str(ref_dir), cand,
                     str(streakout_dir / f"well_{cand['plate']}_{cand['well']}.html"),
@@ -476,6 +478,7 @@ def run_levseq_pipeline(
                     samtools_path=tool_paths["samtools"],
                     flank_5p_len=_flank_5p_len,
                     flank_3p_len=_flank_3p_len,
+                    bam_path=_bam,
                 )
 
         pipeline_stats["streakout"] = {

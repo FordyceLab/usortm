@@ -113,6 +113,18 @@ def _is_correct(status: str) -> bool:
     return status in ("Perfect Match", "Silent Mutation")
 
 
+def _cigar_is_clean(cigar_str: Optional[str]) -> bool:
+    """Return True if CIGAR has no mismatches, insertions, or deletions.
+
+    With --eqx alignment, '=' means exact base match and 'X' means mismatch.
+    A recoverable group must have only '=' operations (plus soft clips 'S').
+    """
+    if not cigar_str:
+        return False
+    import re as _re
+    return not _re.search(r"[XIDHN]", cigar_str)
+
+
 # ---------------------------------------------------------------------------
 # Per-group consensus (reuses _process_single_well pattern)
 # ---------------------------------------------------------------------------
@@ -369,8 +381,8 @@ def detect_streakout_candidates_orient_ref(
     reference_dir: str,
     reference_fasta: str,
     output_dir: str,
-    minimap2_path: str,
-    samtools_path: str,
+    minimap2_path: str = None,
+    samtools_path: str = None,
     min_well_reads: int = 20,
     min_group_reads: int = 5,
     workers: int = 4,
@@ -390,20 +402,24 @@ def detect_streakout_candidates_orient_ref(
 
     No index on the per-well BAMs is required.
     """
+    if minimap2_path is None:
+        minimap2_path = find_minimap2()
+    if samtools_path is None:
+        samtools_path = find_samtools()
+
     ref_records = list(SeqIO.parse(reference_fasta, "fasta"))
     if not ref_records:
         return []
 
-    ref_ids = [r.id for r in ref_records]
-    ref_seqs_str = [str(r.seq).upper() for r in ref_records]
-    max_ref_len = max(len(s) for s in ref_seqs_str)
-    ref_matrix = np.zeros((len(ref_ids), max_ref_len), dtype=np.uint8)
-    for i, seq in enumerate(ref_seqs_str):
-        arr = np.frombuffer(seq.encode(), dtype=np.uint8)
-        ref_matrix[i, : len(arr)] = arr
-
     single_ref_dir = os.path.join(reference_dir, "single_ref_fastas")
     well_bam_dir = os.path.join(output_dir, "wells", "consensus")
+
+    # Use the pre-built full-length combined FASTA for variant assignment
+    # (flank_5p + insert + flank_3p per variant).  This is the same reference
+    # used by assign_variants_from_reads and lives in output_dir.  If it is
+    # absent, fall back to the insert-only library_reference FASTA.
+    full_length_combined = os.path.join(output_dir, "full_length_refs.fasta")
+    align_fasta = full_length_combined if os.path.exists(full_length_combined) else reference_fasta
 
     candidate_wells = well_df[well_df["depth"] >= min_well_reads]
     if candidate_wells.empty:
@@ -453,15 +469,49 @@ def detect_streakout_candidates_orient_ref(
                         fh.write(
                             f"@{r['read_name']}\n{r['read_seq']}\n+\n{r['read_qual']}\n"
                         )
-                _cigar, cons_seq = _group_consensus(
-                    fq_path, orient_fa, tmp, minimap2_path, samtools_path,
-                )
 
-            ref_id, ref_seq, ref_len, status = _assign_and_classify_group(
-                cons_seq, ref_ids, ref_seqs_str, ref_matrix,
-            )
-            if ref_id is None:
-                continue
+                # Assign variant by aligning reads directly to the full-length
+                # library (majority vote over PAF hits).  This is the same
+                # strategy as assign_variants_from_reads and is far more
+                # reliable than aligning to the orient reference then comparing
+                # the consensus — the orient-ref insert differs from the reads'
+                # actual insert, producing a noisy consensus that gets matched
+                # to the wrong library variant.
+                from collections import Counter as _Counter
+                ref_counts: _Counter = _Counter()
+                try:
+                    mm2 = subprocess.Popen(
+                        [minimap2_path, "-x", "map-ont", "--secondary=no",
+                         align_fasta, fq_path],
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    )
+                    for raw in mm2.stdout:
+                        parts = raw.decode("utf-8", errors="replace").split("\t", 7)
+                        if len(parts) >= 6:
+                            ref_counts[parts[5]] += 1
+                    mm2.wait()
+                except Exception:
+                    pass
+
+                if not ref_counts:
+                    continue
+                ref_id = ref_counts.most_common(1)[0][0]
+
+                # Compute consensus against the assigned variant for status check
+                variant_fa = os.path.join(single_ref_dir, f"{ref_id}.fasta")
+                _cigar, status = None, "Error"
+                if os.path.exists(variant_fa):
+                    tmp2 = os.path.join(tmp, "consensus")
+                    os.makedirs(tmp2)
+                    _cigar, cons_seq = _group_consensus(
+                        fq_path, variant_fa, tmp2, minimap2_path, samtools_path,
+                    )
+                    if _cigar is not None:
+                        ref_record = next(SeqIO.parse(variant_fa, "fasta"))
+                        ref_seq_actual = str(ref_record.seq)
+                        status = _classify_cigar(
+                            _cigar, len(ref_seq_actual), ref_seq_actual, cons_seq,
+                        )
 
             frac = len(group_df) / depth
             group_results.append({
@@ -469,26 +519,29 @@ def detect_streakout_candidates_orient_ref(
                 "reads": len(group_df),
                 "frac": round(frac, 4),
                 "status": status,
+                "cigar": _cigar,
                 "is_major": (ref_id == orient_ref_name),
+                "read_names": list(group_df["read_name"]),
             })
 
         # A well with bimodal reads IS a multiple-colony well regardless of
         # whether each sub-consensus is clean.  We only require 2+ groups to
-        # have been produced from the split; recoverable_variants is limited
-        # to groups whose consensus is correct (Perfect Match / Silent Mutation).
+        # have been produced from the split.  Only groups with a clean consensus
+        # (Perfect Match / Silent Mutation) are listed as recoverable — mutated
+        # sub-sequences are not worth streaking out to recover.
         if len(group_results) < 2:
             return None
 
-        correct_groups = [g for g in group_results if _is_correct(g["status"])]
-        recoverable = [g["variant"] for g in correct_groups if not g["is_major"]]
         top_frac = max((g["frac"] for g in group_results), default=1.0)
+        groups_sorted = sorted(group_results, key=lambda g: -g["frac"])
+        recoverable = [g["variant"] for g in groups_sorted if _cigar_is_clean(g.get("cigar"))]
         return {
             "plate": plate,
             "well": well,
             "global_well": wp,
             "total_reads": depth,
             "top_frac": round(top_frac, 4),
-            "groups": sorted(group_results, key=lambda g: -g["frac"]),
+            "groups": groups_sorted,
             "recoverable_variants": recoverable,
         }
 
@@ -570,20 +623,19 @@ def _process_well_for_streakout(
             "reads": n_reads,
             "frac": round(frac, 4),
             "status": status,
+            "cigar": cigar,
             "is_major": (frac >= top_frac - 0.01),
         })
 
     # A well with 2+ read groups is a multiple-colony well regardless of
-    # whether each sub-consensus is clean.  recoverable_variants is limited
-    # to groups whose consensus is correct (Perfect Match / Silent Mutation).
+    # whether each sub-consensus is clean.  Only groups with a clean consensus
+    # (Perfect Match / Silent Mutation) are listed as recoverable — mutated
+    # sub-sequences are not worth streaking out to recover.
     if len(group_results) < 2:
         return None
 
-    correct_groups = [g for g in group_results if _is_correct(g["status"])]
-    # Identify recoverable (minority) variants
-    recoverable = [
-        g["variant"] for g in correct_groups if not g["is_major"]
-    ]
+    groups_sorted = sorted(group_results, key=lambda g: -g["frac"])
+    recoverable = [g["variant"] for g in groups_sorted if _cigar_is_clean(g.get("cigar"))]
 
     return {
         "plate": plate,
@@ -591,7 +643,7 @@ def _process_well_for_streakout(
         "global_well": well_pos,
         "total_reads": depth,
         "top_frac": round(top_frac, 4),
-        "groups": sorted(group_results, key=lambda g: -g["frac"]),
+        "groups": groups_sorted,
         "recoverable_variants": recoverable,
     }
 
@@ -714,9 +766,19 @@ def save_streakout_results(candidates: list[dict], output_dir: str) -> dict:
         writer = csv.writer(f)
         writer.writerow([
             "plate", "well", "total_reads", "top_frac",
-            "n_groups", "recoverable_variants",
+            "n_groups", "recoverable_variants", "groups_json",
         ])
         for c in candidates:
+            recoverable_set = set(c["recoverable_variants"])
+            groups_info = [
+                {
+                    "variant": g["variant"],
+                    "reads": g["reads"],
+                    "frac": g["frac"],
+                    "is_recoverable": g["variant"] in recoverable_set,
+                }
+                for g in c["groups"]
+            ]
             writer.writerow([
                 c["plate"],
                 c["well"],
@@ -724,6 +786,7 @@ def save_streakout_results(candidates: list[dict], output_dir: str) -> dict:
                 c["top_frac"],
                 len(c["groups"]),
                 ";".join(c["recoverable_variants"]),
+                json.dumps(groups_info),
             ])
 
     return {
@@ -739,6 +802,57 @@ def save_streakout_results(candidates: list[dict], output_dir: str) -> dict:
 # Per-well pileup HTML
 # ---------------------------------------------------------------------------
 
+def _build_pileup_from_bam(
+    bam_path: str,
+    read_names: set,
+    ref_seq: str,
+    ref_len: int,
+    min_overlap_pos: int = -1,
+) -> list:
+    """Extract pileup rows for a subset of reads from an existing BAM.
+
+    The reads are already aligned in the BAM so no re-alignment is needed.
+    Only reads whose names are in *read_names* are included.
+
+    Returns the same row format as :func:`_build_pileup_grid`.
+    """
+    if min_overlap_pos < 0:
+        min_overlap_pos = ref_len // 2
+    rows = []
+    try:
+        with pysam.AlignmentFile(bam_path, "rb", check_sq=False) as bf:
+            for read in bf.fetch(until_eof=True):
+                if read.query_name not in read_names:
+                    continue
+                if read.is_unmapped or read.is_secondary or read.is_supplementary:
+                    continue
+                if min_overlap_pos and (
+                    read.reference_end is None
+                    or read.reference_start is None
+                    or read.reference_end <= min_overlap_pos
+                    or read.reference_start >= min_overlap_pos
+                ):
+                    continue
+                row = [("-", True)] * ref_len
+                # Use get_aligned_pairs() without with_seq=True to avoid
+                # requiring the MD tag, then look up the reference base from
+                # ref_seq directly.
+                pairs = read.get_aligned_pairs()
+                for qpos, rpos in pairs:
+                    if rpos is None or rpos >= ref_len:
+                        continue
+                    if qpos is None:
+                        row[rpos] = ("-", True)
+                    else:
+                        qbase = read.query_sequence[qpos]
+                        is_match = qbase.upper() == ref_seq[rpos].upper()
+                        row[rpos] = (qbase, is_match)
+                rows.append(row)
+    except Exception as exc:
+        logger.warning("BAM pileup extraction failed: %s", exc)
+    return rows
+
+
 def generate_well_pileup_html(
     well_pos: str,
     read_df: pd.DataFrame,
@@ -749,12 +863,16 @@ def generate_well_pileup_html(
     samtools_path: str = None,
     flank_5p_len: int = 0,
     flank_3p_len: int = 0,
+    bam_path: str = None,
 ) -> None:
     """Generate an interactive pileup HTML for one streak-out candidate well.
 
-    Aligns reads from each reference group to their respective reference,
-    builds a character grid showing match/mismatch coloring, and writes
-    a self-contained HTML file.
+    For orient-ref mode (groups have ``read_names``), reads are extracted
+    directly from *bam_path* so they display against the reference they were
+    actually aligned to — avoiding the mis-alignment caused by re-aligning
+    against a different variant's insert sequence.
+
+    For standard mode, reads are re-aligned to their respective references.
 
     Args:
         well_pos: Global well identifier (e.g. "1A3").
@@ -764,6 +882,8 @@ def generate_well_pileup_html(
         output_path: Path to write the HTML file.
         minimap2_path: Path to minimap2. Auto-detected if None.
         samtools_path: Path to samtools. Auto-detected if None.
+        bam_path: Per-well BAM (orient-ref mode only). When provided the
+            reads are extracted from this BAM instead of being re-aligned.
     """
     if minimap2_path is None:
         minimap2_path = find_minimap2()
@@ -778,45 +898,91 @@ def generate_well_pileup_html(
         r'^(fwd|rev):', '', regex=True,
     )
 
-    # Build group info lookup from candidate_info
-    group_lookup = {g["variant"]: g for g in candidate_info["groups"]}
+    recoverable_set = set(candidate_info.get("recoverable_variants", []))
 
-    group_sections = []
-    for ref_id, grp in well_reads.groupby("_ref"):
+    def _make_section(ginfo: dict, grp: pd.DataFrame) -> Optional[dict]:
+        """Build one pileup section dict for a group (standard mode)."""
+        ref_id = ginfo["variant"]
         ref_fasta = os.path.join(single_ref_dir, f"{ref_id}.fasta")
         if not os.path.exists(ref_fasta):
-            continue
-
+            return None
         ref_record = next(SeqIO.parse(ref_fasta, "fasta"))
         ref_seq = str(ref_record.seq)
         ref_len = len(ref_seq)
 
-        ginfo = group_lookup.get(ref_id, {})
-        n_reads = len(grp)
-        frac = ginfo.get("frac", n_reads / candidate_info["total_reads"])
-        status = ginfo.get("status", "")
-        is_recoverable = ref_id in candidate_info["recoverable_variants"]
+        frac = ginfo.get("frac", len(grp) / max(candidate_info["total_reads"], 1))
+        is_recoverable = ref_id in recoverable_set
+        status = "Clean" if _cigar_is_clean(ginfo.get("cigar")) else "Mutation"
 
-        # Align to reference and parse BAM for pileup
-        # Reads that don't reach ref_len//2 (concatemer split-reads) are
-        # automatically excluded by _build_pileup_grid's default filter.
         pileup_rows = _build_pileup_grid(
             grp, ref_fasta, ref_seq, ref_len,
             minimap2_path, samtools_path,
         )
-        n_reads = len(pileup_rows)  # count only reads that reach the variable region
-
-        group_sections.append({
+        return {
             "ref_id": ref_id,
-            "n_reads": n_reads,
+            "n_reads": len(pileup_rows),
             "frac": frac,
             "status": status,
             "is_recoverable": is_recoverable,
             "ref_seq": ref_seq,
             "pileup_rows": pileup_rows,
-        })
+        }
 
-    # Sort: major group first
+    group_sections = []
+
+    # Orient-ref mode: groups carry read_names from the haplotype split.
+    # Re-align each group's reads to its own assigned variant FASTA so the
+    # pileup reflects the correct reference (E2F1 reads vs E2F1 reference,
+    # POU5F1 reads vs POU5F1 reference) instead of the BAM orient reference.
+    if bam_path and os.path.exists(bam_path) and any(
+        "read_names" in g for g in candidate_info["groups"]
+    ):
+        for ginfo in candidate_info["groups"]:
+            read_names = set(ginfo.get("read_names", []))
+            frac = ginfo.get("frac", len(read_names) / max(candidate_info["total_reads"], 1))
+            is_recoverable = ginfo["variant"] in recoverable_set
+            status = "Clean" if _cigar_is_clean(ginfo.get("cigar")) else "Mutation"
+
+            variant_fasta = os.path.join(single_ref_dir, f"{ginfo['variant']}.fasta")
+            if os.path.exists(variant_fasta) and minimap2_path and samtools_path:
+                pileup_rows = _build_pileup_from_bam_realign(
+                    bam_path, read_names, variant_fasta,
+                    minimap2_path, samtools_path,
+                )
+                ref_seq = str(next(SeqIO.parse(variant_fasta, "fasta")).seq)
+            else:
+                pileup_rows = []
+                ref_seq = ""
+
+            group_sections.append({
+                "ref_id": ginfo["variant"],
+                "n_reads": len(pileup_rows),
+                "frac": frac,
+                "status": status,
+                "is_recoverable": is_recoverable,
+                "ref_seq": ref_seq,
+                "pileup_rows": pileup_rows,
+            })
+    elif any("read_names" in g for g in candidate_info["groups"]):
+        # Orient-ref mode but no BAM — fall back to re-alignment
+        for ginfo in candidate_info["groups"]:
+            read_names = set(ginfo.get("read_names", []))
+            grp = well_reads[well_reads["read_name"].isin(read_names)]
+            if grp.empty:
+                continue
+            section = _make_section(ginfo, grp)
+            if section is not None:
+                group_sections.append(section)
+    else:
+        # Regular mode: reads assigned to different references — group by ref_name.
+        group_lookup = {g["variant"]: g for g in candidate_info["groups"]}
+        for ref_id, grp in well_reads.groupby("_ref"):
+            ginfo = group_lookup.get(ref_id, {"variant": ref_id, "frac": len(grp) / max(candidate_info["total_reads"], 1)})
+            section = _make_section(ginfo, grp)
+            if section is not None:
+                group_sections.append(section)
+
+    # Sort: major group (highest read fraction) first
     group_sections.sort(key=lambda s: -s["frac"])
 
     flank_lengths = None
@@ -827,6 +993,109 @@ def generate_well_pileup_html(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
         f.write(html)
+
+
+def _build_pileup_from_bam_realign(
+    bam_path: str,
+    read_names: set,
+    target_fasta: str,
+    minimap2_path: str,
+    samtools_path: str,
+    min_overlap_pos: int = -1,
+) -> list:
+    """Extract reads from *bam_path* and re-align them to *target_fasta*.
+
+    Each group in orient-ref mode is aligned to its own assigned variant FASTA
+    so the pileup reflects the correct reference (no systematic mismatches in
+    the insert region when the BAM reference and the assigned variant differ).
+
+    Returns the same row format as :func:`_build_pileup_grid`.
+    """
+    ref_record = next(SeqIO.parse(target_fasta, "fasta"), None)
+    if ref_record is None:
+        return []
+    ref_seq = str(ref_record.seq)
+    ref_len = len(ref_seq)
+
+    if min_overlap_pos < 0:
+        min_overlap_pos = ref_len // 2
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fq_path = os.path.join(tmp, "reads.fastq")
+        out_bam = os.path.join(tmp, "aligned.bam")
+
+        # Extract reads from source BAM → FASTQ
+        n_written = 0
+        try:
+            with pysam.AlignmentFile(bam_path, "rb", check_sq=False) as bf, \
+                 open(fq_path, "w") as fq:
+                for read in bf.fetch(until_eof=True):
+                    if read.query_name not in read_names:
+                        continue
+                    if read.is_unmapped or read.is_secondary or read.is_supplementary:
+                        continue
+                    seq = read.query_sequence or ""
+                    if not seq:
+                        continue
+                    qual = "".join(chr(q + 33) for q in read.query_qualities) if read.query_qualities is not None else "I" * len(seq)
+                    fq.write(f"@{read.query_name}\n{seq}\n+\n{qual}\n")
+                    n_written += 1
+        except Exception as exc:
+            logger.warning("BAM read extraction failed: %s", exc)
+            return []
+
+        if n_written == 0:
+            return []
+
+        # Align to target variant reference
+        try:
+            mm2 = subprocess.Popen(
+                [minimap2_path, "-a", "--MD", "--secondary=no", target_fasta, fq_path],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                [samtools_path, "sort", "-o", out_bam],
+                stdin=mm2.stdout, stderr=subprocess.DEVNULL, check=False,
+            )
+            mm2.wait()
+            subprocess.run(
+                [samtools_path, "index", out_bam],
+                stderr=subprocess.DEVNULL, check=False,
+            )
+        except Exception as exc:
+            logger.warning("Re-alignment for pileup failed: %s", exc)
+            return []
+
+        # Parse aligned BAM into pileup rows
+        rows = []
+        try:
+            with pysam.AlignmentFile(out_bam, "rb") as bf:
+                for read in bf:
+                    if read.is_unmapped:
+                        continue
+                    if min_overlap_pos and (
+                        read.reference_end is None
+                        or read.reference_start is None
+                        or read.reference_end <= min_overlap_pos
+                        or read.reference_start >= min_overlap_pos
+                    ):
+                        continue
+                    row = [("-", True)] * ref_len
+                    pairs = read.get_aligned_pairs(with_seq=True)
+                    for qpos, rpos, rbase in pairs:
+                        if rpos is None or rpos >= ref_len:
+                            continue
+                        if qpos is None:
+                            row[rpos] = ("-", True)
+                        else:
+                            qbase = read.query_sequence[qpos]
+                            is_match = qbase.upper() == ref_seq[rpos].upper()
+                            row[rpos] = (qbase, is_match)
+                    rows.append(row)
+        except Exception as exc:
+            logger.warning("Re-aligned BAM pileup parsing failed: %s", exc)
+
+    return rows
 
 
 def _build_pileup_grid(
@@ -944,7 +1213,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
     sections_html = []
     for idx, g in enumerate(groups):
         star = " &#9733;" if g["is_recoverable"] else ""
-        status_class = "status-correct" if _is_correct(g["status"]) else "status-other"
+        status_class = "status-correct" if g["is_recoverable"] else "status-other"
 
         # Compute per-read identity from pileup data
         identity_str = ""
