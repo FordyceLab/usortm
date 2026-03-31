@@ -241,19 +241,28 @@ def remote_demux(
 
     if fastq:
         file_size = fastq.stat().st_size
-        progress_ctx = Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            DownloadColumn(),
-            TransferSpeedColumn(),
-            TimeRemainingColumn(),
-            console=console,
-        )
-        progress_ctx.start()
-        task_id = progress_ctx.add_task(f"Uploading {fastq.name}", total=file_size)
+        _progress_state: dict = {}
 
         def upload_callback(transferred: int, total: int):
-            progress_ctx.update(task_id, completed=transferred)
+            if "ctx" not in _progress_state:
+                ctx = Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                )
+                ctx.start()
+                _progress_state["ctx"] = ctx
+                _progress_state["task"] = ctx.add_task(f"Uploading {fastq.name}", total=file_size)
+            _progress_state["ctx"].update(_progress_state["task"], completed=transferred)
+
+        def _get_progress_ctx():
+            return _progress_state.get("ctx")
+    else:
+        def _get_progress_ctx():
+            return None
 
     try:
         job_key, fastq_uploaded = mgr.submit(
@@ -270,8 +279,9 @@ def remote_demux(
             upload_callback=upload_callback,
         )
     finally:
-        if progress_ctx:
-            progress_ctx.stop()
+        ctx = _get_progress_ctx()
+        if ctx:
+            ctx.stop()
 
     if fastq and not fastq_uploaded:
         console.print("[green]\u2713[/green] FASTQ already on remote — skipped upload")
