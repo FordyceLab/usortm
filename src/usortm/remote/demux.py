@@ -154,8 +154,8 @@ class RemoteDemux:
                 fastq_path = remote_fastq_path  # already downloaded
             else:
                 self.conn.run(
-                    f'wget -q --show-progress -O "{remote_fastq_path}" "{fastq_url}"',
-                    hide=False,
+                    f'wget -q -O "{remote_fastq_path}" "{fastq_url}"',
+                    hide=True,
                     warn=False,
                 )
                 fastq_path = remote_fastq_path

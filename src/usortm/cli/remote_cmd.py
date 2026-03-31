@@ -247,6 +247,10 @@ def remote_demux(
     upload_callback = None
     progress_ctx = None
 
+    if fastq_url:
+        url_filename = fastq_url.split("?")[0].rstrip("/").split("/")[-1] or "reads.fastq"
+        console.print(f"[dim]Downloading [bold]{url_filename}[/bold] on remote...[/dim]")
+
     if fastq:
         file_size = fastq.stat().st_size
         _progress_state: dict = {}

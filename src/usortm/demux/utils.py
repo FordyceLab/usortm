@@ -16,6 +16,13 @@ import string
 import subprocess
 import json
 
+
+def _open_fastq(path: str):
+    """Return gzip.open or open based on magic bytes, not file extension."""
+    with open(path, "rb") as f:
+        magic = f.read(2)
+    return gzip.open if magic == b'\x1f\x8b' else open
+
 import numpy as np
 import pandas as pd
 import pysam
@@ -465,7 +472,7 @@ def get_read_names(file):
     """Get read names in current fastq
     """
     names, bad = set(), 0
-    open_fn = gzip.open if file.endswith('.gz') else open
+    open_fn = _open_fastq(file)
     with open_fn(file, 'rt', errors='ignore') as h:
         for rec in SeqIO.parse(h, 'fastq'):
             if rec.id.strip():
@@ -746,7 +753,7 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
             _ref_map[normalize_id(read_name)] = f"{direction}:{ref_name}"
 
         print("Collecting read sequences from oriented FASTQ...")
-        open_fn = gzip.open if oriented_fastq.endswith('.gz') else open
+        open_fn = _open_fastq(oriented_fastq)
         with open_fn(oriented_fastq, 'rt') as fh:
             for rec in tqdm(SeqIO.parse(fh, "fastq")):
                 rid = normalize_id(rec.id)

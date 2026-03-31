@@ -34,9 +34,20 @@ from usortm.demux import utils
 logger = logging.getLogger(__name__)
 
 
+def _open_fastq(fastq_path: str):
+    """Return the right open function for a FASTQ file.
+
+    Detects gzip by magic bytes so files without a .gz extension
+    (e.g. downloaded via a URL that omits the extension) are handled correctly.
+    """
+    with open(fastq_path, "rb") as f:
+        magic = f.read(2)
+    return gzip.open if magic == b'\x1f\x8b' else open
+
+
 def _count_fastq_reads(fastq_path: str) -> int:
     """Count reads in a FASTQ file (4 lines per record)."""
-    open_fn = gzip.open if str(fastq_path).endswith(".gz") else open
+    open_fn = _open_fastq(fastq_path)
     n_lines = 0
     with open_fn(fastq_path, "rt") as fh:
         for _ in fh:
@@ -55,7 +66,7 @@ def _compute_read_length_hist(fastq_path: str) -> dict:
     """
     import statistics
 
-    open_fn = gzip.open if str(fastq_path).endswith(".gz") else open
+    open_fn = _open_fastq(fastq_path)
     lengths = []
     with open_fn(fastq_path, "rt") as fh:
         for i, line in enumerate(fh):
@@ -86,7 +97,7 @@ def _extract_reads_gzip_aware(
     Returns the number of reads actually written (may be less than
     *num_reads* if the input file is shorter).
     """
-    open_fn = gzip.open if input_fastq.endswith(".gz") else open
+    open_fn = _open_fastq(input_fastq)
     reads_written = 0
     with open_fn(input_fastq, "rt") as fh_in, open(output_fastq, "w") as fh_out:
         while reads_written < num_reads:
