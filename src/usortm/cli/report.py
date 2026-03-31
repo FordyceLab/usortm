@@ -348,6 +348,8 @@ def _load_well_assignments(assignments_file: Path) -> list:
                 "variant": row["variant"],
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
+                "cons_check": row.get("cons_check", ""),
+                "flank_check": row.get("flank_check", ""),
             })
     return well_data
 
@@ -435,6 +437,8 @@ def _load_well_assignments_merged(assignments_file: Path,
                 "variant": row["variant"],
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
+                "cons_check": row.get("cons_check", ""),
+                "flank_check": row.get("flank_check", ""),
             })
 
     # Compute total reads per prefixed plate and drop ghost plates
@@ -563,9 +567,14 @@ def _classify_variants(
     pick_tier = (pick_tier or "A").upper()
     pick_tier_rank = _TIER_ORDER.index(pick_tier) if pick_tier in _TIER_ORDER else 0
 
-    # Best tier per variant across all wells
+    # Best tier per variant across all wells (exclude mutation and flank-error wells)
+    has_flank_data = any(w.get("flank_check") for w in well_data)
     best: dict[str, str] = {}
     for w in well_data:
+        if w.get("cons_check", "") in ("Other Error", "Error"):
+            continue
+        if has_flank_data and w.get("flank_check", "") != "OK":
+            continue
         name = w["variant"].split("|")[0]
         t = _best_tier(w["reads"], w["consensus_fraction"])
         if t:
@@ -703,10 +712,15 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     - **Tier B:** ≥50 reads AND >90% consensus  (includes Tier A)
     - **Tier C:** ≥20 reads AND >90% consensus  (includes Tier A + B)
     """
+    has_flank_data = any(w.get("flank_check") for w in well_data)
+
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
             w["variant"].split("|")[0] for w in well_data
-            if w["reads"] >= min_reads and w["consensus_fraction"] > 0.9
+            if w["reads"] >= min_reads
+            and w["consensus_fraction"] > 0.9
+            and w.get("cons_check", "") not in ("Other Error", "Error")
+            and (not has_flank_data or w.get("flank_check", "") == "OK")
         }
 
     tier_a_set = _qualifying_variants(100)
@@ -887,8 +901,8 @@ def _make_plate_bar_bokeh(plate_reads: dict):
     return fig
 
 
-def _make_tier_donut_bokeh(tiers: dict, library_size: int):
-    """Build a Bokeh donut chart showing tier + untiered breakdown."""
+def _make_tier_donut_bokeh(tiers: dict, library_size: int, streakout_count: int = 0):
+    """Build a Bokeh donut chart showing tier + streakout + untiered breakdown."""
     from bokeh.plotting import figure as bokeh_figure
     from bokeh.models import ColumnDataSource, HoverTool, Label
     import math
@@ -903,9 +917,10 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int):
     count_a = tier_a
     count_b = max(0, tier_b - tier_a)
     count_c = max(0, tier_c - tier_b)
-    count_u = max(0, library_size - tier_c)
+    count_s = max(0, min(streakout_count, library_size - tier_c))
+    count_u = max(0, library_size - tier_c - count_s)
 
-    total = count_a + count_b + count_c + count_u
+    total = count_a + count_b + count_c + count_s + count_u
     if total == 0:
         return None
 
@@ -913,7 +928,8 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int):
         (count_a, _cmap_hex(0.90), "Tier A (\u2265100 reads)"),
         (count_b, _cmap_hex(0.60), "Tier B (50\u201399 reads)"),
         (count_c, _cmap_hex(0.25), "Tier C (20\u201349 reads)"),
-        (count_u, "#d1d5db",        "Untiered (<20 reads)"),
+        (count_s, "#3B82F6",        "Streakout recoverable"),
+        (count_u, "#d1d5db",        "Unrecovered"),
     ]
 
     starts, ends, colors, labels, counts, pcts = [], [], [], [], [], []
@@ -949,9 +965,10 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int):
         source=source, direction="clock",
     )
 
-    # Center text: total recovered count
+    # Center text: total recovered count (tiers + streakout)
+    center_count = tier_c + count_s
     fig.add_layout(Label(
-        x=0, y=0.08, text=str(tier_c),
+        x=0, y=0.08, text=str(center_count),
         text_font_size="18px", text_font_style="bold",
         text_color="#6b7280", text_align="center", text_baseline="middle",
     ))
@@ -962,7 +979,7 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int):
     ))
 
     fig.add_tools(HoverTool(tooltips=[
-        ("Tier", "@label"), ("Count", "@count{,}"), ("", "@pct"),
+        ("", "@label"), ("Count", "@count{,}"), ("", "@pct"),
     ]))
 
     _style_figure(fig)
@@ -1260,11 +1277,13 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     else:
         recovery_fig = None
 
-    # Per-plate read totals for bar chart
+    # Per-plate read totals for bar chart — only show plates with ≥250 reads
+    _MIN_PLATE_READS = 250
     plate_reads: dict[str, int] = {}
     for w in well_data:
         p = w["plate"]
         plate_reads[p] = plate_reads.get(p, 0) + w["reads"]
+    plate_reads = {p: r for p, r in plate_reads.items() if r >= _MIN_PLATE_READS}
 
     # Read length histogram — backfill from FASTQ if not cached in demux_summary
     if not demux_summary.get("read_len_hist") and project_dir:
@@ -1285,11 +1304,18 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                     pass
                 break
 
+    # Resolve pick state early — needed for the donut chart streakout segment
+    if merged_context:
+        pick_state = project.get("merged", {})
+    else:
+        pick_state = project.get("workflow_steps", {}).get("pick", {})
+
     # Build Bokeh figures for all charts
     depth_fig = _make_read_depth_bokeh(read_counts)
     plate_fig = _make_plate_bar_bokeh(plate_reads)
     read_len_fig = _make_read_length_bokeh(demux_summary.get("read_len_hist") or {})
-    donut_fig = _make_tier_donut_bokeh(tiers, library_size) if tiers else None
+    _streakout_count = pick_state.get("streakout_variants", 0) if pick_state else 0
+    donut_fig = _make_tier_donut_bokeh(tiers, library_size, _streakout_count) if tiers else None
 
     # Collect non-None figures and generate Bokeh components
     from bokeh.embed import components as bokeh_components
@@ -1389,7 +1415,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         )
 
     tier_note = (
-        '<p class="note">All tiers require &gt;90% consensus and count unique variants '
+        '<p class="note">All tiers require &gt;90% consensus and no mutations. Only unique variants '
         '(best well per variant). Tiers are cumulative (B includes A, C includes B).</p>'
         if tiers else ""
     )
@@ -1489,26 +1515,26 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         if pick_plate_map.exists():
             pick_plate_iframe = _embed_srcdoc(pick_plate_map, 780)
 
-    # Pick summary stat box — for merged use project["merged"] state
-    if merged_context:
-        merge_state = project.get("merged", {})
-        pick_state = merge_state  # unified interface below
-    else:
-        pick_state = project.get("workflow_steps", {}).get("pick", {})
-
+    # Pick summary stat box
     pick_stat_box = ""
     if pick_state.get("completed"):
         _tier_val = pick_state.get("tier", "") or ""
-        tier_sub = (
-            f'<div class="stat-sub">Tier {_tier_val} filter</div>'
-            if _tier_val and _tier_val != "none" else ""
+        _tier_label = f"Tier {_tier_val} Variants Picked" if _tier_val and _tier_val != "none" else "Unique Variants Picked"
+        _streakout_n = pick_state.get("streakout_variants", 0)
+        _regular_n = pick_state.get("unique_variants", "N/A")
+        streakout_box = (
+            f'<div class="stat-box" style="margin-top:0.6rem;border-left:3px solid #3B82F6;">'
+            f'<div class="stat-label">Additional from Streakout</div>'
+            f'<div class="stat-value" style="color:#3B82F6;">{_streakout_n}</div>'
+            f'</div>'
+            if _streakout_n else ""
         )
         pick_stat_box = (
-            f'<div class="stat-box" style="margin-top:1rem;">'
-            f'<div class="stat-label">Unique Variants Picked</div>'
-            f'<div class="stat-value success">{pick_state.get("unique_variants", "N/A")}</div>'
-            f'{tier_sub}'
+            f'<div class="stat-box" style="margin-top:1rem;border-left:3px solid #22c55e;">'
+            f'<div class="stat-label">{_tier_label}</div>'
+            f'<div class="stat-value success">{_regular_n}</div>'
             f'</div>'
+            f'{streakout_box}'
         )
 
     # Library Recovery section
@@ -1544,7 +1570,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
 
         library_section = f"""
     <h2>Library Recovery</h2>
-    <p class="note">All tiers require &gt;90% consensus and count unique variants per round.
+    <p class="note">All tiers require &gt;90% consensus and no mutations. Only unique variants per round.
     Tiers are cumulative (B includes A, C includes B).</p>
     <table style="margin-bottom:1rem;">
       <thead>
@@ -1606,42 +1632,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     else:
         hitpick_section = ""
 
-    # Streak-out candidates section
-    streakout_section = ""
-    streakout_data = demux_summary.get("streakout", {})
-    if streakout_data.get("candidates", 0) > 0 and project_dir:
-        streakout_csv = project_dir / "demux_output" / "streakout" / "streakout_candidates.csv"
-        if streakout_csv.exists():
-            import csv as _csv_mod
-            so_rows = []
-            with open(streakout_csv) as _sf:
-                for sr in _csv_mod.DictReader(_sf):
-                    plate = sr["plate"]
-                    well = sr["well"]
-                    pileup_href = f"../demux_output/streakout/well_{plate}_{well}.html"
-                    so_rows.append(
-                        f'<tr>'
-                        f'<td>{plate}-{well}</td>'
-                        f'<td>{sr["total_reads"]}</td>'
-                        f'<td>{float(sr["top_frac"]):.0%}</td>'
-                        f'<td>{sr["recoverable_variants"].replace(";", ", ")}</td>'
-                        f'<td><a href="{pileup_href}" target="_blank">View</a></td>'
-                        f'</tr>'
-                    )
-            if so_rows:
-                streakout_section = f"""
-    <h2>Streak-Out Candidates</h2>
-    <p>Wells with multiple correctly-assembled subpopulations. Minority variants
-       can be recovered by streaking out. Click a well to view the read pileup.</p>
-    <table>
-      <thead>
-        <tr><th>Well</th><th>Reads</th><th>Top %</th><th>Recoverable Variants</th><th>Pileup</th></tr>
-      </thead>
-      <tbody>
-        {''.join(so_rows)}
-      </tbody>
-    </table>
-"""
 
     # Generate HTML
     html_content = f"""<!DOCTYPE html>
@@ -1955,7 +1945,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
 {library_section}
 {plate_map_section}
 {hitpick_section}
-{streakout_section}
     <div class="footer">
         <p>Generated by <strong>uSort-M</strong> | <a href="https://github.com/FordyceLab/usortm">GitHub</a></p>
     </div>

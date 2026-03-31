@@ -444,6 +444,7 @@ def _tier_colors(min_reads=100):
         for tier, reads in tier_reads.items()
     }
     colors[""] = "#FFFFFF"
+    colors["Streakout"] = "#3B82F6"  # blue
     return colors
 
 def _well_tier(reads, cons_frac):
@@ -517,13 +518,29 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         for h in pick_list:
             if h["_plate"] != p:
                 continue
-            has_pileup = h.get("target_well", "") in plate_pileups
-            pileup_url = plate_pileups.get(h.get("target_well", ""), "")
+            # Entry-level pileup_url (e.g. streakout) takes precedence over map lookup
+            pileup_url = h.get("pileup_url") or plate_pileups.get(h.get("target_well", ""), "")
             pileup_hint = (
                 '<div style="font-size:11px;color:#2563eb;margin-top:2px;">'
                 '→ Click to view pileup</div>'
                 if pileup_url else ""
             )
+            tier_override = h.get("tier_override", "")
+            if tier_override == "Streakout":
+                tier_label = "Streakout"
+                tooltip_extra = (
+                    f"<div style='color:#2563eb;font-weight:bold;margin-top:2px;'>"
+                    f"Streakout recoverable</div>"
+                    f"Source: {h['source_plate']}:{h['source_well']}<br/>"
+                    f"Reads in source: {h['reads']:,} ({h['consensus_fraction']:.0%} of well)"
+                )
+            else:
+                tier_label = _well_tier(h["reads"], h["consensus_fraction"]) or "N/A"
+                tooltip_extra = (
+                    f"Source: {h['source_plate']}:{h['source_well']}<br/>"
+                    f"Reads: {h['reads']:,}<br/>"
+                    f"Consensus: {h['consensus_fraction']:.0%}"
+                )
             sub_rows.append({
                 "row": h["_row"],
                 "col": h["_col"],
@@ -532,13 +549,12 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
                 "reads": h["reads"],
                 "cons_frac": h["consensus_fraction"],
                 "pileup_url": pileup_url,
+                "tier_override": tier_override,
                 "tooltip": (
                     f"<b>{h['target_well']}</b><br/>"
                     f"{h['variant']}<br/>"
-                    f"Source: {h['source_plate']}:{h['source_well']}<br/>"
-                    f"Reads: {h['reads']:,}<br/>"
-                    f"Consensus: {h['consensus_fraction']:.0%}<br/>"
-                    f"Tier: {_well_tier(h['reads'], h['consensus_fraction']) or 'N/A'}"
+                    f"{tooltip_extra}<br/>"
+                    f"Tier: {tier_label}"
                     f"{pileup_hint}"
                 ),
             })
@@ -546,7 +562,7 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         if len(sub) > 0:
             merged = merged.merge(
                 sub[["row", "col", "variant", "source", "reads", "cons_frac",
-                     "tooltip", "pileup_url"]],
+                     "tooltip", "pileup_url", "tier_override"]],
                 on=["row", "col"], how="left",
             )
         else:
@@ -556,6 +572,7 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
             merged["cons_frac"] = 0.0
             merged["tooltip"] = "empty"
             merged["pileup_url"] = ""
+            merged["tier_override"] = ""
         merged["plate"] = p
         merged["variant"] = merged["variant"].fillna("")
         merged["source"] = merged["source"].fillna("")
@@ -563,8 +580,9 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         merged["cons_frac"] = merged["cons_frac"].fillna(0)
         merged["tooltip"] = merged["tooltip"].fillna("empty")
         merged["pileup_url"] = merged["pileup_url"].fillna("")
+        merged["tier_override"] = merged["tier_override"].fillna("")
         merged["tier"] = merged.apply(
-            lambda r: _well_tier(r["reads"], r["cons_frac"]), axis=1
+            lambda r: r["tier_override"] if r["tier_override"] else _well_tier(r["reads"], r["cons_frac"]), axis=1
         )
         merged["tier_color"] = merged["tier"].map(TIER_COLORS)
         return merged

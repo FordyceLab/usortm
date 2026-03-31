@@ -241,6 +241,59 @@ def pick(
         include_cons_errors=include_cons_errors,
     )
 
+    # Upgrade empty placeholders to Streakout entries where the variant can be
+    # recovered by streaking out a mixed well.
+    streakout_csv = demux_output / "streakout" / "streakout_candidates.csv"
+    if streakout_csv.exists():
+        # Build map: variant -> best source (most reads)
+        streakout_map: dict = {}
+        with open(streakout_csv) as _sf:
+            for _row in csv.DictReader(_sf):
+                groups = json.loads(_row.get("groups_json", "[]"))
+                for g in groups:
+                    variant = g.get("variant", "")
+                    if not g.get("is_recoverable"):
+                        continue
+                    reads = int(g.get("reads", 0))
+                    if variant not in streakout_map or reads > streakout_map[variant]["reads"]:
+                        pileup_html = (
+                            f"../demux_output/streakout/"
+                            f"well_{_row['plate']}_{_row['well']}.html"
+                        )
+                        streakout_map[variant] = {
+                            "source_plate": _row["plate"],
+                            "source_well": _row["well"],
+                            "reads": reads,
+                            "frac": float(g.get("frac", 0)),
+                            "pileup_url": pileup_html,
+                        }
+
+        if streakout_map:
+            picked_variants = {h["variant"] for h in pick_list if not h.get("empty")}
+            n_upgraded = 0
+            for h in pick_list:
+                if (
+                    h.get("empty")
+                    and h["variant"] in streakout_map
+                    and h["variant"] not in picked_variants
+                ):
+                    info = streakout_map[h["variant"]]
+                    h.update({
+                        "source_plate": info["source_plate"],
+                        "source_well": info["source_well"],
+                        "reads": info["reads"],
+                        "consensus_fraction": info["frac"],
+                        "pileup_url": info["pileup_url"],
+                        "tier_override": "Streakout",
+                        "empty": False,
+                    })
+                    n_upgraded += 1
+            if n_upgraded:
+                console.print(
+                    f"[cyan]↑[/cyan] {n_upgraded} streakout-recoverable variant(s) "
+                    f"added to pick plate (blue)"
+                )
+
     if len(pick_list) == 0:
         console.print("[yellow]Warning:[/yellow] No hits to pick!")
         console.print("Check your demux results and target criteria.")
@@ -401,11 +454,14 @@ def pick(
         console.print(f"[yellow]Warning:[/yellow] Could not generate pick plate map: {e}")
 
     # Save pick workflow state
+    _all_hits = [h for h in pick_list if not h.get("empty")]
+    _streakout_hits = [h for h in _all_hits if h.get("tier_override") == "Streakout"]
     pick_state = {
         "completed": True,
         "timestamp": __import__("datetime").datetime.now().isoformat(),
-        "total_hits": len([h for h in pick_list if not h.get("empty")]),
-        "unique_variants": len(set(h["variant"] for h in pick_list if not h.get("empty"))),
+        "total_hits": len(_all_hits),
+        "unique_variants": len(set(h["variant"] for h in _all_hits if h.get("tier_override") != "Streakout")),
+        "streakout_variants": len(set(h["variant"] for h in _streakout_hits)),
         "target_format": target_format,
         "compact": compact,
     }
@@ -438,9 +494,15 @@ def pick(
     summary_table.add_column("Value", justify="right")
 
     recovered = [h for h in pick_list if not h.get("empty")]
+    streakout_hits = [h for h in recovered if h.get("tier_override") == "Streakout"]
+    regular_hits = [h for h in recovered if h.get("tier_override") != "Streakout"]
     empty_count = len(pick_list) - len(recovered)
     unique_variants = len(set(h["variant"] for h in recovered))
     summary_table.add_row("Total hits", f"{len(recovered)}")
+    if regular_hits:
+        summary_table.add_row("  Regular picks", f"{len(regular_hits)}")
+    if streakout_hits:
+        summary_table.add_row("  Streakout recoverable", f"[cyan]{len(streakout_hits)}[/cyan]")
     summary_table.add_row("Unique variants", f"{unique_variants}")
     if compact:
         summary_table.add_row("Compact mode", "[green]on[/green]")
