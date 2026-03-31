@@ -199,8 +199,15 @@ def run_levseq_pipeline(
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
     flank_3p = None
+    frame_offset = 0
     if vector_fasta is not None:
         flank_5p, flank_3p = utils.parse_vector_fasta(str(vector_fasta))
+        # First ATG in the 5' flank is treated as the start codon.
+        # frame_offset = how many bases into the variable region the next codon
+        # boundary falls, so translation stays in-frame.
+        first_atg = flank_5p.upper().find("ATG")
+        if first_atg >= 0:
+            frame_offset = (len(flank_5p) - first_atg) % 3
 
     # --- Stage 3: Multi-ref alignment + strand split ---
     # This must happen BEFORE barcode demux because NB13-NB96 and
@@ -329,9 +336,34 @@ def run_levseq_pipeline(
             # consensus must be generated against real per-variant references.
             #
             # Flow:
-            #   1. Write per-well FASTQs
-            #   2. Assign variants by aligning reads to the library
-            #   3. Generate consensus against per-variant full-length refs
+            #   1. Filter out concatemer reads (too short to reach variable region)
+            #   2. Write per-well FASTQs
+            #   3. Assign variants by aligning reads to the library
+            #   4. Generate consensus against per-variant full-length refs
+
+            # Drop reads that cannot reach the variable region.  Concatemer
+            # split-reads (~150–330 bp) cover only the 5' flank and produce
+            # blank rows in pileups and inflate the well read count.  We
+            # require reads to be at least half the minimum amplicon length
+            # (flank_5p + flank_3p), which for LP014 is (119+1005)//2 = 562 bp.
+            # This cleanly separates concatemer reads from full-length reads
+            # regardless of variable-insert size.
+            _min_read_len = (len(flank_5p) + len(flank_3p)) // 2
+            n_before = len(read_df)
+            read_df = read_df[
+                read_df["read_seq"].str.len() >= _min_read_len
+            ].reset_index(drop=True)
+            n_removed = n_before - len(read_df)
+            if n_removed:
+                _progress(
+                    f"Filtered {n_removed:,} flank-only reads "
+                    f"(<{_min_read_len} bp) that cannot overlap the variable region"
+                )
+                # Update per-well depths to reflect only variable-spanning reads
+                _depth = read_df.groupby("well_pos").size()
+                well_df["depth"] = (
+                    well_df["global_well"].map(_depth).fillna(0).astype(int)
+                )
 
             _progress("Writing per-well FASTQs...")
             utils.write_per_well_fastqs(read_df, str(output_dir))
@@ -343,6 +375,7 @@ def run_levseq_pipeline(
                 well_fastqs_dir=well_fastqs_dir,
                 minimap2_path=tool_paths["minimap2"],
                 workers=workers,
+                full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
             )
 
             _progress("Generating consensus against assigned references...")
@@ -390,6 +423,7 @@ def run_levseq_pipeline(
                 flank_5p_len=len(flank_5p),
                 flank_3p_len=len(flank_3p),
                 consensus_dir=consensus_dir,
+                frame_offset=frame_offset,
             )
         else:
             well_df = utils.extract_matches(well_df)
@@ -408,7 +442,7 @@ def run_levseq_pipeline(
             minimap2_path=tool_paths["minimap2"],
             samtools_path=tool_paths["samtools"],
             workers=workers,
-            reference_fasta=str(reference) if orient_ref is not None else None,
+            reference_fasta=str(reference) if reference is not None else None,
         )
 
         if candidates:

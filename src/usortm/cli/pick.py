@@ -301,6 +301,74 @@ def pick(
         except Exception as e:
             console.print(f"[yellow]Warning:[/yellow] Could not generate pileup HTMLs: {e}")
 
+    # Generate pileups for mutation wells (excluded from pick but still visualized).
+    # Saved to demux_output/mutation/ so the demux plate map can link to them.
+    # Skip streakout candidates — they already have their own pileups.
+    if pileups:
+        streakout_csv = demux_output / "streakout" / "streakout_candidates.csv"
+        streakout_well_keys: set = set()
+        if streakout_csv.exists():
+            with open(streakout_csv) as _sf:
+                for _row in csv.DictReader(_sf):
+                    streakout_well_keys.add(f"{_row['plate']}_{_row['well']}")
+
+        mutation_well_data = [
+            w for w in well_data
+            if w.get("cons_check", "") in ("Other Error", "Error")
+            and w.get("reads", 0) >= 20
+            and f"{w['plate']}_{w['well']}" not in streakout_well_keys
+        ]
+        if mutation_well_data:
+            try:
+                from usortm.demux.streakout import generate_pick_pileups
+
+                # Build a pseudo pick-list where source == target so generate_pick_pileups
+                # can find and process the reads.
+                mutation_list = [
+                    {
+                        "source_plate": w["plate"],
+                        "source_well": w["well"],
+                        "variant": w["variant"],
+                        "reads": w["reads"],
+                        "consensus_fraction": w["consensus_fraction"],
+                        "target_plate": w["plate"],
+                        "target_well": w["well"],
+                    }
+                    for w in mutation_well_data
+                ]
+                n_mut = len(mutation_list)
+
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=False,
+                ) as progress:
+                    task_id = progress.add_task(
+                        f"Generating mutation pileups ({workers} workers)...", total=n_mut
+                    )
+
+                    def _on_mut_progress(well_pos: str, success: bool):
+                        label = well_pos if success else f"{well_pos} [yellow](skipped)[/yellow]"
+                        progress.update(task_id, advance=1, description=f"Mutation pileup: {label}")
+
+                    generate_pick_pileups(
+                        pick_list=mutation_list,
+                        demux_output_dir=str(demux_output),
+                        output_dir=str(demux_output / "mutation"),
+                        workers=workers,
+                        progress_callback=_on_mut_progress,
+                    )
+
+                console.print(
+                    f"[green]\u2713[/green] {n_mut} mutation pileup(s) saved to "
+                    f"{demux_output / 'mutation' / 'pileup'}"
+                )
+            except Exception as e:
+                console.print(f"[yellow]Warning:[/yellow] Could not generate mutation pileups: {e}")
+
     # Generate interactive pick plate map (Bokeh is optional)
     try:
         from usortm.demux.viz import save_pick_plate_map_html

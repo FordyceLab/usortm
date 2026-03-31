@@ -766,3 +766,289 @@ class TestConcatFastqDir:
 
         with pytest.raises(click.exceptions.Exit):
             _concat_fastq_dir(empty_dir, out_dir)
+
+
+# ---------------------------------------------------------------------------
+# Tests for assign_variants_from_reads — short insert / full-length ref mode
+# ---------------------------------------------------------------------------
+
+class TestAssignVariantsFromReads:
+    """Tests for the variant-assignment helper, including very short inserts."""
+
+    # Flanks representative of the LP014 Fordyce-lab backbone
+    FLANK_5P = "CGCGCACATTTCCCCGAAAAGTGCTAGTGGTGCTAGCCCCGCGAAATTAATACGACTCAC" \
+               "TATAGGGTCTAGAAATAATTTTGTTTAACTTTAAGAAGGAGATATACATCATGGGCAGC"  # 119 bp
+    FLANK_3P = "GGTTCCGGTTCTGGTTCAGGT"  # short 3' flank for testing (21 bp)
+
+    # A normal-length variant and a very short GS-only negative control
+    VARIANT_NORMAL = "ATGCGTACTGGCCATGCAGTATCGGTCAACTTGCCAATGCA"  # 42 bp
+    VARIANT_SHORT  = "GGCAGC"  # 6 bp — GS negative control
+
+    def _make_short_lib_fasta(self, tmp_path):
+        """Write the two-entry variable-only library FASTA."""
+        fa = tmp_path / "library.fasta"
+        fa.write_text(
+            f">normal_var\n{self.VARIANT_NORMAL}\n"
+            f">gfp_control\n{self.VARIANT_SHORT}\n"
+        )
+        return fa
+
+    def _make_full_length_refs(self, tmp_path):
+        """Write per-variant full-length FASTAs (flanks + insert)."""
+        fl_dir = tmp_path / "single_ref_fastas"
+        fl_dir.mkdir()
+        for name, seq in [("normal_var", self.VARIANT_NORMAL),
+                          ("gfp_control", self.VARIANT_SHORT)]:
+            full_seq = self.FLANK_5P + seq + self.FLANK_3P
+            (fl_dir / f"{name}.fasta").write_text(f">{name}\n{full_seq}\n")
+        return fl_dir
+
+    def _make_well_df(self):
+        """Minimal well_df with two wells."""
+        import pandas as pd
+        return pd.DataFrame({
+            "global_well": ["1A1", "1A2"],
+            "plate": [1, 1],
+            "well": ["A1", "A2"],
+            "major_ref": ["orient_ref", "orient_ref"],
+            "ref_seq": ["", ""],
+            "ref_len": [0, 0],
+            "major_freq": [0.0, 0.0],
+        })
+
+    def _make_read_df(self, well_fastqs_dir):
+        """Minimal read_df pointing reads to their wells."""
+        import pandas as pd
+        rows = []
+        for well in ["1A1", "1A2"]:
+            fq = well_fastqs_dir / f"{well}.fastq"
+            with open(fq) as f:
+                while True:
+                    header = f.readline().strip()
+                    if not header:
+                        break
+                    seq = f.readline().strip()
+                    f.readline()  # +
+                    qual = f.readline().strip()
+                    rows.append({
+                        "read_name": header.lstrip("@"),
+                        "well_pos": well,
+                        "read_seq": seq,
+                        "read_qual": qual,
+                    })
+        return pd.DataFrame(rows)
+
+    def _write_per_well_fastqs(self, tmp_path):
+        """Write synthetic per-well FASTQs containing full-length amplicon reads."""
+        fq_dir = tmp_path / "wells" / "fastqs"
+        fq_dir.mkdir(parents=True)
+
+        qual = lambda n: "I" * n
+
+        # Well 1A1 → normal variant: full amplicon reads
+        normal_amplicon = self.FLANK_5P + self.VARIANT_NORMAL + self.FLANK_3P
+        with open(fq_dir / "1A1.fastq", "w") as f:
+            for i in range(5):
+                f.write(f"@read_normal_{i}\n{normal_amplicon}\n+\n{qual(len(normal_amplicon))}\n")
+
+        # Well 1A2 → GFP control: full amplicon reads (flanks + 6 bp insert)
+        gfp_amplicon = self.FLANK_5P + self.VARIANT_SHORT + self.FLANK_3P
+        with open(fq_dir / "1A2.fastq", "w") as f:
+            for i in range(5):
+                f.write(f"@read_gfp_{i}\n{gfp_amplicon}\n+\n{qual(len(gfp_amplicon))}\n")
+
+        return fq_dir
+
+    @requires_minimap2
+    def test_short_insert_assigned_with_full_length_refs(self, tmp_path):
+        """A 6 bp GS control variant is correctly assigned when full-length refs are used."""
+        from usortm.demux.utils import assign_variants_from_reads
+
+        lib_fa   = self._make_short_lib_fasta(tmp_path)
+        fl_dir   = self._make_full_length_refs(tmp_path)
+        fq_dir   = self._write_per_well_fastqs(tmp_path)
+        well_df  = self._make_well_df()
+        read_df  = self._make_read_df(fq_dir)
+
+        result = assign_variants_from_reads(
+            well_df, read_df, str(lib_fa),
+            well_fastqs_dir=str(fq_dir),
+            full_length_ref_dir=str(fl_dir),
+            min_read_len=0,  # synthetic reads are short; test alignment not length filtering
+        )
+
+        gfp_row = result[result["global_well"] == "1A2"].iloc[0]
+        assert gfp_row["major_ref"] == "gfp_control", (
+            f"Expected gfp_control, got {gfp_row['major_ref']}"
+        )
+        # ref_seq should be the short variable-only sequence, not the full-length one
+        assert gfp_row["ref_seq"] == self.VARIANT_SHORT
+        assert gfp_row["ref_len"] == len(self.VARIANT_SHORT)
+
+    @requires_minimap2
+    def test_normal_variant_still_assigned_with_full_length_refs(self, tmp_path):
+        """Normal-length variants continue to be assigned correctly."""
+        from usortm.demux.utils import assign_variants_from_reads
+
+        lib_fa   = self._make_short_lib_fasta(tmp_path)
+        fl_dir   = self._make_full_length_refs(tmp_path)
+        fq_dir   = self._write_per_well_fastqs(tmp_path)
+        well_df  = self._make_well_df()
+        read_df  = self._make_read_df(fq_dir)
+
+        result = assign_variants_from_reads(
+            well_df, read_df, str(lib_fa),
+            well_fastqs_dir=str(fq_dir),
+            full_length_ref_dir=str(fl_dir),
+            min_read_len=0,  # synthetic reads are short; test alignment not length filtering
+        )
+
+        normal_row = result[result["global_well"] == "1A1"].iloc[0]
+        assert normal_row["major_ref"] == "normal_var"
+        assert normal_row["ref_seq"] == self.VARIANT_NORMAL
+        assert normal_row["ref_len"] == len(self.VARIANT_NORMAL)
+
+    @requires_minimap2
+    def test_unassigned_when_reads_dont_align(self, tmp_path):
+        """Wells whose reads match no library variant are labelled 'unassigned'."""
+        from usortm.demux.utils import assign_variants_from_reads
+
+        lib_fa  = self._make_short_lib_fasta(tmp_path)
+        fl_dir  = self._make_full_length_refs(tmp_path)
+        fq_dir  = tmp_path / "wells" / "fastqs"
+        fq_dir.mkdir(parents=True)
+
+        # Use a repetitive low-complexity read that won't align to either reference
+        garbage_read = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        qual = "I" * len(garbage_read)
+        with open(fq_dir / "1A2.fastq", "w") as f:
+            for i in range(5):
+                f.write(f"@garbage_{i}\n{garbage_read}\n+\n{qual}\n")
+        # 1A1 has an empty FASTQ — no reads at all
+        (fq_dir / "1A1.fastq").write_text("")
+
+        well_df = self._make_well_df()
+        read_df = self._make_read_df(fq_dir)
+
+        result = assign_variants_from_reads(
+            well_df, read_df, str(lib_fa),
+            well_fastqs_dir=str(fq_dir),
+            full_length_ref_dir=str(fl_dir),
+        )
+
+        for well in ["1A1", "1A2"]:
+            row = result[result["global_well"] == well].iloc[0]
+            assert row["major_ref"] == "unassigned", (
+                f"Expected unassigned for {well}, got {row['major_ref']}"
+            )
+
+
+# ===================================================================
+# Tests for mutation well filtering in pick._generate_pick_list
+# ===================================================================
+
+class TestMutationWellFiltering:
+    """Wells with cons_check 'Other Error' or 'Error' must be excluded from the pick list."""
+
+    def _make_well_data(self):
+        """Return a minimal well_data list that includes one mutation well (2G19)."""
+        return [
+            {
+                "plate": "1",
+                "well": "A1",
+                "variant": "HOXB6;1;81",
+                "reads": 200,
+                "consensus_fraction": 1.0,
+                "cons_check": "Perfect Match",
+                "flank_check": "OK",
+            },
+            {
+                "plate": "2",
+                "well": "G19",
+                "variant": "NR3C1;1;115",
+                "reads": 55,
+                "consensus_fraction": 1.0,
+                "cons_check": "Other Error",  # mutation — must be excluded
+                "flank_check": "OK",
+            },
+            {
+                "plate": "1",
+                "well": "B2",
+                "variant": "ELK1;1;32",
+                "reads": 150,
+                "consensus_fraction": 1.0,
+                "cons_check": "Silent Mutation",  # synonymous — must be included
+                "flank_check": "OK",
+            },
+            {
+                "plate": "1",
+                "well": "C3",
+                "variant": "TP53;1;10",
+                "reads": 80,
+                "consensus_fraction": 0.95,
+                "cons_check": "Error",  # alignment/consensus error — must be excluded
+                "flank_check": "OK",
+            },
+        ]
+
+    def test_mutation_well_excluded_from_pick_list(self):
+        """Well 2G19 with cons_check='Other Error' must not appear in the pick list."""
+        from usortm.cli.pick import _generate_pick_list
+
+        well_data = self._make_well_data()
+        pick_list = _generate_pick_list(
+            well_data=well_data,
+            target_variants=None,
+            unique_only=True,
+            target_format=384,
+            fill_order="row",
+            library_order=None,
+            tier=None,
+            compact=True,
+        )
+
+        picked_wells = {(h["source_plate"], h["source_well"]) for h in pick_list if not h.get("empty")}
+        assert ("2", "G19") not in picked_wells, (
+            "Well 2G19 (cons_check='Other Error') should be excluded from pick list"
+        )
+
+    def test_error_cons_check_excluded(self):
+        """Well with cons_check='Error' must also be excluded from pick list."""
+        from usortm.cli.pick import _generate_pick_list
+
+        well_data = self._make_well_data()
+        pick_list = _generate_pick_list(
+            well_data=well_data,
+            target_variants=None,
+            unique_only=True,
+            target_format=384,
+            fill_order="row",
+            library_order=None,
+            tier=None,
+            compact=True,
+        )
+
+        picked_wells = {(h["source_plate"], h["source_well"]) for h in pick_list if not h.get("empty")}
+        assert ("1", "C3") not in picked_wells, (
+            "Well 1C3 (cons_check='Error') should be excluded from pick list"
+        )
+
+    def test_perfect_match_and_silent_mutation_included(self):
+        """Wells with 'Perfect Match' or 'Silent Mutation' cons_check must be picked."""
+        from usortm.cli.pick import _generate_pick_list
+
+        well_data = self._make_well_data()
+        pick_list = _generate_pick_list(
+            well_data=well_data,
+            target_variants=None,
+            unique_only=True,
+            target_format=384,
+            fill_order="row",
+            library_order=None,
+            tier=None,
+            compact=True,
+        )
+
+        picked_wells = {(h["source_plate"], h["source_well"]) for h in pick_list if not h.get("empty")}
+        assert ("1", "A1") in picked_wells, "1A1 (Perfect Match) should be picked"
+        assert ("1", "B2") in picked_wells, "1B2 (Silent Mutation) should be picked"

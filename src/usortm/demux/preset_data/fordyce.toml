@@ -1,0 +1,15 @@
+# LevSeq expression vector backbone masks (LP014).
+#
+# These flanking sequences match the barcode cassette context in the
+# LP014 expression vector used for uSort-M library generation.
+#
+# Only [fbc] is needed; RBC masks are auto-derived as reverse complements.
+
+[meta]
+description = "LevSeq on Fordyce lab backbones"
+
+[fbc]
+mask1_front = "CACCCAAGACCACTCTCCGG"
+mask1_rear  = "CGCGCACATTTCCCCG"
+mask2_front = "GCACTGACTCGCTGCGC"
+mask2_rear  = "GCACCTACTTCGCACACCG"

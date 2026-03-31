@@ -62,6 +62,13 @@ def plan(
         help="Sequencing round number (1 for initial sort, 2+ for re-order rounds).",
         min=1,
     ),
+    mask_config: Optional[str] = typer.Option(
+        None,
+        "--mask-config",
+        help="Barcode mask preset name (e.g. 'fordyce') or path to a TOML file. "
+             "Copies the preset into the project as mask_config.toml. "
+             "Run 'usortm config list' to see available presets.",
+    ),
 ):
     """
     Plan a [#4096E3]uSort-M[/#4096E3] experiment from a variant list.
@@ -239,7 +246,7 @@ def plan(
     barcode_assignments = _generate_barcode_assignments(n_plates, barcode_kit, output_dir)
 
     # Write default mask config for user to customize
-    _write_default_mask_config(output_dir)
+    _write_default_mask_config(output_dir, preset=mask_config)
     
     # Save project state
     project_state = {
@@ -798,16 +805,41 @@ def _plan_round_n(
     console.print()
 
 
-def _write_default_mask_config(output_dir: Path):
-    """Write a default mask_config.toml with cutinase backbone sequences.
+def _write_default_mask_config(output_dir: Path, preset: Optional[str] = None):
+    """Write a mask_config.toml for the project.
 
-    Users can edit this file to match their plasmid backbone before
-    running ``usortm demux``.  The demux command auto-detects this
-    file in the project directory.
+    If *preset* is given (a built-in preset name like ``'fordyce'`` or a
+    path to an existing TOML file), that file is copied into the project.
+    Otherwise the default cutinase/T7 template is written.
 
-    Only the ``[fbc]`` section is written; the ``[rbc]`` masks are
+    Users can edit the resulting file to match their plasmid backbone before
+    running ``usortm demux``.  The demux command auto-detects this file in
+    the project directory.
+
+    Only the ``[fbc]`` section is needed; the ``[rbc]`` masks are
     automatically derived (reverse-complement swap) at load time.
     """
+    dest = output_dir / "mask_config.toml"
+
+    if preset is not None:
+        import shutil
+        from usortm.demux.presets import get_preset
+
+        preset_path = Path(preset)
+        if not preset_path.is_file():
+            try:
+                preset_path = get_preset(preset)
+            except FileNotFoundError:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Preset '{preset}' not found — "
+                    f"writing default mask_config.toml instead."
+                )
+                preset_path = None
+
+        if preset_path is not None:
+            shutil.copy2(preset_path, dest)
+            return
+
     from usortm.demux.barcodes import DEFAULT_MASKS, DEFAULT_SCORING
 
     fbc = DEFAULT_MASKS["fbc"]
@@ -846,4 +878,4 @@ mask2_rear  = "{fbc['mask2_rear']}"
 # min_flank_score = {DEFAULT_SCORING['min_flank_score']}
 # barcode_end_proximity = {DEFAULT_SCORING['barcode_end_proximity']}
 """
-    (output_dir / "mask_config.toml").write_text(content)
+    dest.write_text(content)
