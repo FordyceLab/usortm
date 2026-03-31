@@ -150,16 +150,10 @@ class RemoteDemux:
             url_path = fastq_url.split("?")[0].rstrip("/")
             remote_fastq_name = url_path.split("/")[-1] or "reads.fastq"
             remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
-            if _remote_exists(remote_fastq_path):
-                fastq_path = remote_fastq_path  # already downloaded
-            else:
-                self.conn.run(
-                    f'wget -q -O "{remote_fastq_path}" "{fastq_url}"',
-                    hide=True,
-                    warn=False,
-                )
-                fastq_path = remote_fastq_path
-                fastq_uploaded = True
+            fastq_path = remote_fastq_path
+            # Download happens inside run.sh so submit() returns immediately.
+            # fastq_uploaded=True signals the CLI to show "will download" message.
+            fastq_uploaded = not _remote_exists(remote_fastq_path)
         else:
             remote_fastq_name = Path(str(fastq)).name
             remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
@@ -179,6 +173,7 @@ class RemoteDemux:
         script = self._generate_run_script(
             job_dir=job_dir,
             fastq_path=fastq_path,
+            fastq_url=fastq_url,
             inputs_dir=inputs_dir,
             reference=reference is not None,
             library_csv=library_csv is not None,
@@ -243,6 +238,7 @@ class RemoteDemux:
         subsample: Optional[int],
         extra_args: list[str],
         usortm_path: str = "usortm",
+        fastq_url: Optional[str] = None,
     ) -> str:
         """Build the bash script that runs usortm demux on the remote."""
         # Build the usortm demux command
@@ -268,6 +264,17 @@ class RemoteDemux:
 
         demux_cmd = " \\\n    ".join(cmd_parts)
 
+        wget_block = ""
+        if fastq_url:
+            wget_block = f"""
+# Download FASTQ directly on remote (skipped if already present)
+if [ ! -f "{fastq_path}" ]; then
+    echo "Downloading FASTQ: {fastq_url}" | tee -a "$JOB_DIR/usortm.log"
+    wget -q -L -O "{fastq_path}" "{fastq_url}" 2>&1 | tee -a "$JOB_DIR/usortm.log"
+    echo "Download complete: $(date)" | tee -a "$JOB_DIR/usortm.log"
+fi
+"""
+
         return f"""#!/bin/bash -l
 set -euo pipefail
 
@@ -281,7 +288,7 @@ mkdir -p "$JOB_DIR/project"
 cat > "$JOB_DIR/project/usortm_project.json" <<'PROJEOF'
 {{"workflow_steps": {{}}}}
 PROJEOF
-
+{wget_block}
 # Run demux
 {demux_cmd} \\
     2>&1 | tee "$JOB_DIR/usortm.log"
@@ -471,13 +478,31 @@ exit $EXIT_CODE
         basic = self.status(job_key)
         job_dir = f"{self.remote_job_dir}/{job_key}"
         demux_dir = f"{job_dir}/project/demux_output"
+        inputs_dir = f"{job_dir}/inputs"
+
+        # Check if this job used --fastq-url (any non-csv/fasta/toml file in inputs/)
+        url_fastq_check = self.conn.run(
+            f"ls {inputs_dir}/ 2>/dev/null | grep -vE '\\.(csv|fasta|toml)$' | head -1",
+            hide=True, warn=True,
+        )
+        url_fastq_name = url_fastq_check.stdout.strip()
+        has_url_stage = bool(url_fastq_name)
+
+        # Build dynamic stage list — prepend download stage if applicable
+        stages_def = []
+        if has_url_stage:
+            fastq_abs = f"{inputs_dir}/{url_fastq_name}"
+            stages_def.append(("Download FASTQ", f"__abs__{fastq_abs}"))
+        stages_def.extend(self.PIPELINE_STAGES)
 
         # Build a shell one-liner that tests each artifact and prints 1/0
         tests = []
-        for _label, artifact in self.PIPELINE_STAGES:
+        for _label, artifact in stages_def:
             if artifact is None:
-                # Infer from status: if job is at least RUNNING, deps were checked
                 tests.append("echo STATUS")
+            elif artifact.startswith("__abs__"):
+                abs_path = artifact[len("__abs__"):]
+                tests.append(f'[ -e "{abs_path}" ] && echo 1 || echo 0')
             else:
                 tests.append(f'[ -e "{demux_dir}/{artifact}" ] && echo 1 || echo 0')
 
@@ -489,7 +514,7 @@ exit $EXIT_CODE
         is_running = basic["status"] == "RUNNING"
         is_done = basic["status"] in ("COMPLETED", "FAILED")
 
-        for i, (label, _artifact) in enumerate(self.PIPELINE_STAGES):
+        for i, (label, _artifact) in enumerate(stages_def):
             raw = lines[i].strip() if i < len(lines) else "0"
             if raw == "STATUS":
                 done = is_running or is_done

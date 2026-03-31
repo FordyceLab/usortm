@@ -249,7 +249,7 @@ def remote_demux(
 
     if fastq_url:
         url_filename = fastq_url.split("?")[0].rstrip("/").split("/")[-1] or "reads.fastq"
-        console.print(f"[dim]Downloading [bold]{url_filename}[/bold] on remote...[/dim]")
+        console.print(f"[dim]FASTQ will be downloaded on remote: [bold]{url_filename}[/bold][/dim]")
 
     if fastq:
         file_size = fastq.stat().st_size
@@ -297,7 +297,7 @@ def remote_demux(
             ctx.stop()
 
     if fastq_url and not fastq_uploaded:
-        console.print("[green]\u2713[/green] FASTQ already on remote — skipped download")
+        console.print("[green]\u2713[/green] FASTQ already on remote — download skipped")
     elif fastq and not fastq_uploaded:
         console.print("[green]\u2713[/green] FASTQ already on remote — skipped upload")
 
