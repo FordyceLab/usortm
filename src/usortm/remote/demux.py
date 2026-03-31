@@ -73,6 +73,7 @@ class RemoteDemux:
         *,
         fastq: Optional[Path] = None,
         remote_fastq: Optional[str] = None,
+        fastq_url: Optional[str] = None,
         reference: Optional[Path] = None,
         library_csv: Optional[Path] = None,
         vector_fasta: Optional[Path] = None,
@@ -90,11 +91,17 @@ class RemoteDemux:
         project reuses the same remote directory; inputs that are already
         present are not re-uploaded.
 
+        *fastq_url* causes the remote server to download the file directly
+        via wget (useful when the remote has faster network access than the
+        local machine).  Gzipped archives (``.fastq.gz``) are passed through
+        to the pipeline as-is.
+
         Returns ``(job_key, fastq_uploaded)`` where *fastq_uploaded* is
-        ``True`` when a new FASTQ transfer was performed.
+        ``True`` when a new FASTQ transfer was performed (local→remote upload
+        or remote wget).
         """
-        if not fastq and not remote_fastq:
-            raise ValueError("Provide either fastq (local) or remote_fastq (remote path)")
+        if not fastq and not remote_fastq and not fastq_url:
+            raise ValueError("Provide --fastq, --remote-fastq, or --fastq-url")
         if not reference and not library_csv:
             raise ValueError("Provide either reference or library_csv")
 
@@ -132,12 +139,27 @@ class RemoteDemux:
         if mask_config:
             self.conn.put(str(mask_config), f"{inputs_dir}/mask_config.toml")
 
-        # FASTQ — only upload if not already present on remote
+        # FASTQ — only transfer if not already present on remote
         fastq_uploaded = False
         if remote_fastq:
             if not _remote_exists(remote_fastq):
                 raise FileNotFoundError(f"Remote FASTQ not found: {remote_fastq}")
             fastq_path = remote_fastq
+        elif fastq_url:
+            # Derive filename from URL (strip query string)
+            url_path = fastq_url.split("?")[0].rstrip("/")
+            remote_fastq_name = url_path.split("/")[-1] or "reads.fastq"
+            remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
+            if _remote_exists(remote_fastq_path):
+                fastq_path = remote_fastq_path  # already downloaded
+            else:
+                self.conn.run(
+                    f'wget -q --show-progress -O "{remote_fastq_path}" "{fastq_url}"',
+                    hide=False,
+                    warn=False,
+                )
+                fastq_path = remote_fastq_path
+                fastq_uploaded = True
         else:
             remote_fastq_name = Path(str(fastq)).name
             remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"

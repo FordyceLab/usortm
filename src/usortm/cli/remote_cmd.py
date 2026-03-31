@@ -171,6 +171,11 @@ def remote_demux(
         "--remote-fastq",
         help="Path to FASTQ file already on the remote server.",
     ),
+    fastq_url: Optional[str] = typer.Option(
+        None,
+        "--fastq-url", "-u",
+        help="URL for the remote server to wget directly (faster when remote has better connectivity).",
+    ),
     reference: Optional[Path] = typer.Option(
         None,
         "--reference", "-r",
@@ -199,8 +204,11 @@ def remote_demux(
 ):
     """Submit a demux job to the remote server.
 
-    Either --fastq (local file, will be uploaded) or --remote-fastq
-    (path on the server) must be provided.
+    One of --fastq (local upload), --remote-fastq (already on server),
+    or --fastq-url (remote wget) must be provided.  Use --fastq-url when
+    the sequencing provider gives a download link and the remote has faster
+    network access than your local machine.  Gzipped files (.fastq.gz) are
+    supported and passed through as-is.
     """
     from usortm.remote import RemoteDemux
 
@@ -209,8 +217,8 @@ def remote_demux(
         border_style=BORDER_STYLE,
     ))
 
-    if not fastq and not remote_fastq:
-        console.print("[red]Error:[/red] Provide --fastq or --remote-fastq")
+    if not fastq and not remote_fastq and not fastq_url:
+        console.print("[red]Error:[/red] Provide --fastq, --remote-fastq, or --fastq-url")
         raise typer.Exit(1)
     if not reference and not library_csv:
         console.print("[red]Error:[/red] Provide --reference or --library-csv")
@@ -269,6 +277,7 @@ def remote_demux(
             project_dir=project_dir,
             fastq=fastq,
             remote_fastq=remote_fastq,
+            fastq_url=fastq_url,
             reference=reference,
             library_csv=library_csv,
             vector_fasta=vector_fasta,
@@ -283,7 +292,9 @@ def remote_demux(
         if ctx:
             ctx.stop()
 
-    if fastq and not fastq_uploaded:
+    if fastq_url and not fastq_uploaded:
+        console.print("[green]\u2713[/green] FASTQ already on remote — skipped download")
+    elif fastq and not fastq_uploaded:
         console.print("[green]\u2713[/green] FASTQ already on remote — skipped upload")
 
     console.print(f"[green]\u2713[/green] Job submitted: [bold]{job_key}[/bold]")
