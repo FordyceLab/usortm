@@ -86,6 +86,11 @@ def pick(
         "--include-flank-errors/--exclude-flank-errors",
         help="Include wells with flanking region mismatches in pick list.",
     ),
+    include_cons_errors: bool = typer.Option(
+        False,
+        "--include-cons-errors/--exclude-cons-errors",
+        help="Include wells with consensus mismatches (Other Error/Error/Silent Mutation) in pick list.",
+    ),
     round_num: int = typer.Option(
         1,
         "--round", "-r",
@@ -183,6 +188,9 @@ def pick(
             f"\u2265{thresh['min_reads']} reads, >{thresh['min_consensus']:.0%} consensus"
         )
 
+    if not include_cons_errors:
+        console.print("[green]\u2713[/green] Excluding wells with consensus errors (use --include-cons-errors to override)")
+
     well_data = _load_well_assignments(well_assignments_file)
     console.print(f"[green]\u2713[/green] Loaded {len(well_data)} wells with data")
 
@@ -230,6 +238,7 @@ def pick(
         tier=tier,
         compact=compact,
         include_flank_errors=include_flank_errors,
+        include_cons_errors=include_cons_errors,
     )
 
     if len(pick_list) == 0:
@@ -488,6 +497,7 @@ def _generate_pick_list(
     tier: Optional[str] = None,
     compact: bool = False,
     include_flank_errors: bool = False,
+    include_cons_errors: bool = False,
 ) -> list:
     """Generate pick list from well data.
 
@@ -524,6 +534,16 @@ def _generate_pick_list(
             sorted_wells = [
                 w for w in sorted_wells
                 if not w.get("flank_check") or w["flank_check"] == "OK"
+            ]
+
+    # Exclude wells with consensus errors (unless overridden)
+    if not include_cons_errors:
+        has_any_cons_data = any(w.get("cons_check") for w in sorted_wells)
+        if has_any_cons_data:
+            sorted_wells = [
+                w for w in sorted_wells
+                if not w.get("cons_check")
+                or w["cons_check"] == "Perfect Match"
             ]
 
     for well in sorted_wells:
