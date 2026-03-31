@@ -202,7 +202,7 @@ class RemoteDemux:
 
         # Launch
         result = self.conn.run(
-            f"cd {job_dir} && nohup ./run.sh > nohup.out 2>&1 & echo $!",
+            f"cd {job_dir} && nohup ./run.sh </dev/null > nohup.out 2>&1 & echo $!",
             hide=True,
         )
         pid = result.stdout.strip()
