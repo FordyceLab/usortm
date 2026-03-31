@@ -146,14 +146,17 @@ class RemoteDemux:
                 raise FileNotFoundError(f"Remote FASTQ not found: {remote_fastq}")
             fastq_path = remote_fastq
         elif fastq_url:
-            # Derive filename from URL (strip query string)
-            url_path = fastq_url.split("?")[0].rstrip("/")
-            remote_fastq_name = url_path.split("/")[-1] or "reads.fastq"
-            remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
-            fastq_path = remote_fastq_path
-            # Download happens inside run.sh so submit() returns immediately.
-            # fastq_uploaded=True signals the CLI to show "will download" message.
-            fastq_uploaded = not _remote_exists(remote_fastq_path)
+            # The run script downloads and normalises to a canonical path.
+            # Use a shell variable reference so the demux command resolves
+            # the path at runtime (needed because ZIP archives contain files
+            # with unknown names, and the file may or may not be gzipped).
+            fastq_path = "$FASTQ_PATH"
+            canonical = f"{inputs_dir}/reads.fastq"
+            already = (
+                _remote_exists(canonical)
+                or _remote_exists(f"{canonical}.gz")
+            )
+            fastq_uploaded = not already
         else:
             remote_fastq_name = Path(str(fastq)).name
             remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
@@ -266,12 +269,49 @@ class RemoteDemux:
 
         wget_block = ""
         if fastq_url:
+            canonical = f"{inputs_dir}/reads.fastq"
             wget_block = f"""
-# Download FASTQ directly on remote (skipped if already present)
-if [ ! -f "{fastq_path}" ]; then
-    echo "Downloading FASTQ: {fastq_url}" | tee -a "$JOB_DIR/usortm.log"
-    wget -q -L -O "{fastq_path}" "{fastq_url}" 2>&1 | tee -a "$JOB_DIR/usortm.log"
+# Download and normalise FASTQ (skipped if already present)
+FASTQ_PATH="{canonical}"
+if [ -f "{canonical}.gz" ]; then
+    FASTQ_PATH="{canonical}.gz"
+elif [ ! -f "{canonical}" ]; then
+    TMP="{inputs_dir}/download.tmp"
+    echo "Downloading FASTQ from: {fastq_url}" | tee -a "$JOB_DIR/usortm.log"
+    wget -q -L -O "$TMP" "{fastq_url}"
     echo "Download complete: $(date)" | tee -a "$JOB_DIR/usortm.log"
+
+    # Detect format by magic bytes
+    FILE_TYPE=$(python3 -c "
+import sys
+d = open('$TMP','rb').read(4)
+if d[:2] == b'PK': print('zip')
+elif d[:2] == b'\\x1f\\x8b': print('gz')
+else: print('plain')
+")
+    echo "Detected format: $FILE_TYPE" | tee -a "$JOB_DIR/usortm.log"
+
+    if [ "$FILE_TYPE" = "zip" ]; then
+        UNZIP_DIR="{inputs_dir}/unzipped"
+        mkdir -p "$UNZIP_DIR"
+        unzip -o "$TMP" -d "$UNZIP_DIR/" >> "$JOB_DIR/usortm.log" 2>&1
+        FOUND=$(find "$UNZIP_DIR" \\( -name "*.fastq.gz" -o -name "*.fastq" \\) | head -1)
+        if [[ "$FOUND" == *.gz ]]; then
+            mv "$FOUND" "{canonical}.gz"
+            FASTQ_PATH="{canonical}.gz"
+        else
+            mv "$FOUND" "{canonical}"
+            FASTQ_PATH="{canonical}"
+        fi
+        rm -rf "$TMP" "$UNZIP_DIR"
+    elif [ "$FILE_TYPE" = "gz" ]; then
+        mv "$TMP" "{canonical}.gz"
+        FASTQ_PATH="{canonical}.gz"
+    else
+        mv "$TMP" "{canonical}"
+        FASTQ_PATH="{canonical}"
+    fi
+    echo "FASTQ ready at: $FASTQ_PATH" | tee -a "$JOB_DIR/usortm.log"
 fi
 """
 
@@ -480,19 +520,21 @@ exit $EXIT_CODE
         demux_dir = f"{job_dir}/project/demux_output"
         inputs_dir = f"{job_dir}/inputs"
 
-        # Check if this job used --fastq-url (any non-csv/fasta/toml file in inputs/)
-        url_fastq_check = self.conn.run(
-            f"ls {inputs_dir}/ 2>/dev/null | grep -vE '\\.(csv|fasta|toml)$' | head -1",
+        # Check if this job used --fastq-url (canonical reads.fastq[.gz] present or job running)
+        canonical_fastq = f"{inputs_dir}/reads.fastq"
+        has_url_stage = self.conn.run(
+            f'[ -f "{canonical_fastq}" ] || [ -f "{canonical_fastq}.gz" ] || '
+            f'[ -f "{inputs_dir}/download.tmp" ] && echo 1 || echo 0',
             hide=True, warn=True,
-        )
-        url_fastq_name = url_fastq_check.stdout.strip()
-        has_url_stage = bool(url_fastq_name)
+        ).stdout.strip() == "1"
 
         # Build dynamic stage list — prepend download stage if applicable
         stages_def = []
         if has_url_stage:
-            fastq_abs = f"{inputs_dir}/{url_fastq_name}"
-            stages_def.append(("Download FASTQ", f"__abs__{fastq_abs}"))
+            stages_def.append((
+                "Download FASTQ",
+                f"__abs__{canonical_fastq}||{canonical_fastq}.gz",
+            ))
         stages_def.extend(self.PIPELINE_STAGES)
 
         # Build a shell one-liner that tests each artifact and prints 1/0
@@ -501,8 +543,11 @@ exit $EXIT_CODE
             if artifact is None:
                 tests.append("echo STATUS")
             elif artifact.startswith("__abs__"):
-                abs_path = artifact[len("__abs__"):]
-                tests.append(f'[ -e "{abs_path}" ] && echo 1 || echo 0')
+                abs_spec = artifact[len("__abs__"):]
+                # Support "path1||path2" for OR checks
+                paths = abs_spec.split("||")
+                checks = " || ".join(f'[ -e "{p}" ]' for p in paths)
+                tests.append(f'{{ {checks}; }} && echo 1 || echo 0')
             else:
                 tests.append(f'[ -e "{demux_dir}/{artifact}" ] && echo 1 || echo 0')
 

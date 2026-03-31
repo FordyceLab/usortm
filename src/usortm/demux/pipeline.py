@@ -68,10 +68,17 @@ def _compute_read_length_hist(fastq_path: str) -> dict:
 
     open_fn = _open_fastq(fastq_path)
     lengths = []
-    with open_fn(fastq_path, "rt") as fh:
-        for i, line in enumerate(fh):
-            if i % 4 == 1:
-                lengths.append(len(line.rstrip()))
+    try:
+        with open_fn(fastq_path, "rt") as fh:
+            for i, line in enumerate(fh):
+                if i % 4 == 1:
+                    lengths.append(len(line.rstrip()))
+    except (UnicodeDecodeError, OSError) as exc:
+        raise ValueError(
+            f"Cannot read FASTQ file '{fastq_path}' as text. "
+            "The file may be in raw nanopore format (pod5/fast5) rather than "
+            "basecalled FASTQ. Check the download URL from your sequencing provider."
+        ) from exc
     if not lengths:
         return {}
     max_len = max(lengths)
