@@ -1415,7 +1415,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         # srcdoc iframe inherits the parent page's base URL, not the
         # original file's directory).
         base_uri = html_path.parent.resolve().as_uri()
-        for rel_prefix in ("streakout/", "pileup/"):
+        for rel_prefix in ("streakout/", "pileup/", "mutation/pileup/"):
             content = content.replace(f'"{rel_prefix}', f'"{base_uri}/{rel_prefix}')
 
         # Escape for double-quoted HTML attribute value

@@ -1185,6 +1185,8 @@ def assign_variants_from_reads(
     well_fastqs_dir=None,
     minimap2_path=None, workers=4,
     reads_per_well=5,
+    full_length_ref_dir=None,
+    min_read_len=300,
 ):
     """Assign library variants to wells by aligning a sample of reads.
 
@@ -1193,14 +1195,31 @@ def assign_variants_from_reads(
     minimap2 call. Only a fraction of total reads are aligned, making
     this much faster than aligning everything.
 
+    When *full_length_ref_dir* is provided (directory of per-variant FASTAs
+    that include 5' and 3' flanking sequences), a combined full-length
+    reference is built and used for alignment instead of *ref_fasta*.  This
+    is necessary when the variable insert is very short (e.g. a 6 bp
+    negative-control variant) — minimap2 cannot anchor to such short targets
+    in long nanopore reads without flanking context.  After assignment the
+    flanking sequences are stripped from ``ref_seq`` / ``ref_len`` so
+    downstream variant-calling sees only the variable region.
+
     Args:
         well_df: Per-well summary DataFrame with ``global_well`` column.
         read_df: Per-read DataFrame with ``well_pos`` and ``read_name``.
-        ref_fasta: Path to the multi-entry library reference FASTA.
+        ref_fasta: Path to the multi-entry library reference FASTA
+            (variable-only sequences).
         well_fastqs_dir: Directory containing per-well FASTQ files.
         minimap2_path: Path to minimap2 binary. Auto-detected if None.
         workers: Number of minimap2 threads.
         reads_per_well: Max reads to sample from each well for assignment.
+        full_length_ref_dir: Directory containing per-variant full-length
+            FASTA files (flanks + insert).  When provided, alignment uses
+            full-length refs so short inserts are reliably detected.
+        min_read_len: Minimum read length to include in variant assignment.
+            Reads shorter than this (e.g. concatemer split-reads ~150 bp that
+            only cover the 5' flank) are skipped.  Wells whose reads are all
+            shorter than this threshold will be marked ``"unassigned"``.
 
     Returns:
         Updated well_df with ``major_ref``, ``ref_seq``, ``ref_len`` columns.
@@ -1231,16 +1250,40 @@ def assign_variants_from_reads(
                         lines = [inf.readline() for _ in range(4)]
                         if not lines[0]:
                             break
+                        if min_read_len and len(lines[1].rstrip()) < min_read_len:
+                            continue  # skip concatemer / flank-only reads
                         out.writelines(lines)
                         count += 1
                         n_sampled += 1
     else:
         # Fallback: sample from read_df
-        sampled = read_df.groupby("well_pos").head(reads_per_well)
+        sampled = (read_df[read_df["read_seq"].str.len() >= min_read_len]
+                   .groupby("well_pos").head(reads_per_well)
+                   if min_read_len else
+                   read_df.groupby("well_pos").head(reads_per_well))
         n_sampled = len(sampled)
         with open(fq_path, "w") as fq:
             for _, row in sampled.iterrows():
                 fq.write(f"@{row['read_name']}\n{row['read_seq']}\n+\n{row['read_qual']}\n")
+
+    # When full-length refs are available, build a combined FASTA and use it
+    # for alignment.  This lets minimap2 anchor on the flanking sequences,
+    # which is essential for very short inserts (e.g. a 6 bp GS control)
+    # that are too small to align to on their own.
+    align_fasta = ref_fasta
+    if full_length_ref_dir and os.path.isdir(full_length_ref_dir):
+        combined_fl = os.path.join(os.path.dirname(ref_fasta), "full_length_refs.fasta")
+        written = 0
+        with open(combined_fl, "w") as out_fl:
+            for fa_file in sorted(os.listdir(full_length_ref_dir)):
+                if not fa_file.endswith(".fasta"):
+                    continue
+                fa_path = os.path.join(full_length_ref_dir, fa_file)
+                with open(fa_path) as inf:
+                    out_fl.write(inf.read())
+                written += 1
+        if written > 0:
+            align_fasta = combined_fl
 
     print(f"Aligning {n_sampled:,} sampled reads ({reads_per_well}/well) "
           f"to {len(ref_records)} library variants ({workers} threads)...")
@@ -1249,7 +1292,7 @@ def assign_variants_from_reads(
     mm2_stderr_fh = open(mm2_log, "w")
     mm2 = subprocess.Popen(
         [minimap2_path, "-x", "map-ont", "--secondary=no",
-         "-t", str(workers), ref_fasta, fq_path],
+         "-t", str(workers), align_fasta, fq_path],
         stdout=subprocess.PIPE, stderr=mm2_stderr_fh,
     )
 
@@ -1291,6 +1334,10 @@ def assign_variants_from_reads(
         mask = well_df["global_well"] == well
         if not mask.any():
             continue
+        # ref_lookup holds variable-only sequences keyed by variant ID.
+        # When full-length refs were used for alignment, best_ref is still
+        # the same variant ID (FASTA headers match), so the lookup gives
+        # the correct short variable sequence — no stripping needed.
         ref_seq = ref_lookup.get(best_ref, "")
         well_df.loc[mask, "major_ref"] = best_ref
         well_df.loc[mask, "ref_seq"] = ref_seq
@@ -1298,6 +1345,19 @@ def assign_variants_from_reads(
         total = sum(counts.values())
         well_df.loc[mask, "major_freq"] = best_count / total if total else 0
         n_assigned += 1
+
+    # Wells that got no alignments couldn't be assigned — mark them clearly
+    # rather than leaving the internal orient-ref name visible in the output.
+    unassigned_mask = ~well_df["major_ref"].isin(ref_lookup)
+    if unassigned_mask.any():
+        well_df.loc[unassigned_mask, "major_ref"] = "unassigned"
+        well_df.loc[unassigned_mask, "ref_seq"] = ""
+        well_df.loc[unassigned_mask, "ref_len"] = 0
+        well_df.loc[unassigned_mask, "major_freq"] = 0.0
+        n_unassigned = int(unassigned_mask.sum())
+        print(f"  {n_unassigned} wells could not be assigned to any library variant "
+              f"(reads too short or no alignment)")
+
 
     print(f"  Assigned variants to {n_assigned:,} / {len(well_df):,} wells")
     return well_df
@@ -1684,7 +1744,7 @@ def parse_vector_fasta(vector_fasta_path: str) -> tuple:
 
 
 def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
-                    consensus_dir: str = None):
+                    consensus_dir: str = None, frame_offset: int = 0):
     """Extract reference matches using consensus CIGAR string.
 
     When flank lengths are provided (from --vector-fasta), also checks
@@ -1717,6 +1777,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
             # Use aligned pairs from consensus BAM for per-position analysis
             flank_result = _check_flanking_regions(
                 well, ref_len, flank_5p_len, flank_3p_len, consensus_dir,
+                frame_offset=frame_offset,
             )
             status = flank_result["cons_check"]
             well_df.at[index, "flank_check"] = flank_result["flank_check"]
@@ -1755,6 +1816,7 @@ def _check_flanking_regions(
     flank_5p_len: int,
     flank_3p_len: int,
     consensus_dir: str,
+    frame_offset: int = 0,
 ) -> dict:
     """Analyse flanking and variable regions from a consensus BAM.
 
@@ -1857,8 +1919,8 @@ def _check_flanking_regions(
                     var_ref_bases.append(ref_base.upper())
         if len(var_query_bases) == variable_len and len(var_ref_bases) == variable_len:
             try:
-                q_protein = Seq("".join(var_query_bases)).translate()
-                r_protein = Seq("".join(var_ref_bases)).translate()
+                q_protein = Seq("".join(var_query_bases)[frame_offset:]).translate()
+                r_protein = Seq("".join(var_ref_bases)[frame_offset:]).translate()
                 if q_protein == r_protein:
                     cons_check = "Silent Mutation"
                 else:

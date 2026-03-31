@@ -132,7 +132,8 @@ def _well_label(r, c):
 def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
                                min_reads=100, max_lines=6,
                                well_size=26, plot_width=800,
-                               streakout_wells=None):
+                               streakout_wells=None,
+                               mutation_wells=None):
     
     ROWS = list(string.ascii_uppercase[:16])  # A–P
 
@@ -175,6 +176,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     full_layout["well"] = full_layout.apply(lambda r: _well_label(r["row"], r["col"]), axis=1)
 
     _streakout_set = streakout_wells or set()
+    _mutation_set = mutation_wells or set()
 
     def fill_plate(p):
         merged = full_layout.copy()
@@ -226,7 +228,35 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         merged["streakout_url"] = merged.apply(_streakout_url, axis=1)
         merged["streakout_hint"] = merged["streakout_url"].apply(
             lambda u: '<div style="font-size:11px;color:#2563eb;margin-top:2px;">'
-                      '→ Click to view pileup</div>' if u else ""
+                      '→ Multiple colonies — click to view pileup</div>' if u else ""
+        )
+
+        # Red top-left corner tab for mutation wells (mapped to a library member
+        # but consensus has a non-synonymous mutation or indel).
+        mut_offset = 0.37
+        def _mutation_overlay(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            if key in _mutation_set:
+                return (
+                    [r["col"] - mut_offset, r["col"] - mut_offset, r["col"] + mut_offset],
+                    [(r["row"], mut_offset), (r["row"], -mut_offset), (r["row"], mut_offset)],
+                )
+            return ([], [])
+
+        merged["mutation_xs"], merged["mutation_ys"] = zip(
+            *merged.apply(_mutation_overlay, axis=1)
+        )
+
+        def _mutation_url(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            if key in _mutation_set:
+                return f"mutation/pileup/well_{key}.html"
+            return ""
+
+        merged["mutation_url"] = merged.apply(_mutation_url, axis=1)
+        merged["mutation_hint"] = merged["mutation_url"].apply(
+            lambda u: '<div style="font-size:11px;color:#dc2626;margin-top:2px;">'
+                      '⚠ Mutation — click to view pileup</div>' if u else ""
         )
         return merged
 
@@ -245,6 +275,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         Reads: @reads &nbsp;|&nbsp; Top frac: @frac{0.0%}
       </div>
       @streakout_hint{safe}
+      @mutation_hint{safe}
     </div>
     """
 
@@ -268,11 +299,17 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         "streakout_xs", "streakout_ys", source=src,
         fill_color="#2563eb", fill_alpha=1.0, line_color=None
     )
+    fig.patches(
+        "mutation_xs", "mutation_ys", source=src,
+        fill_color="#dc2626", fill_alpha=1.0, line_color=None
+    )
     fig.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
     fig.add_tools(TapTool(renderers=[well_renderer], callback=CustomJS(args=dict(src=src), code="""
         const indices = src.selected.indices;
         if (indices.length > 0) {
-            const url = src.data['streakout_url'][indices[0]];
+            const so_url = src.data['streakout_url'][indices[0]];
+            const mut_url = src.data['mutation_url'][indices[0]];
+            const url = so_url || mut_url;
             if (url && url.length > 0) {
                 window.open(url, '_blank');
             }
@@ -323,7 +360,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
 
 
 def save_plate_map_html(df, output_path, title="Plate Map",
-                        streakout_wells=None, **kwargs):
+                        streakout_wells=None, mutation_wells=None, **kwargs):
     """Generate an interactive plate map and save as standalone HTML.
 
     Wraps :func:`make_plate_map_bokeh_reads` and writes a self-contained
@@ -335,11 +372,14 @@ def save_plate_map_html(df, output_path, title="Plate Map",
         title: HTML page title.
         streakout_wells: Optional set of ``"{plate}_{well}"`` keys for
             streak-out candidates (shown as blue corner tabs).
+        mutation_wells: Optional set of ``"{plate}_{well}"`` keys for
+            wells with consensus mutations (shown as red corner tabs).
         **kwargs: Forwarded to :func:`make_plate_map_bokeh_reads`.
     """
     from pathlib import Path
 
     layout = make_plate_map_bokeh_reads(df, streakout_wells=streakout_wells,
+                                        mutation_wells=mutation_wells,
                                         **kwargs)
     html = file_html(layout, INLINE, title)
     html = _inject_usortm_theme(html)

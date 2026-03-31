@@ -371,7 +371,7 @@ def detect_streakout_candidates_orient_ref(
     output_dir: str,
     minimap2_path: str,
     samtools_path: str,
-    min_well_reads: int = 50,
+    min_well_reads: int = 20,
     min_group_reads: int = 5,
     workers: int = 4,
 ) -> list:
@@ -472,10 +472,14 @@ def detect_streakout_candidates_orient_ref(
                 "is_major": (ref_id == orient_ref_name),
             })
 
-        correct_groups = [g for g in group_results if _is_correct(g["status"])]
-        if len(correct_groups) < 2:
+        # A well with bimodal reads IS a multiple-colony well regardless of
+        # whether each sub-consensus is clean.  We only require 2+ groups to
+        # have been produced from the split; recoverable_variants is limited
+        # to groups whose consensus is correct (Perfect Match / Silent Mutation).
+        if len(group_results) < 2:
             return None
 
+        correct_groups = [g for g in group_results if _is_correct(g["status"])]
         recoverable = [g["variant"] for g in correct_groups if not g["is_major"]]
         top_frac = max((g["frac"] for g in group_results), default=1.0)
         return {
@@ -569,11 +573,13 @@ def _process_well_for_streakout(
             "is_major": (frac >= top_frac - 0.01),
         })
 
-    # Check: 2+ groups with correct consensus?
-    correct_groups = [g for g in group_results if _is_correct(g["status"])]
-    if len(correct_groups) < 2:
+    # A well with 2+ read groups is a multiple-colony well regardless of
+    # whether each sub-consensus is clean.  recoverable_variants is limited
+    # to groups whose consensus is correct (Perfect Match / Silent Mutation).
+    if len(group_results) < 2:
         return None
 
+    correct_groups = [g for g in group_results if _is_correct(g["status"])]
     # Identify recoverable (minority) variants
     recoverable = [
         g["variant"] for g in correct_groups if not g["is_major"]
@@ -597,7 +603,7 @@ def detect_streakout_candidates(
     output_dir: str,
     minimap2_path: str = None,
     samtools_path: str = None,
-    min_well_reads: int = 50,
+    min_well_reads: int = 20,
     min_group_reads: int = 5,
     max_top_frac: float = 0.9,
     workers: int = 4,
@@ -792,10 +798,13 @@ def generate_well_pileup_html(
         is_recoverable = ref_id in candidate_info["recoverable_variants"]
 
         # Align to reference and parse BAM for pileup
+        # Reads that don't reach ref_len//2 (concatemer split-reads) are
+        # automatically excluded by _build_pileup_grid's default filter.
         pileup_rows = _build_pileup_grid(
             grp, ref_fasta, ref_seq, ref_len,
             minimap2_path, samtools_path,
         )
+        n_reads = len(pileup_rows)  # count only reads that reach the variable region
 
         group_sections.append({
             "ref_id": ref_id,
@@ -828,12 +837,20 @@ def _build_pileup_grid(
     minimap2_path: str,
     samtools_path: str,
     ref_index: str = None,
+    min_overlap_pos: int = -1,
 ) -> list[list[tuple[str, bool]]]:
     """Align group reads and build a character grid for pileup display.
+
+    Only reads whose alignment extends past *min_overlap_pos* are included.
+    Defaults to ``ref_len // 2``, which cleanly excludes concatemer split-reads
+    (~150–330 bp) that cover only the 5' flank while keeping full-length reads
+    (typically >1 kb).  Pass 0 to disable the filter entirely.
 
     Returns a list of rows, where each row is a list of
     (base_char, is_match) tuples indexed by reference position.
     """
+    if min_overlap_pos < 0:
+        min_overlap_pos = ref_len // 2
     with tempfile.TemporaryDirectory() as tmp:
         fq_path = os.path.join(tmp, "reads.fastq")
         bam_path = os.path.join(tmp, "aligned.bam")
@@ -869,6 +886,17 @@ def _build_pileup_grid(
             with pysam.AlignmentFile(bam_path, "rb") as bf:
                 for read in bf:
                     if read.is_unmapped:
+                        continue
+                    # Skip reads that don't span the midpoint of the reference.
+                    # 5' concatemers end before the midpoint; 3' concatemers
+                    # start after it.  Only full-length reads cross it from
+                    # both sides and cover the variable region.
+                    if min_overlap_pos and (
+                        read.reference_end is None
+                        or read.reference_start is None
+                        or read.reference_end <= min_overlap_pos
+                        or read.reference_start >= min_overlap_pos
+                    ):
                         continue
                     row = [("-", True)] * ref_len  # default: gap
                     pairs = read.get_aligned_pairs(with_seq=True)
@@ -1551,10 +1579,15 @@ def _generate_one_pick_pileup(
         minimap2_path, samtools_path, ref_index=ref_index,
     )
 
+    # Use the number of reads that actually aligned to the variable region
+    # (after flank filtering) as the displayed count, not the raw read count
+    # which includes concatemer reads that only cover the 5' flank.
+    n_variable_reads = len(pileup_rows)
+
     candidate_info = {
         "plate": source_plate,
         "well": source_well,
-        "total_reads": reads,
+        "total_reads": n_variable_reads,
         "top_frac": consensus_fraction,
         "recoverable_variants": [],
         "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
@@ -1562,7 +1595,7 @@ def _generate_one_pick_pileup(
 
     group_sections = [{
         "ref_id": variant,
-        "n_reads": reads,
+        "n_reads": n_variable_reads,
         "frac": consensus_fraction,
         "status": "",
         "is_recoverable": False,

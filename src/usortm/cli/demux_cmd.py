@@ -313,6 +313,23 @@ def demux(
                 for row in csv.DictReader(_sf):
                     streakout_wells.add(f"{row['plate']}_{row['well']}")
 
+    # Build mutation wells set (wells assigned to a library member but with a
+    # non-synonymous/indel mutation in the consensus sequence).
+    # Exclude streakout candidates — they already have a blue triangle and their
+    # bad consensus is a result of mixed reads, not a true mutation.
+    mutation_wells = set()
+    assignments_csv = demux_output / "well_assignments.csv"
+    if assignments_csv.exists():
+        with open(assignments_csv) as _af:
+            for row in csv.DictReader(_af):
+                if (
+                    row.get("cons_check", "") in ("Other Error", "Error")
+                    and int(row.get("reads", 0)) >= 20
+                ):
+                    well_key = f"{row['plate']}_{row['well']}"
+                    if well_key not in streakout_wells:
+                        mutation_wells.add(well_key)
+
     # Generate interactive plate map (Bokeh is an optional dependency)
     try:
         import pandas as pd
@@ -338,6 +355,7 @@ def demux(
                     read_df, str(plate_map_path),
                     title="Demux Plate Map",
                     streakout_wells=streakout_wells,
+                    mutation_wells=mutation_wells,
                     min_reads=min_reads,
                 )
                 console.print(
