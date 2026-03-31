@@ -13,6 +13,7 @@ from .reorder import reorder
 from .report import report
 from .merge import merge
 from .config_cmd import config_app
+from .remote_cmd import remote_app
 from .platemap import platemap
 
 console = get_console()
@@ -61,6 +62,7 @@ def main(
 
         [cyan]estimate[/cyan]  Quick cost/effort estimation
         [cyan]platemap[/cyan]  Regenerate demux plate map HTML from existing results
+        [cyan]remote[/cyan]    Run demux on a remote server via SSH
     """
     pass
 
@@ -75,5 +77,6 @@ app.command(name="merge")(merge)
 app.command(name="report")(report)
 app.command(name="platemap")(platemap)
 app.add_typer(config_app, name="config")
+app.add_typer(remote_app, name="remote")
 
-__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "merge", "report", "platemap"]
+__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "merge", "report", "platemap", "remote_app"]

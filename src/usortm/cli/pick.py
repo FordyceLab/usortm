@@ -266,6 +266,18 @@ def pick(
     # Generate per-well pileup HTMLs for picked hits
     pileup_url_map: dict = {}
     if pileups:
+        # Check if read data is available (may be missing for remote demux)
+        read_df_path = demux_output / "read_df.csv"
+        if not read_df_path.exists():
+            _remote = project.get("workflow_steps", {}).get("demux", {}).get("remote")
+            if _remote:
+                console.print(
+                    "[yellow]Skipping pileups:[/yellow] read_df.csv not downloaded from remote.\n"
+                    f"  Run: [cyan]usortm remote fetch {project_dir}/ --read-data[/cyan] to enable pileups."
+                )
+                pileups = False
+
+    if pileups:
         try:
             from usortm.demux.streakout import generate_pick_pileups
 

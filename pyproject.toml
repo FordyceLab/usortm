@@ -45,8 +45,12 @@ demux = [
     "pysam>=0.20",
     "tqdm>=4.60",
 ]
+remote = [
+    "fabric>=3.0",
+    "paramiko>=3.0",
+]
 all = [
-    "usortm[dev,viz,demux]",
+    "usortm[dev,viz,demux,remote]",
 ]
 
 [project.scripts]
