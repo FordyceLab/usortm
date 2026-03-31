@@ -567,14 +567,28 @@ exit $EXIT_CODE
                 done = raw == "1"
             stages.append({"label": label, "done": done})
 
-        # Also grab the last non-empty log line for context
-        log_tail = self.conn.run(
-            f"tail -n 5 {job_dir}/usortm.log 2>/dev/null | "
-            r"sed 's/\x1b\[[0-9;]*m//g' | grep -v '^\s*$' | tail -n 1",
-            hide=True,
-            warn=True,
+        # If download stage is active, show tmp file size as progress hint
+        download_active = (
+            has_url_stage
+            and stages
+            and not stages[0]["done"]
+            and basic["status"] == "RUNNING"
         )
-        last_line = log_tail.stdout.strip()
+        if download_active:
+            size_result = self.conn.run(
+                f'du -sh "{inputs_dir}/download.tmp" 2>/dev/null | cut -f1 || echo ""',
+                hide=True, warn=True,
+            )
+            size = size_result.stdout.strip()
+            last_line = f"Downloading... {size} so far" if size else "Downloading..."
+        else:
+            log_tail = self.conn.run(
+                f"tail -n 5 {job_dir}/usortm.log 2>/dev/null | "
+                r"sed 's/\x1b\[[0-9;]*m//g' | grep -v '^\s*$' | tail -n 1",
+                hide=True,
+                warn=True,
+            )
+            last_line = log_tail.stdout.strip()
 
         return {**basic, "stages": stages, "last_log_line": last_line}
 
