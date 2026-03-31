@@ -41,6 +41,7 @@ class RemoteDemux:
     REQUIRED_TOOLS = {
         "minimap2": "https://github.com/lh3/minimap2",
         "samtools": "https://www.htslib.org/download/",
+        "dorado": "https://github.com/nanoporetech/dorado/releases",
         "usortm": "pip install usortm[demux]",
     }
 
@@ -530,9 +531,11 @@ exit $EXIT_CODE
         results = {"tools": {}, "ok": True}
 
         for tool, install_hint in self.REQUIRED_TOOLS.items():
+            # Use a login shell so /etc/profile.d/*.sh entries (e.g. dorado, conda
+            # environments) are sourced before the check.
             check = self.conn.run(
-                f"command -v {tool} 2>/dev/null && {tool} --version 2>&1 | head -1 "
-                f'|| echo "__NOT_FOUND__"',
+                f"bash -l -c 'command -v {tool} 2>/dev/null && {tool} --version 2>&1 | head -1 "
+                f"|| echo \"__NOT_FOUND__\"'",
                 hide=True,
                 warn=True,
             )
@@ -569,12 +572,13 @@ exit $EXIT_CODE
     def _find_remote_usortm(self) -> str:
         """Try multiple strategies to find the usortm executable on the remote."""
         strategies = [
-            # Login shell (sources .bash_profile)
+            # Login shell (sources /etc/profile.d/*.sh and .bash_profile)
             "bash -l -c 'which usortm 2>/dev/null'",
             # Interactive login shell (sources .bashrc with conda init)
             "bash -l -i -c 'which usortm 2>/dev/null'",
-            # Search common conda install locations
+            # Search common conda install locations (Linux and macOS)
             "find $HOME/miniconda3 $HOME/anaconda3 $HOME/.conda $HOME/opt/anaconda3 "
+            "/opt/conda /opt/anaconda3 /opt/miniconda3 "
             "-name usortm -type f 2>/dev/null | head -1",
         ]
         for cmd in strategies:
