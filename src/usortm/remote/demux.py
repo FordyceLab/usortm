@@ -453,10 +453,20 @@ exit $EXIT_CODE
 
         return local_demux
 
-    def fetch_read_data(self, job_key: str, project_dir: Path) -> Path:
+    def fetch_read_data(
+        self,
+        job_key: str,
+        project_dir: Path,
+        on_file=None,
+        transfer_callback=None,
+    ) -> Path:
         """Download read_df.csv and per-variant reference FASTAs.
 
         These are needed for pileup generation during pick.
+
+        *on_file(fname, size_bytes)* is called just before each file transfer
+        starts.  *transfer_callback(transferred, total)* is forwarded to the
+        SFTP layer for byte-level progress on large files.
         """
         project_dir = Path(project_dir)
         local_demux = project_dir / "demux_output"
@@ -464,6 +474,16 @@ exit $EXIT_CODE
 
         job_dir = f"{self.remote_job_dir}/{job_key}"
         remote_demux = f"{job_dir}/demux_output"
+
+        def _size(remote_path: str) -> int:
+            r = self.conn.run(
+                f'stat -c%s "{remote_path}" 2>/dev/null || echo 0',
+                hide=True, warn=True,
+            )
+            try:
+                return int(r.stdout.strip())
+            except ValueError:
+                return 0
 
         # Download read_df.csv (can be large — check if gzipped version exists)
         for candidate in ("read_df.csv.gz", "read_df.csv"):
@@ -473,7 +493,12 @@ exit $EXIT_CODE
                 hide=True,
             )
             if "OK" in exists.stdout:
-                self.conn.get(remote_path, str(local_demux / candidate))
+                sz = _size(remote_path)
+                if on_file:
+                    on_file(candidate, sz)
+                sftp = self.conn.sftp()
+                sftp.get(remote_path, str(local_demux / candidate),
+                         callback=transfer_callback)
                 break
 
         # Download reference_fasta/single_ref_fastas/ directory
@@ -485,11 +510,15 @@ exit $EXIT_CODE
             f'ls {ref_dir}/*.fasta 2>/dev/null || true',
             hide=True,
         )
-        for line in ls_result.stdout.strip().split("\n"):
-            line = line.strip()
-            if line and line.endswith(".fasta"):
-                fname = Path(line).name
-                self.conn.get(line, str(local_ref_dir / fname))
+        fasta_files = [
+            line.strip() for line in ls_result.stdout.strip().split("\n")
+            if line.strip().endswith(".fasta")
+        ]
+        for i, remote_path in enumerate(fasta_files):
+            fname = Path(remote_path).name
+            if on_file:
+                on_file(f"FASTAs ({i + 1}/{len(fasta_files)})", 0)
+            self.conn.get(remote_path, str(local_ref_dir / fname))
 
         # Update project state
         self._update_project_state(project_dir, job_key, read_data_downloaded=True)

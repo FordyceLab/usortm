@@ -466,8 +466,43 @@ def remote_fetch(
     console.print(f"[green]\u2713[/green] Metadata saved to {local_demux}")
 
     if read_data:
-        console.print("Fetching read data (this may take a while)...")
-        mgr.fetch_read_data(job_key, project_dir)
+        _fetch_progress: dict = {}
+
+        def _on_file(fname: str, size_bytes: int):
+            if "ctx" in _fetch_progress:
+                _fetch_progress["ctx"].stop()
+            ctx = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                DownloadColumn(),
+                TransferSpeedColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            )
+            ctx.start()
+            total = size_bytes if size_bytes else None
+            task = ctx.add_task(f"  {fname}", total=total)
+            _fetch_progress["ctx"] = ctx
+            _fetch_progress["task"] = task
+
+        def _transfer_cb(transferred: int, total: int):
+            if "ctx" in _fetch_progress:
+                _fetch_progress["ctx"].update(
+                    _fetch_progress["task"],
+                    completed=transferred,
+                    total=total,
+                )
+
+        try:
+            mgr.fetch_read_data(
+                job_key, project_dir,
+                on_file=_on_file,
+                transfer_callback=_transfer_cb,
+            )
+        finally:
+            if "ctx" in _fetch_progress:
+                _fetch_progress["ctx"].stop()
+
         console.print(f"[green]\u2713[/green] Read data saved to {local_demux}")
 
     console.print()
