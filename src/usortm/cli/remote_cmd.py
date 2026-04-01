@@ -312,25 +312,22 @@ def remote_demux(
 # ── status ───────────────────────────────────────────────────────────
 
 
-def _render_status(info: dict, project_dir) -> str:
-    """Build the status display as a string for console or Live."""
+def _render_status(info: dict, project_dir):
+    """Build the status display as a Rich renderable Group."""
+    from rich.console import Group
     from rich.text import Text
-    from io import StringIO
-    from rich.console import Console as _Console
 
-    buf = StringIO()
-    c = _Console(file=buf, highlight=False, force_terminal=True)
-
+    parts = []
     status = info["status"]
     status_color = {"RUNNING": "yellow", "COMPLETED": "green", "FAILED": "red"}.get(status, "white")
     job_key = info.get("job_key", "?")
 
-    c.print()
-    c.print(Panel.fit(
+    parts.append(Text(""))
+    parts.append(Panel.fit(
         f"[brand]uSort-M[/brand] Remote Demux  ·  [bold]{job_key}[/bold]  ·  [{status_color}]{status}[/{status_color}]",
         border_style=BORDER_STYLE,
     ))
-    c.print()
+    parts.append(Text(""))
 
     stages = info.get("stages", [])
     current_idx = None
@@ -360,21 +357,21 @@ def _render_status(info: dict, project_dir) -> str:
             style = "[dim]"
 
         close = "[/bold]" if style == "[bold]" else "[/dim]" if style == "[dim]" else ""
-        c.print(f"  {icon}  {style}{label}{close}")
+        parts.append(Text.from_markup(f"  {icon}  {style}{label}{close}"))
 
     last_line = info.get("last_log_line", "").strip()
     if last_line and status == "RUNNING":
-        c.print()
-        c.print(f"  [dim]{last_line}[/dim]")
+        parts.append(Text(""))
+        parts.append(Text.from_markup(f"  [dim]{last_line}[/dim]"))
 
-    c.print()
+    parts.append(Text(""))
     if status == "COMPLETED":
-        c.print(f"[bold]Next:[/bold] [cyan]usortm remote fetch {project_dir}/[/cyan]")
+        parts.append(Text.from_markup(f"[bold]Next:[/bold] [cyan]usortm remote fetch {project_dir}/[/cyan]"))
     elif status == "FAILED":
-        c.print(f"[bold]Check log:[/bold] [cyan]usortm remote log {project_dir}/[/cyan]")
-    c.print()
+        parts.append(Text.from_markup(f"[bold]Check log:[/bold] [cyan]usortm remote log {project_dir}/[/cyan]"))
+    parts.append(Text(""))
 
-    return buf.getvalue()
+    return Group(*parts)
 
 
 @remote_app.command(name="status")
@@ -403,7 +400,7 @@ def remote_status(
 
     if not watch:
         info = mgr.get_detailed_status(job_id)
-        console.print(_render_status(info, project_dir), end="")
+        console.print(_render_status(info, project_dir))
         return
 
     try:
