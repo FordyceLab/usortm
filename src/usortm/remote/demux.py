@@ -485,8 +485,11 @@ exit $EXIT_CODE
             except ValueError:
                 return 0
 
-        # Download read_df.csv (can be large — check if gzipped version exists)
+        # Download read_df.csv (can be large — skip if already local)
         for candidate in ("read_df.csv.gz", "read_df.csv"):
+            local_path = local_demux / candidate
+            if local_path.exists():
+                break  # already downloaded
             remote_path = f"{remote_demux}/{candidate}"
             exists = self.conn.run(
                 f'[ -f "{remote_path}" ] && echo OK || echo MISSING',
@@ -497,7 +500,7 @@ exit $EXIT_CODE
                 if on_file:
                     on_file(candidate, sz)
                 sftp = self.conn.sftp()
-                sftp.get(remote_path, str(local_demux / candidate),
+                sftp.get(remote_path, str(local_path),
                          callback=transfer_callback)
                 break
 
@@ -516,6 +519,8 @@ exit $EXIT_CODE
         ]
         for i, remote_path in enumerate(fasta_files):
             fname = Path(remote_path).name
+            if (local_ref_dir / fname).exists():
+                continue
             if on_file:
                 on_file(f"FASTAs ({i + 1}/{len(fasta_files)})", 0)
             self.conn.get(remote_path, str(local_ref_dir / fname))
