@@ -172,15 +172,31 @@ def demux(
         demux_output = project_dir / "rounds" / str(round_num) / "demux_output"
         effective_params = round_state  # n_plates, barcode_kit, library_size from round
 
-        # Auto-use round variants as library reference when not explicitly provided
+        # Auto-use round variants as library reference when not explicitly provided.
+        # Prefer matching against the original library (sequence-based, naming-agnostic)
+        # so re-order rounds always use clean sequences without cloning artifacts.
         if library_csv is None and reference is None:
             round_variants = round_dir / "variants.csv"
             if round_variants.exists():
-                library_csv = round_variants
-                console.print(
-                    f"[green]\u2713[/green] Auto-using round {round_num} variants "
-                    f"as reference: {round_variants}"
+                original_ref = project_dir / "demux_output" / "library_reference.fasta"
+                subset_ref = _extract_original_subset(
+                    round_variants_csv=round_variants,
+                    original_ref_fasta=original_ref,
+                    demux_output=demux_output,
                 )
+                if subset_ref is not None:
+                    reference = subset_ref
+                    console.print(
+                        f"[green]\u2713[/green] Matched round {round_num} variants to "
+                        f"original library sequences: {subset_ref}"
+                    )
+                else:
+                    # Fall back to round CSV if original library not available
+                    library_csv = round_variants
+                    console.print(
+                        f"[green]\u2713[/green] Auto-using round {round_num} variants "
+                        f"as reference: {round_variants}"
+                    )
     else:
         demux_output = project_dir / "demux_output"
         effective_params = project
@@ -318,17 +334,19 @@ def demux(
     # Exclude streakout candidates — they already have a blue triangle and their
     # bad consensus is a result of mixed reads, not a true mutation.
     mutation_wells = set()
+    silent_mutation_wells = set()
     assignments_csv = demux_output / "well_assignments.csv"
     if assignments_csv.exists():
         with open(assignments_csv) as _af:
             for row in csv.DictReader(_af):
-                if (
-                    row.get("cons_check", "") in ("Other Error", "Error")
-                    and int(row.get("reads", 0)) >= 20
-                ):
-                    well_key = f"{row['plate']}_{row['well']}"
-                    if well_key not in streakout_wells:
+                cons = row.get("cons_check", "")
+                reads = int(row.get("reads", 0))
+                well_key = f"{row['plate']}_{row['well']}"
+                if reads >= 20 and well_key not in streakout_wells:
+                    if cons in ("Other Error", "Error"):
                         mutation_wells.add(well_key)
+                    elif cons == "Silent Mutation":
+                        silent_mutation_wells.add(well_key)
 
     # Generate interactive plate map (Bokeh is an optional dependency)
     try:
@@ -356,6 +374,7 @@ def demux(
                     title="Demux Plate Map",
                     streakout_wells=streakout_wells,
                     mutation_wells=mutation_wells,
+                    silent_mutation_wells=silent_mutation_wells,
                     min_reads=min_reads,
                 )
                 console.print(
@@ -468,6 +487,150 @@ def demux(
         "\u2192 Generate hit-picking list"
     )
     console.print()
+
+
+def _extract_original_subset(
+    round_variants_csv: Path,
+    original_ref_fasta: Path,
+    demux_output: Path,
+) -> Optional[Path]:
+    """Match re-order round variants to original library sequences by similarity.
+
+    Re-order round variants.csv files may contain cloning artifacts (e.g.
+    restriction enzyme recognition sites) in their sequences that are absent
+    from the physical library members.  This function identifies which entries
+    in the original (round-1) library reference best match each round variant
+    purely by sequence identity — completely independent of naming conventions.
+
+    Steps:
+      1. Strip all lowercase characters from each round variant sequence to
+         obtain the uppercase (insert) region.
+      2. For each round variant, score its identity against every original
+         library entry using a fast k-mer overlap approach.
+      3. Return a subset FASTA containing the best-matching original sequences.
+
+    Args:
+        round_variants_csv: Path to the re-order round variants.csv.
+        original_ref_fasta: Path to the original library_reference.fasta.
+        demux_output: Output directory where the subset FASTA will be written.
+
+    Returns:
+        Path to the subset FASTA file, or None if the original reference is
+        missing or no matches are found.
+    """
+    if not original_ref_fasta.exists() or not round_variants_csv.exists():
+        return None
+
+    try:
+        from Bio import SeqIO
+        from Bio.SeqRecord import SeqRecord
+        from Bio.Seq import Seq as _BioSeq
+    except ImportError:
+        return None
+
+    # ---- load original library sequences ---------------------------------
+    orig_records = {
+        rec.id: rec
+        for rec in SeqIO.parse(str(original_ref_fasta), "fasta")
+    }
+    if not orig_records:
+        return None
+
+    # Build k-mer sets for each original sequence (k=15, every position).
+    # NOTE: step must be 1 — a larger step skips positions and breaks matching
+    # when the two sequences are offset by an amount not divisible by the step.
+    _K = 15
+    _STEP = 1
+
+    def _kmers(seq: str) -> set:
+        seq = seq.upper()
+        return {seq[i: i + _K] for i in range(0, len(seq) - _K + 1, _STEP)}
+
+    orig_kmers = {name: _kmers(str(rec.seq)) for name, rec in orig_records.items()}
+
+    # ---- read round variants and strip lowercase (preserve CSV order) ----
+    # round_order: list of round-2 names in the order they appear in the CSV.
+    # round_stripped: round2_name -> uppercase insert sequence.
+    round_order: list[str] = []
+    round_stripped: dict[str, str] = {}
+    with open(round_variants_csv) as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames:
+            reader.fieldnames = [h.strip() for h in reader.fieldnames]
+        for row in reader:
+            row = {k.strip(): v for k, v in row.items()}
+            name = row.get("Name", "").strip()
+            raw_seq = row.get("Sequence", "")
+            stripped = "".join(c for c in raw_seq if c.isupper())
+            if name and stripped:
+                round_order.append(name)
+                round_stripped[name] = stripped
+
+    if not round_stripped:
+        return None
+
+    # ---- match each round variant to the best original entry -------------
+    # matched: list of (round2_name, orig_name) in round-2 CSV order.
+    matched: list[tuple[str, str]] = []
+    unmatched: list[str] = []
+
+    for _rname in round_order:
+        _rseq = round_stripped[_rname]
+        _rkmers = _kmers(_rseq)
+        best_name, best_score = None, -1
+        for _oname, _okmers in orig_kmers.items():
+            if _okmers:
+                # k-mer overlap: shared k-mers / smaller set
+                shared = len(_rkmers & _okmers)
+                denom = min(len(_rkmers), len(_okmers))
+                score = shared / denom if denom else 0.0
+            else:
+                # Original sequence is shorter than K; fall back to substring check.
+                _oseq = str(orig_records[_oname].seq).upper()
+                score = 1.0 if _oseq in _rseq.upper() else 0.0
+            if score > best_score:
+                best_score = score
+                best_name = _oname
+        # Require at least 50 % k-mer overlap to accept a match
+        if best_name is not None and best_score >= 0.5:
+            matched.append((_rname, best_name))
+        else:
+            unmatched.append(_rname)
+
+    if not matched:
+        return None
+
+    if unmatched:
+        console.print(
+            f"[yellow]⚠[/yellow] {len(unmatched)} round variant(s) could not be "
+            f"matched to the original library and will use their own sequences: "
+            + ", ".join(unmatched[:5]) + ("…" if len(unmatched) > 5 else "")
+        )
+
+    # ---- write subset FASTA ----------------------------------------------
+    # Records are named using the round-2 name so that the demux pipeline
+    # assigns round-2 names to wells.  This ensures the pick command can
+    # match demux results against the round-2 library order (which also uses
+    # round-2 names), preventing duplicate placeholder rows.
+    # Records are written in round-2 CSV order so the plate layout follows
+    # the order specified in the reorder variants file.
+    from Bio.SeqRecord import SeqRecord
+    from Bio.Seq import Seq as _BioSeq
+
+    demux_output.mkdir(parents=True, exist_ok=True)
+    subset_path = demux_output / "library_reference.fasta"
+    subset_records = []
+    for round2_name, orig_name in matched:
+        orig_rec = orig_records[orig_name]
+        renamed = SeqRecord(_BioSeq(str(orig_rec.seq)), id=round2_name, description="")
+        subset_records.append(renamed)
+    SeqIO.write(subset_records, str(subset_path), "fasta")
+
+    console.print(
+        f"[green]\u2713[/green] Matched {len(matched)} / "
+        f"{len(round_stripped)} round variants to original library sequences"
+    )
+    return subset_path
 
 
 def _load_mask_config(mask_file: Path) -> dict:

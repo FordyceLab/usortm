@@ -7,6 +7,7 @@ can be overridden via function parameters.
 """
 
 import csv as csv_mod
+import hashlib
 import os
 import glob
 import gzip
@@ -187,20 +188,29 @@ def align_and_split_by_strand(
     oriented_fq = os.path.join(output_dir, "oriented_reads.fastq")
     stats_path = os.path.join(output_dir, "align_stats.json")
 
+    # --- Cache invalidation: hash the reference FASTA so we detect changes ---
+    ref_hash = hashlib.md5(open(multi_ref_fasta, "rb").read()).hexdigest()
+
     # --- Cache check: if oriented FASTQ already exists, rebuild from it ---
     if os.path.exists(oriented_fq):
-        logger.info("Using cached oriented FASTQ: %s", oriented_fq)
-        if progress_callback is not None:
-            progress_callback(None, None)  # signal: cached
-        ref_map, align_stats = _rebuild_ref_map_from_fastq(oriented_fq)
-        # Restore unmapped count from sidecar if available
+        cache_valid = False
         if os.path.exists(stats_path):
             with open(stats_path) as fh:
                 saved = json.load(fh)
+            if saved.get("ref_hash") == ref_hash:
+                cache_valid = True
+        if cache_valid:
+            logger.info("Using cached oriented FASTQ: %s", oriented_fq)
+            if progress_callback is not None:
+                progress_callback(None, None)  # signal: cached
+            ref_map, align_stats = _rebuild_ref_map_from_fastq(oriented_fq)
             align_stats["unmapped"] = saved.get("unmapped", 0)
+            return oriented_fq, ref_map, align_stats
         else:
-            align_stats["unmapped"] = 0
-        return oriented_fq, ref_map, align_stats
+            logger.info(
+                "Alignment reference changed — regenerating oriented FASTQ"
+            )
+            os.remove(oriented_fq)
 
     # SAM FLAG bits used below
     _FLAG_UNMAPPED = 0x4
@@ -287,9 +297,11 @@ def align_and_split_by_strand(
         "unmapped": n_unmapped,
     }
 
-    # Write sidecar for unmapped count (not encoded in FASTQ)
+    # Write sidecar for unmapped count + ref hash (for cache invalidation)
+    sidecar = dict(align_stats)
+    sidecar["ref_hash"] = ref_hash
     with open(stats_path, "w") as fh:
-        json.dump(align_stats, fh)
+        json.dump(sidecar, fh)
 
     logger.info(
         "Strand split complete: %d forward, %d reverse, %d unmapped",
@@ -1285,6 +1297,15 @@ def assign_variants_from_reads(
             for fa_file in sorted(os.listdir(full_length_ref_dir)):
                 if not fa_file.endswith(".fasta"):
                     continue
+                # Skip stale FASTA files from previous runs whose variant names
+                # are no longer in the current library reference.  Without this
+                # filter, reads can align to an old name (e.g. "ATF4;25;171")
+                # that is absent from ref_lookup, causing the well to be marked
+                # "unassigned" even though its reads clearly belong to a known
+                # variant ("ATF4.25.171").
+                ref_name = fa_file[:-len(".fasta")]
+                if ref_name not in ref_lookup:
+                    continue
                 fa_path = os.path.join(full_length_ref_dir, fa_file)
                 with open(fa_path) as inf:
                     out_fl.write(inf.read())
@@ -1790,6 +1811,9 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
             well_df.at[index, "flank_check"] = flank_result["flank_check"]
             well_df.at[index, "flank_5p_mismatches"] = flank_result["flank_5p_mismatches"]
             well_df.at[index, "flank_3p_mismatches"] = flank_result["flank_3p_mismatches"]
+            # Replace the noisy 5-read sampling fraction with the actual
+            # per-position variable-region match fraction from the consensus BAM.
+            well_df.at[index, "major_freq"] = flank_result["var_match_fraction"]
         else:
             # Original CIGAR-based logic
             if cigar is None or ref_len is None or pd.isna(ref_len):
@@ -1839,6 +1863,7 @@ def _check_flanking_regions(
         "flank_check": "No alignment",
         "flank_5p_mismatches": 0,
         "flank_3p_mismatches": 0,
+        "var_match_fraction": 0.0,
     }
 
     cons_bam = os.path.join(consensus_dir, f"{well}_consensus_align.bam")
@@ -1955,6 +1980,7 @@ def _check_flanking_regions(
     result["flank_check"] = flank_check
     result["flank_5p_mismatches"] = flank_5p_mm
     result["flank_3p_mismatches"] = flank_3p_mm
+    result["var_match_fraction"] = var_matches / variable_len if variable_len else 0.0
     return result
 
 def export_reference_map(df, 

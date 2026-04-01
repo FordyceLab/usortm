@@ -607,6 +607,12 @@ def _prepare_full_length_ref_fastas(
         )
         out_path = single_dir / f"{record.id}.fasta"
         SeqIO.write([full_record], str(out_path), "fasta")
+        # Remove stale minimap2 / samtools indexes so downstream steps
+        # regenerate them from the new full-length sequence.
+        for _ext in (".mmi", ".fai"):
+            _stale = Path(str(out_path) + _ext)
+            if _stale.exists():
+                _stale.unlink()
 
 
 def _translate_to_cli_format(

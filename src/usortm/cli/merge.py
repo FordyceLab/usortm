@@ -149,6 +149,62 @@ def merge(
         console.print("[yellow]Warning:[/yellow] No hits found after merge!")
         raise typer.Exit(1)
 
+    # Upgrade empty placeholders with streakout-recoverable variants from all rounds
+    streakout_map: dict = {}  # variant -> best source info
+    for rnum in round_nums:
+        rinfo = available[rnum]
+        so_csv = project_dir / rinfo["demux_output"] / "streakout" / "streakout_candidates.csv"
+        if not so_csv.exists():
+            continue
+        with open(so_csv) as _sf:
+            for _row in csv.DictReader(_sf):
+                groups = json.loads(_row.get("groups_json", "[]"))
+                for g in groups:
+                    variant = g.get("variant", "")
+                    if not g.get("is_recoverable"):
+                        continue
+                    reads = int(g.get("reads", 0))
+                    if variant not in streakout_map or reads > streakout_map[variant]["reads"]:
+                        pileup_html = (
+                            f"../../{rinfo['demux_output']}/streakout/"
+                            f"well_{_row['plate']}_{_row['well']}.html"
+                        )
+                        streakout_map[variant] = {
+                            "source_plate": f"R{rnum}_{_row['plate']}",
+                            "source_well": _row["well"],
+                            "reads": reads,
+                            "frac": float(g.get("frac", 0)),
+                            "pileup_url": pileup_html,
+                            "source_round": rnum,
+                        }
+
+    if streakout_map:
+        picked_variants = {h["variant"] for h in pick_list if not h.get("empty")}
+        n_upgraded = 0
+        for h in pick_list:
+            if (
+                h.get("empty")
+                and h["variant"] in streakout_map
+                and h["variant"] not in picked_variants
+            ):
+                info = streakout_map[h["variant"]]
+                h.update({
+                    "source_plate": info["source_plate"],
+                    "source_well": info["source_well"],
+                    "reads": info["reads"],
+                    "consensus_fraction": info["frac"],
+                    "pileup_url": info["pileup_url"],
+                    "tier_override": "Streakout",
+                    "source_round": info["source_round"],
+                    "empty": False,
+                })
+                n_upgraded += 1
+        if n_upgraded:
+            console.print(
+                f"[cyan]↑[/cyan] {n_upgraded} streakout-recoverable variant(s) "
+                f"added to pick plate (blue)"
+            )
+
     _assign_target_wells(pick_list, target_format, fill_order)
 
     # Write outputs
@@ -156,7 +212,7 @@ def merge(
     merged_dir.mkdir(exist_ok=True)
     pick_dir = merged_dir / "pick"
     pick_dir.mkdir(exist_ok=True)
-    integra_dir = pick_dir / "Integra ASSIST Input"
+    integra_dir = project_dir / "Integra ASSIST Input"
     integra_dir.mkdir(exist_ok=True)
 
     output_file = integra_dir / "hitlist_integra_assist_merged.csv"
@@ -165,6 +221,11 @@ def merge(
 
     # Save combined well_assignments for the merged report
     _save_merged_well_assignments(all_wells, merged_dir)
+
+    # Save pick list as JSON for the report to build detail tables
+    pick_list_file = merged_dir / "pick_list.json"
+    with open(pick_list_file, "w") as f:
+        json.dump(pick_list, f, indent=2)
 
     # Generate interactive pick plate map (Bokeh optional)
     try:
@@ -189,12 +250,14 @@ def merge(
 
     # Update master project state
     recovered = [h for h in pick_list if not h.get("empty")]
+    _streakout_hits = [h for h in recovered if h.get("tier_override") == "Streakout"]
     project["merged"] = {
         "completed": True,
         "timestamp": __import__("datetime").datetime.now().isoformat(),
         "rounds": round_nums,
         "total_hits": len(recovered),
         "unique_variants": len(set(h["variant"] for h in recovered)),
+        "streakout_variants": len(_streakout_hits),
         "tier": tier or "none",
     }
     with open(state_file, "w") as f:
@@ -321,7 +384,13 @@ def _load_library_order(project: dict, project_dir: Path) -> Optional[dict]:
 
 
 def _passes_tier(well: dict, tier: Optional[str]) -> bool:
-    """Return True if the well meets the tier threshold."""
+    """Return True if the well meets the tier threshold.
+
+    Wells with non-silent mutations (cons_check "Error" or "Other Error")
+    are always excluded.
+    """
+    if well.get("cons_check", "") in ("Error", "Other Error"):
+        return False
     if tier is None:
         return True
     thresh = TIER_THRESHOLDS[tier]

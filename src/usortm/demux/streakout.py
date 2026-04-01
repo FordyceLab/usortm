@@ -1213,7 +1213,12 @@ def _render_pileup_html(well_pos: str, candidate: dict,
     sections_html = []
     for idx, g in enumerate(groups):
         star = " &#9733;" if g["is_recoverable"] else ""
-        status_class = "status-correct" if g["is_recoverable"] else "status-other"
+        if g["status"] == "Silent Mutation":
+            status_class = "status-silent"
+        elif g["is_recoverable"]:
+            status_class = "status-correct"
+        else:
+            status_class = "status-other"
 
         # Compute per-read identity from pileup data
         identity_str = ""
@@ -1276,17 +1281,44 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 consensus_encoded.append("-")
         consensus_str = "".join(consensus_encoded)
 
+        # Reconstruct actual consensus DNA and translate the insert region
+        consensus_dna = "".join(
+            ref_seq[i] if c == "." else (c if c != "-" else "N")
+            for i, c in enumerate(consensus_encoded)
+        )
+        _ins_start = flank_lengths[0] if flank_lengths else 0
+        _ins_end = ref_len - (flank_lengths[1] if flank_lengths else 0)
+        insert_dna = consensus_dna[_ins_start:_ins_end]
+        protein = ""
+        try:
+            from Bio.Seq import Seq as _BioSeq
+            _translatable = insert_dna[:len(insert_dna) - len(insert_dna) % 3]
+            if _translatable:
+                protein = str(_BioSeq(_translatable).translate())
+        except Exception:
+            pass
+
         ref_seq_js = _json.dumps(ref_seq)
         rows_js = _json.dumps(rows_encoded)
         cons_js = _json.dumps(consensus_str)
         n_rows = len(rows_encoded)
         n_cols = ref_len
 
+        protein_line = ""
+        if protein:
+            protein_line = (
+                f'<div class="protein-seq">'
+                f'<span class="protein-label">Insert sequence&nbsp;&nbsp;</span>'
+                f'{_html.escape(protein)}'
+                f'</div>'
+            )
+
         if n_rows == 0:
             pileup_block = (
                 f'<div class="pileup-empty">'
                 f'No aligned reads available ({g["n_reads"]} reads unaligned)'
                 f'</div>'
+                f'{protein_line}'
             )
         else:
             pileup_block = (
@@ -1302,6 +1334,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 f'</div>'
                 f'<div class="pileup-info">{n_rows} aligned reads &times; '
                 f'{n_cols} bp</div>'
+                f'{protein_line}'
                 f'</div>'
                 f'<script>'
                 f'(function(){{'
@@ -1387,8 +1420,27 @@ h1 {{
     color: #059669;
     font-weight: 600;
 }}
+.status-silent {{
+    color: #d97706;
+    font-weight: 600;
+}}
 .status-other {{
     color: #ef4444;
+}}
+.protein-seq {{
+    margin-top: 0.5rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 10pt;
+    white-space: nowrap;
+    overflow-x: auto;
+    color: var(--text);
+    opacity: 0.85;
+}}
+.protein-label {{
+    color: var(--muted);
+    font-weight: 600;
+    margin-right: 0.25rem;
+    user-select: none;
 }}
 .pileup-container {{
     margin-bottom: 0.5rem;
@@ -1818,11 +1870,12 @@ def _generate_one_pick_pileup(
     variant: str,
     reads: int,
     consensus_fraction: float,
-    well_reads: pd.DataFrame,
-    single_ref_dir: str,
-    output_path: str,
-    minimap2_path: str,
-    samtools_path: str,
+    cons_check: str = "",
+    well_reads: pd.DataFrame = None,
+    single_ref_dir: str = "",
+    output_path: str = "",
+    minimap2_path: str = None,
+    samtools_path: str = None,
     ref_index: str = None,
     flank_5p_len: int = 0,
     flank_3p_len: int = 0,
@@ -1862,12 +1915,14 @@ def _generate_one_pick_pileup(
         "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
     }
 
+    _display_status = cons_check if cons_check else ""
+    _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
     group_sections = [{
         "ref_id": variant,
         "n_reads": n_variable_reads,
         "frac": consensus_fraction,
-        "status": "",
-        "is_recoverable": False,
+        "status": _display_status,
+        "is_recoverable": _is_recoverable,
         "ref_seq": ref_seq,
         "pileup_rows": pileup_rows,
     }]
@@ -1974,6 +2029,7 @@ def generate_pick_pileups(
             "variant": hit["variant"],
             "reads": hit["reads"],
             "consensus_fraction": hit["consensus_fraction"],
+            "cons_check": hit.get("cons_check", ""),
             "target_plate": str(hit.get("target_plate", "")),
             "target_well": hit.get("target_well", ""),
         })
@@ -2020,6 +2076,7 @@ def generate_pick_pileups(
             variant=task["variant"],
             reads=task["reads"],
             consensus_fraction=task["consensus_fraction"],
+            cons_check=task.get("cons_check", ""),
             well_reads=well_reads,
             single_ref_dir=single_ref_dir,
             output_path=out_path,

@@ -20,9 +20,14 @@ console = get_console()
 PROJECT_STATE_FILE = "usortm_project.json"
 
 
+def _norm_variant(name: str) -> str:
+    """Normalize variant name: strip |cons_check suffix, unify separators."""
+    return name.split("|")[0].replace(".", ";")
+
+
 def _count_unique_variants(well_data: list) -> int:
     """Count unique variants, stripping ``|cons_check`` suffixes first."""
-    return len(set(w["variant"].split("|")[0] for w in well_data))
+    return len(set(_norm_variant(w["variant"]) for w in well_data))
 
 
 def report(
@@ -407,12 +412,21 @@ def _build_merged_html_context(project: dict, project_dir: Path, merged_well_dat
             rnum = 1
         round_well_data.setdefault(rnum, []).append(w)
 
+    # Collect per-round demux summaries (for recovery curves, read-len histograms, etc.)
+    round_demux_summaries: dict[int, dict] = {}
+    for rnum, rdir in round_demux_dirs.items():
+        dsf = rdir / "demux_summary.json"
+        if dsf.exists():
+            with open(dsf) as f:
+                round_demux_summaries[rnum] = json.load(f)
+
     return {
         "round_nums": round_nums,
         "total_input_reads": total_input_reads,
         "round_well_data": round_well_data,
         "round_library_sizes": round_library_sizes,
         "round_demux_dirs": round_demux_dirs,
+        "round_demux_summaries": round_demux_summaries,
     }
 
 
@@ -716,7 +730,7 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
 
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
-            w["variant"].split("|")[0] for w in well_data
+            _norm_variant(w["variant"]) for w in well_data
             if w["reads"] >= min_reads
             and w["consensus_fraction"] > 0.9
             and w.get("cons_check", "") not in ("Other Error", "Error")
@@ -925,9 +939,9 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int, streakout_count: int 
         return None
 
     segments = [
-        (count_a, _cmap_hex(0.90), "Tier A (\u2265100 reads)"),
-        (count_b, _cmap_hex(0.60), "Tier B (50\u201399 reads)"),
-        (count_c, _cmap_hex(0.25), "Tier C (20\u201349 reads)"),
+        (count_a, _cmap_hex(0.75), "Tier A (\u2265100 reads)"),
+        (count_b, _cmap_hex(0.35), "Tier B (50\u201399 reads)"),
+        (count_c, _cmap_hex(0.20), "Tier C (20\u201349 reads)"),
         (count_s, "#3B82F6",        "Streakout recoverable"),
         (count_u, "#d1d5db",        "Unrecovered"),
     ]
@@ -965,8 +979,8 @@ def _make_tier_donut_bokeh(tiers: dict, library_size: int, streakout_count: int 
         source=source, direction="clock",
     )
 
-    # Center text: total recovered count (tiers + streakout)
-    center_count = tier_c + count_s
+    # Center text: tier C count (streakout shown as separate segment)
+    center_count = tier_c
     fig.add_layout(Label(
         x=0, y=0.08, text=str(center_count),
         text_font_size="18px", text_font_style="bold",
@@ -1112,6 +1126,7 @@ def _make_recovery_curve_bokeh(
     tier_c_pct: Optional[float],
     round_n: int = 1,
     streakout_pct: Optional[float] = None,
+    merged_point: Optional[dict] = None,
 ):
     """Build a Bokeh recovery curve with confidence ribbon.
 
@@ -1121,6 +1136,9 @@ def _make_recovery_curve_bokeh(
         tier_c_pct:    Actual Tier-C coverage % (y-position), or None.
         round_n:       Sort round number (shown in corner label).
         streakout_pct: Coverage % including streak-out recoverable variants.
+        merged_point:  Optional dict with ``sampling``, ``tier_c_pct``, and
+                       ``streakout_pct`` for the merged result. When given, the
+                       merged points are drawn and connected to the round-1 points.
     """
     from bokeh.plotting import figure as bokeh_figure
     from bokeh.models import (
@@ -1170,48 +1188,124 @@ def _make_recovery_curve_bokeh(
 
     legend_items = [LegendItem(label="Simulated mean \u00b1 1\u03c3", renderers=[line_r])]
 
-    # Observed data point(s)
-    if true_sampling is not None:
-        if tier_c_pct is not None:
-            obs_r = fig.scatter(
-                [true_sampling], [tier_c_pct], size=10, color="#22c55e",
-            )
-            legend_items.append(LegendItem(
-                label=f"Observed ({tier_c_pct:.1f}%)", renderers=[obs_r],
-            ))
-
-            if streakout_pct is not None and streakout_pct > tier_c_pct:
-                so_r = fig.scatter(
-                    [true_sampling], [streakout_pct], size=10, color="#2563eb",
-                )
+    # Observed data point(s) — render streakout first so green dot is on top
+    if true_sampling is not None and tier_c_pct is not None:
+        # --- Connector lines from round 1 → merged (drawn first, behind dots) ---
+        if merged_point:
+            m_sampling = merged_point.get("sampling")
+            m_tc = merged_point.get("tier_c_pct")
+            m_so = merged_point.get("streakout_pct")
+            # Connect round-1 observed → merged observed (green dashed)
+            if m_sampling is not None and m_tc is not None:
                 fig.segment(
                     x0=[true_sampling], y0=[tier_c_pct],
-                    x1=[true_sampling], y1=[streakout_pct],
+                    x1=[m_sampling], y1=[m_tc],
+                    line_color="#22c55e", line_width=1.5, line_dash="dashed",
+                )
+            # Connect round-1 streakout → merged streakout (blue dashed)
+            if (streakout_pct is not None and m_sampling is not None
+                    and m_so is not None and m_so > (m_tc or 0)):
+                fig.segment(
+                    x0=[true_sampling], y0=[streakout_pct],
+                    x1=[m_sampling], y1=[m_so],
                     line_color="#2563eb", line_width=1.5, line_dash="dashed",
                 )
-                legend_items.append(LegendItem(
-                    label=f"+ streak-out ({streakout_pct:.1f}%)", renderers=[so_r],
-                ))
-        else:
-            fig.add_layout(Span(
-                location=true_sampling, dimension="height",
-                line_color="#6b7280", line_width=1.5, line_dash="dashed",
-                line_alpha=0.6,
+
+        # --- Round-1 vertical streakout connector ---
+        _r1_alpha = 0.4 if merged_point else 1.0
+        if streakout_pct is not None and streakout_pct > tier_c_pct:
+            so_r = fig.scatter(
+                [true_sampling], [streakout_pct], size=10, color="#2563eb",
+                alpha=_r1_alpha,
+            )
+            fig.segment(
+                x0=[true_sampling], y0=[tier_c_pct],
+                x1=[true_sampling], y1=[streakout_pct],
+                line_color="#2563eb", line_width=1.5, line_dash="dashed",
+                line_alpha=_r1_alpha,
+            )
+
+        # --- Round-1 observed dot (green, on top) ---
+        obs_r = fig.scatter(
+            [true_sampling], [tier_c_pct], size=10, color="#22c55e",
+            alpha=_r1_alpha,
+        )
+        _r1_label = "R1 observed" if merged_point else "Observed"
+        legend_items.append(LegendItem(
+            label=f"{_r1_label} ({tier_c_pct:.1f}%)", renderers=[obs_r],
+        ))
+
+        if streakout_pct is not None and streakout_pct > tier_c_pct:
+            legend_items.append(LegendItem(
+                label=f"+ streak-out ({streakout_pct:.1f}%)", renderers=[so_r],
             ))
 
+        # --- Merged points ---
+        _merged_legend_start = len(legend_items)
+        if merged_point:
+            m_sampling = merged_point.get("sampling")
+            m_tc = merged_point.get("tier_c_pct")
+            m_so = merged_point.get("streakout_pct")
+
+            if m_sampling is not None and m_tc is not None:
+                # Merged streakout dot + vertical connector (behind green)
+                if m_so is not None and m_so > m_tc:
+                    m_so_r = fig.scatter(
+                        [m_sampling], [m_so], size=10, color="#2563eb",
+                    )
+                    fig.segment(
+                        x0=[m_sampling], y0=[m_tc],
+                        x1=[m_sampling], y1=[m_so],
+                        line_color="#2563eb", line_width=1.5, line_dash="dashed",
+                    )
+
+                # Merged observed dot (green circle, on top)
+                m_obs_r = fig.scatter(
+                    [m_sampling], [m_tc], size=10, color="#22c55e",
+                )
+                legend_items.append(LegendItem(
+                    label=f"Merged ({m_tc:.1f}%)", renderers=[m_obs_r],
+                ))
+
+                if m_so is not None and m_so > m_tc:
+                    legend_items.append(LegendItem(
+                        label=f"+ streak-out ({m_so:.1f}%)", renderers=[m_so_r],
+                    ))
+
+    elif true_sampling is not None:
+        fig.add_layout(Span(
+            location=true_sampling, dimension="height",
+            line_color="#6b7280", line_width=1.5, line_dash="dashed",
+            line_alpha=0.6,
+        ))
+
     # Round label
+    _label_text = "Merged" if merged_point else f"Round {round_n}"
     fig.add_layout(Label(
-        x=70, y=10, text=f"Round {round_n}",
+        x=70, y=10, text=_label_text,
         text_font_size="11px", text_color="#6b7280",
         x_units="screen", y_units="screen",
     ))
 
-    legend = Legend(
-        items=legend_items, location="bottom_center", orientation="horizontal",
+    # Row 1: simulation line
+    # Row 2: R1 observed + streak-out
+    # Row 3: Merged observed + streak-out
+    _legend_kwargs = dict(
+        location="bottom_center", orientation="horizontal",
         label_text_font_size="10px", label_text_color="#6b7280",
         border_line_color=None, background_fill_alpha=0,
+        margin=0, padding=2,
     )
-    fig.add_layout(legend, "below")
+    fig.add_layout(Legend(items=legend_items[:1], **_legend_kwargs), "below")
+    if merged_point and len(legend_items) > 1:
+        r1_items = legend_items[1:_merged_legend_start]
+        merged_items = legend_items[_merged_legend_start:]
+        if r1_items:
+            fig.add_layout(Legend(items=r1_items, **_legend_kwargs), "below")
+        if merged_items:
+            fig.add_layout(Legend(items=merged_items, **_legend_kwargs), "below")
+    elif len(legend_items) > 1:
+        fig.add_layout(Legend(items=legend_items[1:], **_legend_kwargs), "below")
 
     _style_figure(fig)
     fig.y_range.start = 0
@@ -1252,30 +1346,109 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     tiers = bins_data["recovery_tiers"] if bins_data else None
     qbins = bins_data["quality_bins"] if bins_data else None
 
-    # Recovery curve SVG (pre-computed during demux, cached in demux_summary)
-    recovery_curve_data = demux_summary.get("recovery_curve")
-    if recovery_curve_data:
-        tier_c_pct = tiers["C"]["pct"] if tiers else None
-        # Compute coverage including streak-out recoverable variants
-        streakout_pct = None
-        streakout_data_rc = demux_summary.get("streakout", {})
-        so_variants = streakout_data_rc.get("recoverable_variants", [])
-        if so_variants and tiers and library_size:
-            tier_c_count = tiers["C"]["count"]
-            # Count recoverable variants not already in Tier C
-            tier_c_variants = {
-                w["variant"].split("|")[0] for w in well_data
+    # Recovery curve (pre-computed during demux, cached in demux_summary).
+    # For merged reports, build one curve per round from round_demux_summaries.
+    recovery_fig = None
+
+    def _build_recovery_fig(ds: dict, wd: list, lib_size: int, round_n: int):
+        """Build a recovery curve figure from one round's data."""
+        rc_data = ds.get("recovery_curve")
+        if not rc_data or not lib_size:
+            return None
+        rbins = _compute_quality_bins(wd, lib_size)
+        rt = rbins["recovery_tiers"] if rbins else None
+        tc_pct = rt["C"]["pct"] if rt else None
+        # Fold sampling for this round
+        rc_reads = [w["reads"] for w in wd]
+        rc_wells_gt_20 = sum(1 for r in rc_reads if r > 20)
+        rc_sampling = (rc_wells_gt_20 / lib_size) if lib_size else None
+        # Streakout coverage
+        so_pct = None
+        so_data = ds.get("streakout", {})
+        so_vars = so_data.get("recoverable_variants", [])
+        if so_vars and rt and lib_size:
+            tc_count = rt["C"]["count"]
+            tc_variants = {
+                _norm_variant(w["variant"]) for w in wd
                 if w["reads"] >= 20 and w["consensus_fraction"] > 0.9
             }
-            new_variants = len(set(so_variants) - tier_c_variants)
-            streakout_pct = min((tier_c_count + new_variants) / library_size * 100, 100.0)
-        recovery_fig = _make_recovery_curve_bokeh(
-            recovery_curve_data, true_sampling, tier_c_pct,
-            round_n=project.get("round", 1),
-            streakout_pct=streakout_pct,
+            new_v = len({_norm_variant(v) for v in so_vars} - tc_variants)
+            so_pct = min((tc_count + new_v) / lib_size * 100, 100.0)
+        return _make_recovery_curve_bokeh(
+            rc_data, rc_sampling, tc_pct, round_n=round_n, streakout_pct=so_pct,
         )
+
+    if merged_context:
+        # Build single recovery curve: round 1 simulation + both R1 and merged points
+        # Use round 1's simulation curve data as the base
+        r1_num = merged_context["round_nums"][0]
+        r1_ds = merged_context.get("round_demux_summaries", {}).get(r1_num, {})
+        r1_wd = merged_context["round_well_data"].get(r1_num, [])
+        r1_lib = merged_context["round_library_sizes"].get(r1_num, 0)
+        r1_curve = r1_ds.get("recovery_curve")
+
+        if r1_curve and r1_lib:
+            # Round 1 observed stats
+            r1_bins = _compute_quality_bins(r1_wd, r1_lib)
+            r1_tiers = r1_bins["recovery_tiers"] if r1_bins else None
+            r1_tc_pct = r1_tiers["C"]["pct"] if r1_tiers else None
+            r1_reads = [w["reads"] for w in r1_wd]
+            r1_wells_gt_20 = sum(1 for r in r1_reads if r > 20)
+            r1_sampling = (r1_wells_gt_20 / r1_lib) if r1_lib else None
+
+            # Round 1 streakout
+            r1_so_pct = None
+            r1_so_data = r1_ds.get("streakout", {})
+            r1_so_vars = r1_so_data.get("recoverable_variants", [])
+            if r1_so_vars and r1_tiers and r1_lib:
+                r1_tc_count = r1_tiers["C"]["count"]
+                r1_tc_variants = {
+                    _norm_variant(w["variant"]) for w in r1_wd
+                    if w["reads"] >= 20 and w["consensus_fraction"] > 0.9
+                }
+                r1_new_v = len({_norm_variant(v) for v in r1_so_vars} - r1_tc_variants)
+                r1_so_pct = min((r1_tc_count + r1_new_v) / r1_lib * 100, 100.0)
+
+            # Merged observed stats (use the already-computed merged tiers/sampling)
+            merged_tc_pct = tiers["C"]["pct"] if tiers else None
+            merged_so_pct = None
+            # Use actual streakout picks from project state for consistency
+            if tiers and library_size:
+                merged_tc_count = tiers["C"]["count"]
+                _m_pick = project.get("merged", {}) if merged_context else project.get("workflow_steps", {}).get("pick", {})
+                _m_so_n = _m_pick.get("streakout_variants", 0)
+                if _m_so_n:
+                    merged_so_pct = min((merged_tc_count + _m_so_n) / library_size * 100, 100.0)
+
+            recovery_fig = _make_recovery_curve_bokeh(
+                r1_curve, r1_sampling, r1_tc_pct,
+                round_n=r1_num, streakout_pct=r1_so_pct,
+                merged_point={
+                    "sampling": true_sampling,
+                    "tier_c_pct": merged_tc_pct,
+                    "streakout_pct": merged_so_pct,
+                },
+            )
     else:
-        recovery_fig = None
+        recovery_curve_data = demux_summary.get("recovery_curve")
+        if recovery_curve_data:
+            tier_c_pct = tiers["C"]["pct"] if tiers else None
+            streakout_pct = None
+            streakout_data_rc = demux_summary.get("streakout", {})
+            so_variants = streakout_data_rc.get("recoverable_variants", [])
+            if so_variants and tiers and library_size:
+                tier_c_count = tiers["C"]["count"]
+                tier_c_variants = {
+                    _norm_variant(w["variant"]) for w in well_data
+                    if w["reads"] >= 20 and w["consensus_fraction"] > 0.9
+                }
+                new_variants = len({_norm_variant(v) for v in so_variants} - tier_c_variants)
+                streakout_pct = min((tier_c_count + new_variants) / library_size * 100, 100.0)
+            recovery_fig = _make_recovery_curve_bokeh(
+                recovery_curve_data, true_sampling, tier_c_pct,
+                round_n=project.get("round", 1),
+                streakout_pct=streakout_pct,
+            )
 
     # Per-plate read totals for bar chart — only show plates with ≥250 reads
     _MIN_PLATE_READS = 250
@@ -1327,7 +1500,6 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                         ("recovery", recovery_fig)]:
         if _fig is not None:
             _chart_figs[_key] = _fig
-
     if _chart_figs:
         _keys = list(_chart_figs.keys())
         _bokeh_script, _bokeh_div_list = bokeh_components(
@@ -1350,7 +1522,9 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
 
     if recovery_div:
         recovery_curve_html = (
-            f'<div class="chart-card"><h3>Recovery Curve</h3>{recovery_div}</div>'
+            f'<div class="chart-card"><h3>Recovery Curve</h3>'
+            f'{recovery_div}'
+            f'</div>'
         )
     else:
         recovery_curve_html = ""
@@ -1381,7 +1555,9 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         seq_len_display = f"{project.get('seq_length', 'N/A')} bp"
 
     # Unified Library Recovery section (merges coverage + quality tiers)
-    pick_state = project.get("workflow_steps", {}).get("pick", {})
+    # pick_state was already resolved above (merged vs round-1); don't overwrite
+    if not merged_context:
+        pick_state = project.get("workflow_steps", {}).get("pick", {})
     selected_tier = (
         str(pick_state.get("tier", "")).upper()
         if pick_state.get("completed") and pick_state.get("tier")
@@ -1449,41 +1625,21 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
 
         # Compute correct relative path from the report file to the embedded file,
         # regardless of how deep the report is nested.
-        rel = _os.path.relpath(str(html_path.resolve()), str(output_file.parent.resolve()))
-        link = f'<p><a href="{rel}" target="_blank">Open full size ↗</a></p>'
         return (
-            link
-            + f'<iframe srcdoc="{content}" width="100%" height="{height}" '
+            f'<iframe srcdoc="{content}" width="100%" height="{height}" '
             f'style="border:none;"></iframe>'
         )
 
     if merged_context:
-        # Show each round's demux plate map in sequence, filtering ghost plates
+        # Show each round's existing demux plate map (with mutation/streakout labels).
+        # Use plate_map.html (generated by demux with overlay data) — the
+        # plate_map_filtered.html variant may lack mutation/streakout overlays.
         round_map_parts = []
         for rnum in merged_context["round_nums"]:
             rdir = merged_context["round_demux_dirs"].get(rnum)
             if not rdir:
                 continue
-            # Re-generate plate map from read_df.csv with ghost-plate filter applied,
-            # so barcode-switching artefacts (< 20 reads/plate) are not shown.
-            read_df_csv = rdir / "read_df.csv"
-            filtered_pm = rdir / "plate_map_filtered.html"
-            _pm_generated = False
-            if read_df_csv.exists():
-                try:
-                    import pandas as _pd
-                    from usortm.demux.viz import save_plate_map_html as _save_pm
-                    _rdf = _pd.read_csv(read_df_csv)
-                    if not _rdf.empty:
-                        _plate_col = _rdf["well_pos"].str.split("_").str[0]
-                        _plate_totals = _plate_col.groupby(_plate_col).transform("count")
-                        _rdf = _rdf[_plate_totals >= 20]
-                    if not _rdf.empty:
-                        _save_pm(_rdf, str(filtered_pm), title=f"Round {rnum} Demux Plate Map")
-                        _pm_generated = True
-                except Exception:
-                    pass
-            pm = filtered_pm if _pm_generated else (rdir / "plate_map.html")
+            pm = rdir / "plate_map.html"
             if pm.exists():
                 round_map_parts.append(
                     f"<h3>Round {rnum} Demux Plate Map</h3>"
@@ -1520,8 +1676,15 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     if pick_state.get("completed"):
         _tier_val = pick_state.get("tier", "") or ""
         _tier_label = f"Tier {_tier_val} Variants Picked" if _tier_val and _tier_val != "none" else "Unique Variants Picked"
-        _streakout_n = pick_state.get("streakout_variants", 0)
-        _regular_n = pick_state.get("unique_variants", "N/A")
+
+        if merged_context and tiers:
+            _streakout_n = pick_state.get("streakout_variants", 0)
+            _total_picked = pick_state.get("unique_variants", 0)
+            _regular_n = _total_picked - _streakout_n
+        else:
+            _streakout_n = pick_state.get("streakout_variants", 0)
+            _regular_n = pick_state.get("unique_variants", "N/A")
+
         streakout_box = (
             f'<div class="stat-box" style="margin-top:0.6rem;border-left:3px solid #3B82F6;">'
             f'<div class="stat-label">Additional from Streakout</div>'
@@ -1568,8 +1731,27 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             f'</tr>'
         )
 
+        _sel_tier = (pick_state.get("tier") or "C").upper()
+        _sel_count = tiers[_sel_tier]["count"] if _sel_tier in tiers else tiers["C"]["count"]
+        _sel_pct = tiers[_sel_tier]["pct"] if _sel_tier in tiers else tiers["C"]["pct"]
+
+        _recovery_hero = (
+            f'<div style="border:2px solid #22c55e;border-radius:10px;padding:1rem 1.5rem;'
+            f'text-align:center;margin-bottom:1rem;">'
+            f'<div style="color:var(--muted);font-size:0.85rem;margin-bottom:0.25rem;">'
+            f'Tier {_sel_tier} Variants Recovered</div>'
+            f'<div style="color:#16a34a;font-size:2.5rem;font-weight:700;line-height:1;">'
+            f'{_sel_count}</div>'
+            f'<div style="color:var(--muted);font-size:0.85rem;margin-top:0.25rem;">'
+            f'{_sel_pct:.1f}% of {library_size} library variants</div>'
+            f'</div>'
+        )
+
         library_section = f"""
     <h2>Library Recovery</h2>
+    <div class="recovery-row">
+    <div class="recovery-tiers">
+    {_recovery_hero}
     <p class="note">All tiers require &gt;90% consensus and no mutations. Only unique variants per round.
     Tiers are cumulative (B includes A, C includes B).</p>
     <table style="margin-bottom:1rem;">
@@ -1586,12 +1768,32 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         {merged_row}
       </tbody>
     </table>
+    </div>
+    {recovery_curve_html}
+    </div>
 """
     elif tier_boxes:
+        _sel_tier_s = (pick_state.get("tier") or "C").upper() if pick_state else "C"
+        _sel_count_s = tiers[_sel_tier_s]["count"] if tiers and _sel_tier_s in tiers else 0
+        _sel_pct_s = tiers[_sel_tier_s]["pct"] if tiers and _sel_tier_s in tiers else 0
+
+        _recovery_hero_s = (
+            f'<div style="border:2px solid #22c55e;border-radius:10px;padding:1rem 1.5rem;'
+            f'text-align:center;margin-bottom:1rem;">'
+            f'<div style="color:var(--muted);font-size:0.85rem;margin-bottom:0.25rem;">'
+            f'Tier {_sel_tier_s} Variants Recovered</div>'
+            f'<div style="color:#16a34a;font-size:2.5rem;font-weight:700;line-height:1;">'
+            f'{_sel_count_s}</div>'
+            f'<div style="color:var(--muted);font-size:0.85rem;margin-top:0.25rem;">'
+            f'{_sel_pct_s:.1f}% of {library_size} library variants</div>'
+            f'</div>'
+        ) if tiers and _sel_count_s else ""
+
         library_section = f"""
     <h2>Library Recovery</h2>
     <div class="recovery-row">
         <div class="recovery-tiers">
+            {_recovery_hero_s}
             <div class="stat-grid" style="margin:0;">
                 {tier_boxes}
             </div>
@@ -1610,6 +1812,108 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             f'<div class="pie-container" style="margin-top:1rem;">{donut_div}</div>'
             if donut_div else ""
         )
+
+        # Build streakout-recoverable and missing variant tables from pick_list.json
+        _detail_tables = ""
+        _pick_list_file = (
+            (project_dir / "merged" / "pick_list.json") if merged_context
+            else (project_dir / "pick" / "pick_list.json") if project_dir
+            else None
+        )
+        if _pick_list_file and _pick_list_file.exists():
+            import html as _html_mod
+            _pick_data = json.load(open(_pick_list_file))
+
+            # --- Streakout-recoverable table ---
+            _so_hits = [h for h in _pick_data if h.get("tier_override") == "Streakout"]
+            if _so_hits:
+                _so_rows = ""
+                for h in _so_hits:
+                    _pct = f"{h['consensus_fraction']:.0%}" if h.get("consensus_fraction") else ""
+                    _so_rows += (
+                        f'<tr>'
+                        f'<td>{_html_mod.escape(h["variant"])}</td>'
+                        f'<td>{_html_mod.escape(h.get("target_well", ""))}</td>'
+                        f'<td>{_html_mod.escape(h.get("source_plate", ""))}:{_html_mod.escape(h.get("source_well", ""))}</td>'
+                        f'<td>{h.get("reads", 0):,}</td>'
+                        f'<td>{_pct}</td>'
+                        f'</tr>'
+                    )
+                _detail_tables += (
+                    f'<div class="chart-card" style="margin-top:1.5rem;">'
+                    f'<h3>Streakout-Recoverable Variants ({len(_so_hits)})</h3>'
+                    f'<p class="note">Variants not found in a clean well but recoverable '
+                    f'by streaking out a mixed colony.</p>'
+                    f'<table class="detail-table">'
+                    f'<thead><tr><th>Variant</th><th>Target Well</th><th>Source Well</th>'
+                    f'<th>Reads</th><th>% of Well</th></tr></thead>'
+                    f'<tbody>{_so_rows}</tbody></table></div>'
+                )
+
+            # --- Missing variants table ---
+            _missing = [h for h in _pick_data if h.get("empty")]
+            if _missing:
+                # Load DNA sequences from variants.csv and translate to protein
+                _codon_table = {
+                    'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
+                    'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
+                    'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
+                    'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
+                    'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
+                    'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
+                    'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
+                    'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
+                    'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
+                    'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
+                    'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
+                    'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
+                    'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
+                    'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
+                    'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
+                    'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G',
+                }
+                def _translate(dna: str) -> str:
+                    dna = dna.upper().replace(" ", "")
+                    aa = []
+                    for i in range(0, len(dna) - 2, 3):
+                        codon = dna[i:i+3]
+                        aa.append(_codon_table.get(codon, '?'))
+                    return ''.join(aa)
+
+                _seq_map: dict = {}
+                if project_dir:
+                    _vcf = project_dir / "variants.csv"
+                    if _vcf.exists():
+                        import csv as _csv
+                        with open(_vcf) as _f:
+                            for _row in _csv.DictReader(_f):
+                                _vname = _row.get("Name", "")
+                                _dna = _row.get("Sequence", "")
+                                if _vname and _dna:
+                                    _seq_map[_vname] = _translate(_dna)
+
+                _miss_rows = ""
+                for h in _missing:
+                    _vn = h["variant"]
+                    _aa = _seq_map.get(_vn, "")
+                    _miss_rows += (
+                        f'<tr>'
+                        f'<td>{_html_mod.escape(_vn)}</td>'
+                        f'<td>{_html_mod.escape(h.get("target_well", ""))}</td>'
+                        f'<td style="font-family:monospace;font-size:0.8rem;word-break:break-all;">'
+                        f'{_html_mod.escape(_aa)}</td>'
+                        f'</tr>'
+                    )
+                _detail_tables += (
+                    f'<div class="chart-card" style="margin-top:1.5rem;">'
+                    f'<h3>Missing Variants ({len(_missing)})</h3>'
+                    f'<p class="note">Variants not recovered in any sequencing round.</p>'
+                    f'<table class="detail-table">'
+                    f'<thead><tr><th>Variant</th><th>Target Well</th>'
+                    f'<th>AA Sequence of Insert</th></tr></thead>'
+                    f'<tbody>{_miss_rows}</tbody></table></div>'
+                )
+
         if pick_plate_iframe:
             hitpick_section = f"""
     <h2>Hit Picking</h2>
@@ -1622,12 +1926,14 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             {pick_plate_iframe}
         </div>
     </div>
+    {_detail_tables}
 """
         else:
             hitpick_section = f"""
     <h2>Hit Picking</h2>
     {pick_stat_box}
     {pie_block}
+    {_detail_tables}
 """
     else:
         hitpick_section = ""
@@ -1772,6 +2078,25 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
             text-transform: uppercase;
             letter-spacing: 0.04em;
             margin: 0 0 0.75rem;
+        }}
+        .detail-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }}
+        .detail-table th {{
+            text-align: left;
+            padding: 0.4rem 0.6rem;
+            border-bottom: 2px solid var(--border);
+            color: var(--th-text);
+            font-weight: 600;
+        }}
+        .detail-table td {{
+            padding: 0.35rem 0.6rem;
+            border-bottom: 1px solid var(--border);
+        }}
+        .detail-table tr:last-child td {{
+            border-bottom: none;
         }}
         .chart-grid {{
             display: grid;

@@ -40,6 +40,8 @@ def platemap(
 
         usortm platemap ./my_project --min-reads 50 --output my_map.html
     """
+    import csv
+    import json
     import pandas as pd
     from usortm.demux.viz import save_plate_map_html
 
@@ -63,6 +65,29 @@ def platemap(
         )
         raise typer.Exit(1)
 
+    # Load mutation/streakout labels from existing demux results
+    streakout_wells: set = set()
+    mutation_wells: set = set()
+    silent_mutation_wells: set = set()
+
+    so_csv = demux_output / "streakout" / "streakout_candidates.csv"
+    if so_csv.exists():
+        with open(so_csv) as f:
+            for row in csv.DictReader(f):
+                streakout_wells.add(f"{row['plate']}_{row['well']}")
+
+    wa_csv = demux_output / "well_assignments.csv"
+    if wa_csv.exists():
+        with open(wa_csv) as f:
+            for row in csv.DictReader(f):
+                key = f"{row['plate']}_{row['well']}"
+                cc = row.get("cons_check", "")
+                reads = int(row.get("reads", 0))
+                if cc in ("Error", "Other Error") and reads >= 20 and key not in streakout_wells:
+                    mutation_wells.add(key)
+                elif cc == "Silent Mutation":
+                    silent_mutation_wells.add(key)
+
     plate_map_path = output if output is not None else demux_output / "plate_map.html"
 
     save_plate_map_html(
@@ -70,5 +95,8 @@ def platemap(
         str(plate_map_path),
         title="Demux Plate Map",
         min_reads=min_reads,
+        streakout_wells=streakout_wells,
+        mutation_wells=mutation_wells,
+        silent_mutation_wells=silent_mutation_wells,
     )
     console.print(f"[green]✓[/green] Plate map saved to {plate_map_path}")

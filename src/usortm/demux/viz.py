@@ -133,7 +133,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
                                min_reads=100, max_lines=6,
                                well_size=26, plot_width=800,
                                streakout_wells=None,
-                               mutation_wells=None):
+                               mutation_wells=None,
+                               silent_mutation_wells=None):
     
     ROWS = list(string.ascii_uppercase[:16])  # A–P
 
@@ -177,6 +178,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
 
     _streakout_set = streakout_wells or set()
     _mutation_set = mutation_wells or set()
+    _silent_mut_set = silent_mutation_wells or set()
 
     def fill_plate(p):
         merged = full_layout.copy()
@@ -208,7 +210,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         so_offset = 0.37
         def _streakout_overlay(r):
             key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
-            if key in _streakout_set:
+            if key in _streakout_set and r["reads"] >= 20:
                 return (
                     [r["col"] - so_offset, r["col"] - so_offset, r["col"] + so_offset],
                     [(r["row"], so_offset), (r["row"], -so_offset), (r["row"], so_offset)],
@@ -236,7 +238,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         mut_offset = 0.37
         def _mutation_overlay(r):
             key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
-            if key in _mutation_set:
+            if key in _mutation_set and r["reads"] >= 20:
                 return (
                     [r["col"] - mut_offset, r["col"] - mut_offset, r["col"] + mut_offset],
                     [(r["row"], mut_offset), (r["row"], -mut_offset), (r["row"], mut_offset)],
@@ -258,9 +260,40 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
             lambda u: '<div style="font-size:11px;color:#dc2626;margin-top:2px;">'
                       '⚠ Mutation — click to view pileup</div>' if u else ""
         )
+
+        # Amber top-left corner tab for silent mutation wells (synonymous DNA
+        # change — correct protein, not flagged as a real mutation).
+        sm_offset = 0.37
+        def _silent_mut_overlay(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            if key in _silent_mut_set and r["reads"] >= 20:
+                return (
+                    [r["col"] - sm_offset, r["col"] - sm_offset, r["col"] + sm_offset],
+                    [(r["row"], sm_offset), (r["row"], -sm_offset), (r["row"], sm_offset)],
+                )
+            return ([], [])
+
+        merged["silent_mut_xs"], merged["silent_mut_ys"] = zip(
+            *merged.apply(_silent_mut_overlay, axis=1)
+        )
+        merged["silent_mut_hint"] = merged.apply(
+            lambda r: (
+                '<div style="font-size:11px;color:#d97706;margin-top:2px;">'
+                '~ Silent mutation — synonymous DNA change</div>'
+                if f"{int(p)}_{_well_label(r['row'], r['col'])}" in _silent_mut_set
+                else ""
+            ),
+            axis=1,
+        )
         return merged
 
-    plates = sorted(dom["plate"].unique())
+    # Filter out ghost plates with fewer than 250 total reads
+    _MIN_PLATE_READS = 250
+    _plate_read_totals = dom.groupby("plate")["reads"].sum()
+    plates = sorted(p for p in dom["plate"].unique()
+                    if _plate_read_totals.get(p, 0) >= _MIN_PLATE_READS)
+    if not plates:
+        plates = sorted(dom["plate"].unique())  # fallback: show all if none pass
     plate_dict = {str(p): fill_plate(p).to_dict(orient="list") for p in plates}
 
     custom_cmap = get_custom_cmap()
@@ -276,6 +309,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
       </div>
       @streakout_hint{safe}
       @mutation_hint{safe}
+      @silent_mut_hint{safe}
     </div>
     """
 
@@ -303,6 +337,10 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         "mutation_xs", "mutation_ys", source=src,
         fill_color="#dc2626", fill_alpha=1.0, line_color=None
     )
+    fig.patches(
+        "silent_mut_xs", "silent_mut_ys", source=src,
+        fill_color="#d97706", fill_alpha=1.0, line_color=None
+    )
     fig.add_tools(HoverTool(tooltips=TOOLTIPS, renderers=[well_renderer]))
     fig.add_tools(TapTool(renderers=[well_renderer], callback=CustomJS(args=dict(src=src), code="""
         const indices = src.selected.indices;
@@ -319,20 +357,20 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     fig.xaxis.ticker = list(range(1, 25))
     fig.grid.grid_line_color = None
 
-    # colorbar with custom top tick
-    color_bar = ColorBar(color_mapper=mapper, 
+    # colorbar with tier labels at A (100), B (50), C (20)
+    from bokeh.models import FixedTicker
+    color_bar = ColorBar(color_mapper=mapper,
                          label_standoff=8, width=12, location=(0,0),
                          title="Read Count", title_text_font_size="14pt",
-                         bar_line_color="black", major_tick_line_color="black", 
-                         major_label_text_font_size="12pt", major_tick_line_width=2)
+                         bar_line_color="black", major_tick_line_color="black",
+                         major_label_text_font_size="12pt", major_tick_line_width=2,
+                         ticker=FixedTicker(ticks=[0, 20, 50, 100, min_reads * 2]))
     color_bar.formatter = CustomJSTickFormatter(code=f"""
-        if (tick == {min_reads}) {{
-            return "{min_reads} (threshold)";
-        }} else if (tick == {min_reads * 2}) {{
-            return "\u2265{min_reads * 2}";
-        }} else {{
-            return tick.toString();
-        }}
+        if (tick == 100) {{ return "A (100)"; }}
+        else if (tick == 50) {{ return "B (50)"; }}
+        else if (tick == 20) {{ return "C (20)"; }}
+        else if (tick == {min_reads * 2}) {{ return "\u2265{min_reads * 2}"; }}
+        else {{ return tick.toString(); }}
     """)
     fig.add_layout(color_bar, 'right')
 
@@ -360,7 +398,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
 
 
 def save_plate_map_html(df, output_path, title="Plate Map",
-                        streakout_wells=None, mutation_wells=None, **kwargs):
+                        streakout_wells=None, mutation_wells=None,
+                        silent_mutation_wells=None, **kwargs):
     """Generate an interactive plate map and save as standalone HTML.
 
     Wraps :func:`make_plate_map_bokeh_reads` and writes a self-contained
@@ -374,12 +413,15 @@ def save_plate_map_html(df, output_path, title="Plate Map",
             streak-out candidates (shown as blue corner tabs).
         mutation_wells: Optional set of ``"{plate}_{well}"`` keys for
             wells with consensus mutations (shown as red corner tabs).
+        silent_mutation_wells: Optional set of ``"{plate}_{well}"`` keys for
+            wells with synonymous DNA changes (shown as amber corner tabs).
         **kwargs: Forwarded to :func:`make_plate_map_bokeh_reads`.
     """
     from pathlib import Path
 
     layout = make_plate_map_bokeh_reads(df, streakout_wells=streakout_wells,
                                         mutation_wells=mutation_wells,
+                                        silent_mutation_wells=silent_mutation_wells,
                                         **kwargs)
     html = file_html(layout, INLINE, title)
     html = _inject_usortm_theme(html)

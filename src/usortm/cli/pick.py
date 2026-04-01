@@ -453,6 +453,11 @@ def pick(
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Could not generate pick plate map: {e}")
 
+    # Save pick list as JSON for the report to build detail tables
+    import json as _json
+    with open(pick_dir / "pick_list.json", "w") as _plf:
+        _json.dump(pick_list, _plf, indent=2)
+
     # Save pick workflow state
     _all_hits = [h for h in pick_list if not h.get("empty")]
     _streakout_hits = [h for h in _all_hits if h.get("tier_override") == "Streakout"]
@@ -657,8 +662,19 @@ def _generate_pick_list(
     pick_list = []
     seen_variants = set()
 
-    # Sort by reads (descending) to pick highest quality wells first
-    sorted_wells = sorted(well_data, key=lambda x: x["reads"], reverse=True)
+    # Sort wells: Perfect Match first, then Silent Mutation (fewest mismatches
+    # = highest consensus_fraction), then everything else.  Reads are the
+    # tiebreaker within each category.
+    def _well_sort_key(w):
+        cons = w.get("cons_check", "")
+        category = (
+            0 if cons == "Perfect Match" else
+            1 if cons == "Silent Mutation" else
+            2
+        )
+        return (category, -w["consensus_fraction"], -w["reads"])
+
+    sorted_wells = sorted(well_data, key=_well_sort_key)
 
     # Apply tier filter
     if tier and tier in TIER_THRESHOLDS:
@@ -678,14 +694,17 @@ def _generate_pick_list(
                 if not w.get("flank_check") or w["flank_check"] == "OK"
             ]
 
-    # Exclude wells with consensus errors (unless overridden)
+    # Exclude wells with consensus errors (unless overridden).
+    # Silent Mutations are always accepted — they encode the correct protein
+    # and the demux plate map displays them as mutation-free (green).
+    _ACCEPTABLE_CONS = {"Perfect Match", "Silent Mutation"}
     if not include_cons_errors:
         has_any_cons_data = any(w.get("cons_check") for w in sorted_wells)
         if has_any_cons_data:
             sorted_wells = [
                 w for w in sorted_wells
                 if not w.get("cons_check")
-                or w["cons_check"] == "Perfect Match"
+                or w["cons_check"] in _ACCEPTABLE_CONS
             ]
 
     for well in sorted_wells:
@@ -705,6 +724,7 @@ def _generate_pick_list(
             "source_well": well["well"],
             "reads": well["reads"],
             "consensus_fraction": well["consensus_fraction"],
+            "cons_check": well.get("cons_check", ""),
         })
 
         seen_variants.add(variant)
