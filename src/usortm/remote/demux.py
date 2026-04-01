@@ -320,6 +320,10 @@ set -euo pipefail
 
 JOB_DIR="{job_dir}"
 
+# Ensure conda env tools (samtools, minimap2) are on PATH
+USORTM_BIN="$(dirname "{usortm_path}")"
+export PATH="$USORTM_BIN:$PATH"
+
 echo "Job started: $(date)" > "$JOB_DIR/status.txt"
 echo "RUNNING" >> "$JOB_DIR/status.txt"
 
