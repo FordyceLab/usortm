@@ -466,33 +466,33 @@ def remote_fetch(
     console.print(f"[green]\u2713[/green] Metadata saved to {local_demux}")
 
     if read_data:
-        _fetch_progress: dict = {}
+        progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        )
+        _csv_task = None
+        _fasta_task = None
 
         def _on_file(fname: str, size_bytes: int):
-            if "ctx" in _fetch_progress:
-                _fetch_progress["ctx"].stop()
-            ctx = Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                DownloadColumn(),
-                TransferSpeedColumn(),
-                TimeRemainingColumn(),
-                console=console,
-            )
-            ctx.start()
-            total = size_bytes if size_bytes else None
-            task = ctx.add_task(f"  {fname}", total=total)
-            _fetch_progress["ctx"] = ctx
-            _fetch_progress["task"] = task
+            nonlocal _csv_task, _fasta_task
+            if fname.startswith("FASTAs"):
+                count_str = fname[len("FASTAs "):]  # e.g. "(12/800)"
+                if _fasta_task is None:
+                    _fasta_task = progress.add_task("  Variant FASTAs", total=None)
+                progress.update(_fasta_task, description=f"  Variant FASTAs {count_str}")
+            else:
+                if _csv_task is None:
+                    _csv_task = progress.add_task(f"  {fname}", total=size_bytes or None)
 
         def _transfer_cb(transferred: int, total: int):
-            if "ctx" in _fetch_progress:
-                _fetch_progress["ctx"].update(
-                    _fetch_progress["task"],
-                    completed=transferred,
-                    total=total,
-                )
+            if _csv_task is not None:
+                progress.update(_csv_task, completed=transferred, total=total)
 
+        progress.start()
         try:
             mgr.fetch_read_data(
                 job_key, project_dir,
@@ -500,8 +500,7 @@ def remote_fetch(
                 transfer_callback=_transfer_cb,
             )
         finally:
-            if "ctx" in _fetch_progress:
-                _fetch_progress["ctx"].stop()
+            progress.stop()
 
         console.print(f"[green]\u2713[/green] Read data saved to {local_demux}")
 
