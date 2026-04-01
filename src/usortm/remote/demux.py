@@ -504,26 +504,36 @@ exit $EXIT_CODE
                          callback=transfer_callback)
                 break
 
-        # Download reference_fasta/single_ref_fastas/ directory
+        # Download reference_fasta/single_ref_fastas/ as a single tarball
+        import tarfile as _tarfile
         ref_dir = f"{remote_demux}/reference_fasta/single_ref_fastas"
         local_ref_dir = local_demux / "reference_fasta" / "single_ref_fastas"
         local_ref_dir.mkdir(parents=True, exist_ok=True)
 
+        # Count how many FASTAs are already local
         ls_result = self.conn.run(
-            f'ls {ref_dir}/*.fasta 2>/dev/null || true',
+            f'ls {ref_dir}/*.fasta 2>/dev/null | wc -l || echo 0',
             hide=True,
         )
-        fasta_files = [
-            line.strip() for line in ls_result.stdout.strip().split("\n")
-            if line.strip().endswith(".fasta")
-        ]
-        for i, remote_path in enumerate(fasta_files):
-            fname = Path(remote_path).name
-            if (local_ref_dir / fname).exists():
-                continue
+        n_remote = int(ls_result.stdout.strip() or 0)
+        n_local = len(list(local_ref_dir.glob("*.fasta")))
+
+        if n_remote > 0 and n_local < n_remote:
+            # Tar on remote, download once, extract locally
+            remote_tar = f"{remote_demux}/single_ref_fastas.tar"
+            self.conn.run(
+                f'tar -cf "{remote_tar}" -C "{ref_dir}/.." single_ref_fastas/',
+                hide=True,
+            )
+            tar_size = _size(remote_tar)
             if on_file:
-                on_file(f"FASTAs ({i + 1}/{len(fasta_files)})", 0)
-            self.conn.get(remote_path, str(local_ref_dir / fname))
+                on_file(f"variant FASTAs ({n_remote} files)", tar_size)
+            local_tar = local_demux / "single_ref_fastas.tar"
+            self.conn.sftp().get(remote_tar, str(local_tar), callback=transfer_callback)
+            with _tarfile.open(local_tar) as tf:
+                tf.extractall(local_demux / "reference_fasta")
+            local_tar.unlink()
+            self.conn.run(f'rm -f "{remote_tar}"', hide=True, warn=True)
 
         # Update project state
         self._update_project_state(project_dir, job_key, read_data_downloaded=True)

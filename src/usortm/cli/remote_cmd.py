@@ -477,20 +477,20 @@ def remote_fetch(
         _csv_task = None
         _fasta_task = None
 
+        _active_task = None
+
         def _on_file(fname: str, size_bytes: int):
-            nonlocal _csv_task, _fasta_task
-            if fname.startswith("FASTAs"):
-                count_str = fname[len("FASTAs "):]  # e.g. "(12/800)"
-                if _fasta_task is None:
-                    _fasta_task = progress.add_task("  Variant FASTAs", total=None)
-                progress.update(_fasta_task, description=f"  Variant FASTAs {count_str}")
+            nonlocal _csv_task, _fasta_task, _active_task
+            task = progress.add_task(f"  {fname}", total=size_bytes or None)
+            if fname.startswith("variant FASTAs"):
+                _fasta_task = task
             else:
-                if _csv_task is None:
-                    _csv_task = progress.add_task(f"  {fname}", total=size_bytes or None)
+                _csv_task = task
+            _active_task = task
 
         def _transfer_cb(transferred: int, total: int):
-            if _csv_task is not None:
-                progress.update(_csv_task, completed=transferred, total=total)
+            if _active_task is not None:
+                progress.update(_active_task, completed=transferred, total=total)
 
         progress.start()
         try:
