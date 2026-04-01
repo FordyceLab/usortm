@@ -312,52 +312,35 @@ def remote_demux(
 # ── status ───────────────────────────────────────────────────────────
 
 
-@remote_app.command(name="status")
-def remote_status(
-    project_dir: Path = typer.Argument(
-        ...,
-        help="Path to uSort-M project directory.",
-        exists=True,
-    ),
-):
-    """Check the status of a remote demux job."""
-    from usortm.remote.demux import RemoteDemux
+def _render_status(info: dict, project_dir) -> str:
+    """Build the status display as a string for console or Live."""
+    from rich.text import Text
+    from io import StringIO
+    from rich.console import Console as _Console
 
-    try:
-        mgr, job_id = RemoteDemux.from_project(project_dir)
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Connection failed:[/red] {e}")
-        raise typer.Exit(1)
+    buf = StringIO()
+    c = _Console(file=buf, highlight=False, force_terminal=True)
 
-    info = mgr.get_detailed_status(job_id)
     status = info["status"]
-
     status_color = {"RUNNING": "yellow", "COMPLETED": "green", "FAILED": "red"}.get(status, "white")
-
-    console.print()
     job_key = info.get("job_key", "?")
-    console.print(Panel.fit(
+
+    c.print()
+    c.print(Panel.fit(
         f"[brand]uSort-M[/brand] Remote Demux  ·  [bold]{job_key}[/bold]  ·  [{status_color}]{status}[/{status_color}]",
         border_style=BORDER_STYLE,
     ))
-    console.print()
+    c.print()
 
     stages = info.get("stages", [])
-    n_done = sum(1 for s in stages if s["done"])
-
-    # Find the current (in-progress) stage index
     current_idx = None
     if status == "RUNNING":
-        # Last done stage is current; next is pending
         for i in range(len(stages) - 1, -1, -1):
             if stages[i]["done"]:
                 current_idx = i
                 break
         if current_idx is None:
-            current_idx = 0  # nothing done yet, first stage is current
+            current_idx = 0
 
     for i, stage in enumerate(stages):
         label = stage["label"]
@@ -376,20 +359,64 @@ def remote_status(
             icon = "[dim]\u25cb[/dim]"
             style = "[dim]"
 
-        console.print(f"  {icon}  {style}{label}{'[/bold]' if style == '[bold]' else '[/dim]' if style == '[dim]' else ''}")
+        close = "[/bold]" if style == "[bold]" else "[/dim]" if style == "[dim]" else ""
+        c.print(f"  {icon}  {style}{label}{close}")
 
-    # Last log line for context while running
     last_line = info.get("last_log_line", "").strip()
     if last_line and status == "RUNNING":
-        console.print()
-        console.print(f"  [dim]{last_line}[/dim]")
+        c.print()
+        c.print(f"  [dim]{last_line}[/dim]")
 
-    console.print()
+    c.print()
     if status == "COMPLETED":
-        console.print(f"[bold]Next:[/bold] [cyan]usortm remote fetch {project_dir}/[/cyan]")
+        c.print(f"[bold]Next:[/bold] [cyan]usortm remote fetch {project_dir}/[/cyan]")
     elif status == "FAILED":
-        console.print(f"[bold]Check log:[/bold] [cyan]usortm remote log {project_dir}/[/cyan]")
-    console.print()
+        c.print(f"[bold]Check log:[/bold] [cyan]usortm remote log {project_dir}/[/cyan]")
+    c.print()
+
+    return buf.getvalue()
+
+
+@remote_app.command(name="status")
+def remote_status(
+    project_dir: Path = typer.Argument(
+        ...,
+        help="Path to uSort-M project directory.",
+        exists=True,
+    ),
+    watch: bool = typer.Option(False, "--watch", "-w", help="Auto-refresh until job completes."),
+    interval: int = typer.Option(15, "--interval", "-i", help="Refresh interval in seconds (with --watch)."),
+):
+    """Check the status of a remote demux job."""
+    import time
+    from usortm.remote.demux import RemoteDemux
+    from rich.live import Live
+
+    try:
+        mgr, job_id = RemoteDemux.from_project(project_dir)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not watch:
+        info = mgr.get_detailed_status(job_id)
+        console.print(_render_status(info, project_dir), end="")
+        return
+
+    try:
+        with Live(console=console, refresh_per_second=1) as live:
+            while True:
+                info = mgr.get_detailed_status(job_id)
+                output = _render_status(info, project_dir)
+                live.update(output)
+                if info["status"] in ("COMPLETED", "FAILED"):
+                    break
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
 
 
 # ── log ──────────────────────────────────────────────────────────────
