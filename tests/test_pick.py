@@ -11,8 +11,10 @@ runner = CliRunner()
 
 
 def _hitlist_path(project_dir):
-    """Return the default hitlist output path."""
-    return project_dir / "pick" / "Integra ASSIST Input" / "hitlist_integra_assist.csv"
+    """Return the first per-plate hitlist file."""
+    d = project_dir / "pick" / "Integra ASSIST Input"
+    files = sorted(d.glob("hitlist_plate_*.csv"))
+    return files[0] if files else d / "hitlist_plate_0.csv"
 
 
 @pytest.fixture
@@ -134,7 +136,7 @@ def test_pick_all_hits(mock_project_dir):
 
 def test_pick_custom_output(mock_project_dir):
     """Test custom output path."""
-    output_path = mock_project_dir / "custom_hits.csv"
+    output_path = mock_project_dir / "custom_output" / "custom_hits.csv"
     result = runner.invoke(app, [
         "pick",
         str(mock_project_dir),
@@ -143,7 +145,9 @@ def test_pick_custom_output(mock_project_dir):
     ])
 
     assert result.exit_code == 0
-    assert output_path.exists()
+    # Per-plate files are written to the parent directory of --output
+    plate_files = sorted(output_path.parent.glob("hitlist_plate_*.csv"))
+    assert len(plate_files) >= 1
 
 
 def test_pick_custom_volume(mock_project_dir):
@@ -401,21 +405,14 @@ def test_pick_empty_wells(tmp_path):
         next(reader)  # skip header
         rows = list(reader)
 
-    # 5 total rows: 2 recovered + 3 empty placeholders, in library order
-    assert len(rows) == 5
-    assert [row[0] for row in rows] == ["libA", "libB", "libC", "libD", "libE"]
-
-    # Empty wells have 0.0 volume and empty source fields
-    lib_b_row = rows[1]
-    assert lib_b_row[1] == ""  # source plate empty
-    assert lib_b_row[2] == ""  # source well empty
-    assert lib_b_row[5] == "0.0"  # zero volume
+    # Only recovered variants are written (empty wells are excluded)
+    assert len(rows) == 2
+    assert [row[0] for row in rows] == ["libA", "libC"]
 
     # Recovered wells have real data
-    lib_a_row = rows[0]
-    assert lib_a_row[1] == "1"
-    assert lib_a_row[2] == "A1"
-    assert lib_a_row[5] == "5.0"
+    assert rows[0][1] == "1"
+    assert rows[0][2] == "A1"
+    assert rows[0][5] == "5.0"
 
 
 def test_pick_empty_wells_with_legacy_suffix(tmp_path):
@@ -463,16 +460,11 @@ def test_pick_empty_wells_with_legacy_suffix(tmp_path):
         next(reader)
         rows = list(reader)
 
-    # 3 rows: libA (recovered), libB (empty), libC (recovered)
-    assert len(rows) == 3
-    assert [row[0] for row in rows] == ["libA", "libB", "libC"]
+    # Only recovered variants are written (empty wells excluded)
+    assert len(rows) == 2
+    assert [row[0] for row in rows] == ["libA", "libC"]
 
     # libA matched despite |Perfect Match suffix — has real source data
     lib_a_row = rows[0]
     assert lib_a_row[1] == "1"   # source plate
     assert lib_a_row[2] == "A1"  # source well
-
-    # libB is empty placeholder
-    lib_b_row = rows[1]
-    assert lib_b_row[1] == ""
-    assert lib_b_row[5] == "0.0"

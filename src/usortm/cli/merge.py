@@ -215,9 +215,8 @@ def merge(
     integra_dir = project_dir / "Integra ASSIST Input"
     integra_dir.mkdir(exist_ok=True)
 
-    output_file = integra_dir / "hitlist_integra_assist_merged.csv"
-    _save_pick_list(pick_list, output_file, volume)
-    _write_integra_readme(integra_dir, output_file, volume, target_format, round_nums)
+    written_files = _save_pick_list(pick_list, integra_dir, volume)
+    _write_integra_readme(integra_dir, written_files, volume, target_format, round_nums)
 
     # Save combined well_assignments for the merged report
     _save_merged_well_assignments(all_wells, merged_dir)
@@ -294,7 +293,8 @@ def merge(
 
     console.print(summary_table)
     console.print()
-    console.print(f"[green]\u2713[/green] Merged pick list: {output_file}")
+    for wf in written_files:
+        console.print(f"[green]\u2713[/green] Integra hitlist: {wf}")
     console.print(f"[green]\u2713[/green] Combined well assignments: {merged_dir / 'well_assignments.csv'}")
     console.print()
     console.print("[bold]Next step:[/bold]")
@@ -512,24 +512,36 @@ def _assign_target_wells(pick_list: list, target_format: int, fill_order: str):
             well_index = 0
 
 
-def _save_pick_list(pick_list: list, output_file: Path, volume: float):
-    """Save merged pick list in Integra ASSIST PLUS format."""
-    with open(output_file, "w", newline="") as f:
-        writer = csv.writer(f, delimiter=";")
-        writer.writerow([
-            "SampleID", "SourcePlateID", "SourceWell",
-            "TargetPlateID", "TargetWell", "TransferVolume",
-        ])
-        for hit in pick_list:
-            vol = 0.0 if hit.get("empty") or hit.get("tier_override") == "Streakout" else volume
+def _save_pick_list(pick_list: list, output_dir: Path, volume: float):
+    """Save merged pick list in Integra ASSIST PLUS format, one file per target plate."""
+    from collections import defaultdict
+    plates: dict[str, list] = defaultdict(list)
+    for hit in pick_list:
+        if hit.get("empty") or hit.get("tier_override") == "Streakout":
+            continue
+        plates[str(hit["target_plate"])].append(hit)
+
+    written_files = []
+    for plate_id in sorted(plates):
+        fname = f"hitlist_plate_{plate_id}.csv"
+        out = output_dir / fname
+        with open(out, "w", newline="") as f:
+            writer = csv.writer(f, delimiter=";")
             writer.writerow([
-                hit["variant"],
-                hit["source_plate"],
-                hit["source_well"],
-                hit["target_plate"],
-                hit["target_well"],
-                f"{vol:.1f}",
+                "SampleID", "SourcePlateID", "SourceWell",
+                "TargetPlateID", "TargetWell", "TransferVolume",
             ])
+            for hit in plates[plate_id]:
+                writer.writerow([
+                    hit["variant"].replace(";", "."),
+                    hit["source_plate"],
+                    hit["source_well"],
+                    hit["target_plate"],
+                    hit["target_well"],
+                    f"{volume:.1f}",
+                ])
+        written_files.append(out)
+    return written_files
 
 
 def _save_merged_well_assignments(all_wells: dict[int, list], merged_dir: Path):
@@ -553,18 +565,20 @@ def _save_merged_well_assignments(all_wells: dict[int, list], merged_dir: Path):
 
 def _write_integra_readme(
     integra_dir: Path,
-    hitlist_file: Path,
+    hitlist_files: list,
     volume: float,
     target_format: int,
     round_nums: list,
 ):
     """Write README explaining the merged Integra ASSIST input."""
     rounds_str = ", ".join(str(r) for r in round_nums)
+    files_str = "\n".join(f"  • {f.name}" for f in hitlist_files)
     content = f"""\
 Integra ASSIST PLUS — Merged Hit-Picking Input
 ===============================================
 
-File: {hitlist_file.name}
+Files (one per target plate):
+{files_str}
 Rounds merged: {rounds_str}
 
 SourcePlateID format: R{{round}}_{{plate_number}}
@@ -578,7 +592,7 @@ Columns
   SourceWell     Source well position (e.g. A1)
   TargetPlateID  Destination plate number
   TargetWell     Destination well position
-  TransferVolume Transfer volume in µL (0 = empty/unrecovered well)
+  TransferVolume Transfer volume in µL
 
 Settings used
 -------------
@@ -590,9 +604,6 @@ Notes
   • Load source plates in the order indicated by SourcePlateID.
   • Round 1 and Round 2+ source plates are physically separate — load
     them separately when the robot requests each SourcePlateID group.
-  • Wells with TransferVolume = 0 are unrecovered library variants
-    preserved to maintain library layout. The Integra ASSIST PLUS
-    will skip these wells automatically.
 """
     (integra_dir / "README.txt").write_text(content)
 

@@ -306,15 +306,16 @@ def pick(
     integra_dir = pick_dir / "Integra ASSIST Input"
     integra_dir.mkdir(exist_ok=True)
 
-    output_file = output
-    if output_file is None:
-        output_file = integra_dir / "hitlist_integra_assist.csv"
+    output_dir = integra_dir
+    if output is not None:
+        output_dir = output.parent
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save pick list in Integra ASSIST PLUS format
-    _save_pick_list(pick_list, output_file, volume)
+    # Save pick list in Integra ASSIST PLUS format (one file per target plate)
+    written_files = _save_pick_list(pick_list, output_dir, volume)
 
     # Write README for the Integra ASSIST Input folder
-    _write_integra_readme(integra_dir, output_file, volume, target_format)
+    _write_integra_readme(integra_dir, written_files, volume, target_format)
 
     # Generate per-well pileup HTMLs for picked hits
     pileup_url_map: dict = {}
@@ -523,8 +524,9 @@ def pick(
     console.print()
 
     console.print("[green]\u2713[/green] Pick list generated!")
-    console.print(f"  Output: {output_file}")
-    console.print(f"  README: {output_file.parent / 'README.txt'}")
+    for wf in written_files:
+        console.print(f"  Hitlist: {wf}")
+    console.print(f"  README: {integra_dir / 'README.txt'}")
     console.print()
 
     # Determine whether a multi-round merge is possible
@@ -799,19 +801,21 @@ def _assign_target_wells(pick_list: list, target_format: int, fill_order: str):
 
 def _write_integra_readme(
     integra_dir: Path,
-    hitlist_file: Path,
+    hitlist_files: list,
     volume: float,
     target_format: int,
 ):
-    """Write a README.txt explaining how to use the Integra ASSIST PLUS input file."""
+    """Write a README.txt explaining how to use the Integra ASSIST PLUS input files."""
     readme_path = integra_dir / "README.txt"
+    files_str = "\n".join(f"  • {f.name}" for f in hitlist_files)
     content = f"""\
 Integra ASSIST PLUS — Hit-Picking Input
 ========================================
 
-File: {hitlist_file.name}
+Files (one per target plate):
+{files_str}
 
-This semicolon-delimited CSV is formatted for direct import into the
+These semicolon-delimited CSVs are formatted for direct import into the
 Integra ASSIST PLUS liquid handling robot software.
 
 Columns
@@ -821,7 +825,7 @@ Columns
   SourceWell     Source well position (e.g. A1)
   TargetPlateID  Destination plate number
   TargetWell     Destination well position
-  TransferVolume Transfer volume in µL (0 = empty well, robot skips)
+  TransferVolume Transfer volume in µL
 
 Settings used
 -------------
@@ -830,9 +834,6 @@ Settings used
 
 Notes
 -----
-  • Wells with TransferVolume = 0 are unrecovered library variants preserved
-    to maintain the library layout on the target plate.  The Integra ASSIST
-    PLUS will skip these wells automatically.
   • Load source plates in the order indicated by SourcePlateID.
   • Verify tip type and labware definitions match your plate format before
     running the protocol.
@@ -840,30 +841,33 @@ Notes
     readme_path.write_text(content)
 
 
-def _save_pick_list(pick_list: list, output_file: Path, volume: float):
-    """Save pick list in Integra ASSIST PLUS format."""
-    with open(output_file, "w", newline="") as f:
-        writer = csv.writer(f, delimiter=";")
+def _save_pick_list(pick_list: list, output_dir: Path, volume: float):
+    """Save pick list in Integra ASSIST PLUS format, one file per target plate."""
+    from collections import defaultdict
+    plates: dict[str, list] = defaultdict(list)
+    for hit in pick_list:
+        if hit.get("empty"):
+            continue
+        plates[str(hit["target_plate"])].append(hit)
 
-        # Header for Integra ASSIST PLUS
-        writer.writerow([
-            "SampleID",
-            "SourcePlateID",
-            "SourceWell",
-            "TargetPlateID",
-            "TargetWell",
-            "TransferVolume",
-        ])
-
-        for hit in pick_list:
-            # Empty wells (unrecovered variants) get 0 volume so the
-            # Integra ASSIST PLUS skips them while preserving plate layout.
-            vol = 0.0 if hit.get("empty") else volume
+    written_files = []
+    for plate_id in sorted(plates):
+        fname = f"hitlist_plate_{plate_id}.csv"
+        out = output_dir / fname
+        with open(out, "w", newline="") as f:
+            writer = csv.writer(f, delimiter=";")
             writer.writerow([
-                hit["variant"],
-                hit["source_plate"],
-                hit["source_well"],
-                hit["target_plate"],
-                hit["target_well"],
-                f"{vol:.1f}",
+                "SampleID", "SourcePlateID", "SourceWell",
+                "TargetPlateID", "TargetWell", "TransferVolume",
             ])
+            for hit in plates[plate_id]:
+                writer.writerow([
+                    hit["variant"].replace(";", "."),
+                    hit["source_plate"],
+                    hit["source_well"],
+                    hit["target_plate"],
+                    hit["target_well"],
+                    f"{volume:.1f}",
+                ])
+        written_files.append(out)
+    return written_files

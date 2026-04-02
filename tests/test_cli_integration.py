@@ -182,9 +182,16 @@ def test_demux_with_mock_pipeline(tmp_path, mock_fastq):
 # Pick and report tests (using pre-made demux results)
 # ===================================================================
 
-def _hitlist_path(project_dir):
-    """Return the default hitlist output path."""
-    return project_dir / "pick" / "Integra ASSIST Input" / "hitlist_integra_assist.csv"
+def _hitlist_dir(project_dir):
+    """Return the default hitlist output directory."""
+    return project_dir / "pick" / "Integra ASSIST Input"
+
+
+def _first_hitlist(project_dir):
+    """Return the first per-plate hitlist file."""
+    d = _hitlist_dir(project_dir)
+    files = sorted(d.glob("hitlist_plate_*.csv"))
+    return files[0] if files else d / "hitlist_plate_0.csv"
 
 
 def test_pick_command(project_with_demux_results):
@@ -197,7 +204,7 @@ def test_pick_command(project_with_demux_results):
 
     assert result.exit_code == 0
     assert "Hit Picking" in result.stdout
-    hitlist = _hitlist_path(project_with_demux_results)
+    hitlist = _first_hitlist(project_with_demux_results)
     assert hitlist.exists()
 
     # Verify Integra ASSIST format
@@ -220,7 +227,7 @@ def test_pick_with_volume_option(project_with_demux_results):
     ])
     assert result.exit_code == 0
 
-    hitlist = _hitlist_path(project_with_demux_results)
+    hitlist = _first_hitlist(project_with_demux_results)
     with open(hitlist, newline="") as f:
         reader = csv.reader(f, delimiter=";")
         next(reader)
