@@ -521,7 +521,7 @@ def _save_pick_list(pick_list: list, output_file: Path, volume: float):
             "TargetPlateID", "TargetWell", "TransferVolume",
         ])
         for hit in pick_list:
-            vol = 0.0 if hit.get("empty") else volume
+            vol = 0.0 if hit.get("empty") or hit.get("tier_override") == "Streakout" else volume
             writer.writerow([
                 hit["variant"],
                 hit["source_plate"],
