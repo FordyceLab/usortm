@@ -14,6 +14,7 @@
     { name: 'FACS Sorting',    url: 'sorting.html' },
     { name: 'PCR Barcoding',   url: 'barcoding.html' },
     { name: 'Demultiplexing',  url: 'demultiplexing.html' },
+    { name: 'Hit Picking',     url: 'hitpicking.html' },
     { name: 'CLI Reference',   url: 'cli.html' },
     { name: 'Python API',      url: 'api.html' },
   ];

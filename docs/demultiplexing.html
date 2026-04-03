@@ -119,6 +119,7 @@
         <li><a href="sorting.html">FACS Sorting</a></li>
         <li><a href="barcoding.html">PCR Barcoding</a></li>
         <li><a href="demultiplexing.html">Demultiplexing</a></li>
+        <li><a href="hitpicking.html">Hit Picking</a></li>
       </ul>
       <div class="sidebar-section">Reference</div>
       <ul class="sidebar-nav">
@@ -659,6 +660,126 @@ T203Y;2;C5;0;C1;5.0</code></pre>
         </p>
         <div class="code-container">
           <pre><code>usortm pick my_project/ --include-flank-errors</code></pre>
+        </div>
+
+        <h2 id="remote-execution">Remote Execution</h2>
+
+        <p>
+          If you don't have Dorado, minimap2, or samtools installed locally &mdash; or if your FASTQ files are large
+          and the server has more compute &mdash; you can run the entire demux pipeline on a remote machine via SSH.
+        </p>
+
+        <h3>Setup</h3>
+        <p>Configure your SSH connection once:</p>
+        <div class="code-container">
+          <pre><code class="language-bash">usortm remote config --init</code></pre>
+        </div>
+        <p>This prompts for host, username, SSH key path, remote job directory, and the path to <code>usortm</code> on the server. View your current settings with:</p>
+        <div class="code-container">
+          <pre><code class="language-bash">usortm remote config --show</code></pre>
+        </div>
+
+        <p>Verify that the remote server has all required tools installed:</p>
+        <div class="code-container">
+          <pre><code class="language-bash">usortm remote verify</code></pre>
+        </div>
+        <p>This checks for <code>dorado</code>, <code>minimap2</code>, <code>samtools</code>, and <code>usortm</code> on the remote, and reports available disk space.</p>
+
+        <h3>Submitting a Job</h3>
+        <p>Submit a demux job with the same options as local demux:</p>
+        <div class="code-container">
+          <pre><code class="language-bash"># Upload a local FASTQ file
+usortm remote demux my_project/ \
+  --fastq data.fastq \
+  --library-csv variants.csv \
+  --workers 15
+
+# Use a FASTQ already on the server
+usortm remote demux my_project/ \
+  --remote-fastq /data/sequencing/run42.fastq \
+  --library-csv variants.csv
+
+# Have the server download from a URL
+usortm remote demux my_project/ \
+  --fastq-url "https://example.com/run42.fastq.gz" \
+  --library-csv variants.csv</code></pre>
+        </div>
+        <p>Three FASTQ modes are supported:</p>
+        <ul>
+          <li><code>--fastq</code> &mdash; upload a local file (with progress bar)</li>
+          <li><code>--remote-fastq</code> &mdash; path to a file already on the server</li>
+          <li><code>--fastq-url</code> &mdash; URL for the server to <code>wget</code> directly (useful when the remote has faster network)</li>
+        </ul>
+        <p>
+          Additional options like <code>--vector-fasta</code>, <code>--mask-config</code>, <code>--threads</code>,
+          <code>--workers</code>, and <code>--subsample</code> work the same as local demux.
+          Re-submitting the same project reuses the remote directory and skips uploading files that are already present.
+        </p>
+
+        <h3>Monitoring</h3>
+        <p>Check job progress and pipeline stage:</p>
+        <div class="code-container">
+          <pre><code class="language-bash"># One-time status check
+usortm remote status my_project/
+
+# Live auto-refresh until job completes
+usortm remote status my_project/ --watch</code></pre>
+        </div>
+        <p>View the remote log output:</p>
+        <div class="code-container">
+          <pre><code class="language-bash">usortm remote log my_project/</code></pre>
+        </div>
+
+        <h3>Fetching Results</h3>
+        <p>Download results once the job completes:</p>
+        <div class="code-container">
+          <pre><code class="language-bash"># Metadata only (well assignments, summary, plate map)
+usortm remote fetch my_project/
+
+# Include read data for pileup generation during pick
+usortm remote fetch my_project/ --read-data</code></pre>
+        </div>
+        <p>
+          By default, <code>fetch</code> downloads the small metadata files needed for picking and reporting.
+          Add <code>--read-data</code> to also download <code>read_df.csv</code> and per-variant reference FASTAs,
+          which are needed to generate per-well pileup visualizations during <code>usortm pick</code>.
+        </p>
+
+        <h3>Managing Jobs</h3>
+        <div class="code-container">
+          <pre><code class="language-bash"># List all remote jobs
+usortm remote list
+
+# Cancel a running job
+usortm remote cancel my_project/
+
+# Clean up old job directories (interactive selection)
+usortm remote clean</code></pre>
+        </div>
+
+        <h3>End-to-End Example</h3>
+        <div class="code-container">
+          <pre><code class="language-bash"># 1. Configure SSH (one-time)
+usortm remote config --init
+usortm remote verify
+
+# 2. Submit
+usortm remote demux my_project/ \
+  --fastq data.fastq \
+  --library-csv variants.csv \
+  --vector-fasta vector.fasta \
+  --mask-config T7_default.toml \
+  --workers 15
+
+# 3. Monitor
+usortm remote status my_project/ --watch
+
+# 4. Download results
+usortm remote fetch my_project/ --read-data
+
+# 5. Continue locally: pick, report
+usortm pick my_project/
+usortm report my_project/</code></pre>
         </div>
 
         <h2>Quality Control</h2>

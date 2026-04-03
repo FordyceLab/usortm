@@ -122,8 +122,9 @@
         <li><a href="sorting.html">FACS Sorting</a></li>
         <li><a href="barcoding.html">PCR Barcoding</a></li>
         <li><a href="demultiplexing.html">Demultiplexing</a></li>
+        <li><a href="hitpicking.html">Hit Picking</a></li>
       </ul>
-      
+
       <div class="sidebar-section">Reference</div>
       <ul class="sidebar-nav">
         <li><a href="cli.html" class="active">CLI Reference</a></li>
@@ -185,12 +186,28 @@
               <td>Generate final plate maps, coverage stats, and HTML summary</td>
             </tr>
             <tr>
+              <td><code>merge</code></td>
+              <td>Combine pick results from multiple sequencing rounds into a unified pick plate</td>
+            </tr>
+            <tr>
               <td><code>reorder</code></td>
               <td>Generate synthesis ordering files for dropout variants (IDT eBlocks, Twist Gene Fragments, oPools)</td>
             </tr>
             <tr>
               <td><code>platemap</code></td>
               <td>Regenerate interactive plate map HTML from existing demux results without re-running demux</td>
+            </tr>
+            <tr>
+              <td><code>config list</code></td>
+              <td>List available barcode mask presets</td>
+            </tr>
+            <tr>
+              <td><code>config add</code></td>
+              <td>Install a user barcode mask preset from a TOML file</td>
+            </tr>
+            <tr>
+              <td><code>remote *</code></td>
+              <td>Run demux jobs on a remote server via SSH (<a href="demultiplexing.html#remote-execution">see Remote Execution</a>)</td>
             </tr>
           </tbody>
         </table>
@@ -457,6 +474,12 @@
               <td>Vector FASTA with X's marking the variable region; enables flanking region mismatch detection</td>
               <td>None</td>
             </tr>
+            <tr>
+              <td><code>--round</code></td>
+              <td></td>
+              <td>Sequencing round to demultiplex (1 for initial sort, 2+ for re-order rounds)</td>
+              <td>1</td>
+            </tr>
           </tbody>
         </table>
         </div>
@@ -544,6 +567,18 @@
               <td>Include wells with flanking region mismatches in the pick list</td>
               <td>False</td>
             </tr>
+            <tr>
+              <td><code>--include-cons-errors</code></td>
+              <td></td>
+              <td>Include wells with consensus mismatches (Other Error / Silent Mutation) in the pick list</td>
+              <td>False</td>
+            </tr>
+            <tr>
+              <td><code>--round</code></td>
+              <td><code>-r</code></td>
+              <td>Sequencing round to pick from (1 for initial sort, 2+ for re-order rounds)</td>
+              <td>1</td>
+            </tr>
           </tbody>
         </table>
         </div>
@@ -578,6 +613,12 @@ G45A;1;A11;0;B1;5.0</code></pre>
               <td>Output format (csv, html, json, all)</td>
               <td>all</td>
             </tr>
+            <tr>
+              <td><code>--round</code></td>
+              <td></td>
+              <td>Which round to report on: <code>1</code>, <code>2</code>, etc., or <code>merged</code> (after running <code>usortm merge</code>)</td>
+              <td>1</td>
+            </tr>
           </tbody>
         </table>
         </div>
@@ -589,6 +630,214 @@ G45A;1;A11;0;B1;5.0</code></pre>
 ├── final_mapping.csv     # Variant to well mapping
 └── missing_variants.csv  # Unrecovered variants</code></pre>
         
+        <h2 id="merge"><code>usortm merge</code></h2>
+        <p>Combine pick results from multiple sequencing rounds into a unified pick plate. Fills gaps from earlier rounds with results from later rounds, preserving library order. Source plate IDs are prefixed with the round number (e.g. <code>R1_3</code>, <code>R2_4</code>) so the Integra ASSIST can distinguish plates from different rounds.</p>
+
+        <pre><code class="language-bash">usortm merge my_project/</code></pre>
+
+        <h3>Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--rounds</code></td>
+              <td><code>-r</code></td>
+              <td>Comma-separated round numbers to merge (e.g. <code>1,2</code>)</td>
+              <td>all completed rounds</td>
+            </tr>
+            <tr>
+              <td><code>--tier</code></td>
+              <td></td>
+              <td>Minimum quality tier (A/B/C). Use <code>--tier ''</code> to disable.</td>
+              <td>C</td>
+            </tr>
+            <tr>
+              <td><code>--volume</code></td>
+              <td><code>-v</code></td>
+              <td>Transfer volume (&micro;L) for Integra ASSIST output</td>
+              <td>5.0</td>
+            </tr>
+            <tr>
+              <td><code>--target-format</code></td>
+              <td></td>
+              <td>Target plate format (96 or 384)</td>
+              <td>384</td>
+            </tr>
+            <tr>
+              <td><code>--fill-order</code></td>
+              <td></td>
+              <td>Fill order for target plate (row or column)</td>
+              <td>row</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h2 id="reorder"><code>usortm reorder</code></h2>
+        <p>Generate synthesis ordering files for dropout variants &mdash; library members that were not recovered during hit picking. Supports multiple vendor formats.</p>
+
+        <pre><code class="language-bash">usortm reorder my_project/ --format eblocks</code></pre>
+
+        <h3>Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--format</code></td>
+              <td><code>-f</code></td>
+              <td>Ordering format: <code>eblocks</code>, <code>twist</code>, <code>twist_oligo</code>, or <code>opools</code> (prompted if omitted)</td>
+              <td>interactive</td>
+            </tr>
+            <tr>
+              <td><code>--output</code></td>
+              <td><code>-o</code></td>
+              <td>Output CSV path</td>
+              <td><code>reorder_&lt;format&gt;.csv</code></td>
+            </tr>
+            <tr>
+              <td><code>--library</code></td>
+              <td><code>-l</code></td>
+              <td>Original library CSV with full sequences (e.g. with golden gate adapters). The longest-average-length sequence column is auto-selected.</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--pool-name</code></td>
+              <td><code>-p</code></td>
+              <td>Pool name for IDT oPools format (ignored for other formats)</td>
+              <td>dropout_pool</td>
+            </tr>
+            <tr>
+              <td><code>--trim-bsai</code></td>
+              <td></td>
+              <td>Trim each sequence to 5 bp outside its flanking BsaI sites (GGTCTC / GAGACC)</td>
+              <td>False</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>Supported Formats</h3>
+        <ul>
+          <li><code>eblocks</code> &mdash; IDT eBlocks (96-well plate layout: Well Position, Name, Sequence)</li>
+          <li><code>twist</code> &mdash; Twist Gene Fragments (Sequence name, Sequence)</li>
+          <li><code>twist_oligo</code> &mdash; Twist Oligonucleotide Pools (name, sequence)</li>
+          <li><code>opools</code> &mdash; IDT oPools (Pool name, Sequence)</li>
+        </ul>
+
+        <h2 id="platemap"><code>usortm platemap</code></h2>
+        <p>Regenerate the interactive demux plate map HTML from existing results without re-running demux. Useful for adjusting the color scale or regenerating after updating annotations.</p>
+
+        <pre><code class="language-bash">usortm platemap my_project/
+usortm platemap my_project/ --min-reads 50 --output my_map.html</code></pre>
+
+        <h3>Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--min-reads</code></td>
+              <td><code>-m</code></td>
+              <td>Minimum reads per well for full color on plate map</td>
+              <td>100</td>
+            </tr>
+            <tr>
+              <td><code>--output</code></td>
+              <td><code>-o</code></td>
+              <td>Output path for the plate map HTML</td>
+              <td><code>demux_output/plate_map.html</code></td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h2 id="config"><code>usortm config</code></h2>
+        <p>Manage barcode mask presets. Mask presets define the flanking sequences used for Dorado barcode demultiplexing.</p>
+
+        <h3><code>usortm config list</code></h3>
+        <p>List all available mask presets (built-in and user-installed).</p>
+        <pre><code class="language-bash">usortm config list</code></pre>
+
+        <h3><code>usortm config add</code></h3>
+        <p>Install a user preset from a TOML mask config file.</p>
+        <pre><code class="language-bash">usortm config add my_mask.toml
+usortm config add my_mask.toml --name custom_preset</code></pre>
+
+        <h2 id="remote"><code>usortm remote</code></h2>
+        <p>Run demux jobs on a remote server via SSH. See the <a href="demultiplexing.html#remote-execution">Remote Execution</a> section for a full walkthrough.</p>
+
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Subcommand</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>remote config</code></td>
+              <td>Configure or display SSH connection settings (<code>--init</code> for interactive setup)</td>
+            </tr>
+            <tr>
+              <td><code>remote verify</code></td>
+              <td>Check that required tools (dorado, minimap2, samtools) are installed on the remote</td>
+            </tr>
+            <tr>
+              <td><code>remote demux</code></td>
+              <td>Upload inputs and submit a demux job</td>
+            </tr>
+            <tr>
+              <td><code>remote status</code></td>
+              <td>Check job progress (<code>--watch</code> for live auto-refresh)</td>
+            </tr>
+            <tr>
+              <td><code>remote log</code></td>
+              <td>View the remote job log</td>
+            </tr>
+            <tr>
+              <td><code>remote fetch</code></td>
+              <td>Download results (<code>--read-data</code> to include pileup files)</td>
+            </tr>
+            <tr>
+              <td><code>remote cancel</code></td>
+              <td>Cancel a running job</td>
+            </tr>
+            <tr>
+              <td><code>remote list</code></td>
+              <td>List all remote jobs with status and disk usage</td>
+            </tr>
+            <tr>
+              <td><code>remote clean</code></td>
+              <td>Delete old remote job directories</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
         <h2>JSON Output</h2>
         <p>Several commands support <code>--json</code> output for programmatic use:</p>
         

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hit Picking - uSort-M</title>
+
+  <!-- Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-GT0D649KGB"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-GT0D649KGB', {
+      'anonymize_ip': true,
+      'allow_google_signals': false,
+      'allow_ad_personalization_signals': false
+    });
+  </script>
+
+  <!-- Apply theme immediately to prevent flash -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const hour = new Date().getHours();
+      const isNight = hour >= 20 || hour < 7;
+      const theme = savedTheme || (prefersDark || isNight ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <!-- Critical CSS for instant theme application -->
+  <style>
+    :root {
+      --color-bg: #fafafa;
+      --color-sidebar: #f5f5f5;
+      --color-text: #333;
+      --color-card-bg: white;
+      --color-border: #e5e5e5;
+    }
+    [data-theme="dark"] {
+      --color-bg: #1c1c1e;
+      --color-sidebar: #242424;
+      --color-text: #f2f2f2;
+      --color-card-bg: #2c2c2e;
+      --color-border: #3a3a3c;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+    }
+    .sidebar {
+      background: var(--color-sidebar);
+    }
+    /* Page transition - only animate main content */
+    .main {
+      animation: fadeIn 0.25s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="images/Thumbnail.png" type="image/png">
+  <!-- Highlight.js for code syntax highlighting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+  <!-- Code copy button functionality -->
+  <script src="code-copy.js"></script>
+  <style>
+    pre code.hljs {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      padding: 0;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+    pre {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      border-radius: 8px;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <a href="index.html" class="sidebar-header">
+        <img src="images/Thumbnail.png" alt="uSort-M">
+        <h1>uSort-M</h1>
+      </a>
+      <div class="sidebar-search" id="site-search-wrapper">
+        <div class="search-input-wrap">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M14 14l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <input type="text" id="site-search-input" placeholder="Search docs..." autocomplete="off" spellcheck="false" aria-label="Search documentation">
+        </div>
+        <div class="search-results" id="site-search-results"></div>
+      </div>
+
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting Started</a></li>
+      </ul>
+
+      <div class="sidebar-section">Workflow</div>
+      <ul class="sidebar-nav">
+        <li><a href="workflow.html">Protocol Overview</a></li>
+        <li><a href="library-design.html">Library Design</a></li>
+        <li><a href="sorting.html">FACS Sorting</a></li>
+        <li><a href="barcoding.html">PCR Barcoding</a></li>
+        <li><a href="demultiplexing.html">Demultiplexing</a></li>
+        <li><a href="hitpicking.html" class="active">Hit Picking</a></li>
+      </ul>
+
+      <div class="sidebar-section">Reference</div>
+      <ul class="sidebar-nav">
+        <li><a href="cli.html">CLI Reference</a></li>
+        <li><a href="api.html">Python API</a></li>
+      </ul>
+
+      <div class="sidebar-section">Links</div>
+      <ul class="sidebar-nav">
+        <li><a href="https://github.com/FordyceLab/usortm" target="_blank">GitHub</a></li>
+        <li><a href="https://www.fordycelab.com" target="_blank">Fordyce Lab</a></li>
+      </ul>
+    </nav>
+    <!-- Theme toggle -->
+    <div class="theme-toggle" onclick="toggleTheme()">
+      <span class="theme-toggle-icon" id="theme-icon">
+        <svg class="theme-svg" id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="theme-svg" id="icon-sun" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+      </span>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main">
+      <div class="content">
+        <h1>Hit Picking</h1>
+
+        <p>
+          After demultiplexing, <code>usortm pick</code> generates a hit-picking list formatted for
+          <strong>Integra ASSIST PLUS</strong> liquid handling robots. The pick list maps each recovered variant
+          from its source plate/well to a target plate position, preserving the original library ordering.
+        </p>
+
+        <h2>Generating a Pick List</h2>
+
+        <pre><code class="language-bash">usortm pick my_project/</code></pre>
+
+        <p>
+          By default, one well is selected per unique variant (the well with the highest read count and consensus quality),
+          filtered to Tier A quality (&ge;100 reads, &gt;90% consensus). Wells with flanking region mismatches or
+          consensus errors are excluded. Unrecovered variants are preserved as empty placeholders to maintain the library layout.
+        </p>
+
+        <h3>Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--targets</code></td>
+              <td><code>-t</code></td>
+              <td>CSV of specific variants to pick</td>
+              <td>all</td>
+            </tr>
+            <tr>
+              <td><code>--output</code></td>
+              <td><code>-o</code></td>
+              <td>Output file path</td>
+              <td><code>pick/Integra&nbsp;ASSIST&nbsp;Input/hitlist_integra_assist.csv</code></td>
+            </tr>
+            <tr>
+              <td><code>--volume</code></td>
+              <td><code>-v</code></td>
+              <td>Transfer volume (&micro;L)</td>
+              <td>5.0</td>
+            </tr>
+            <tr>
+              <td><code>--target-format</code></td>
+              <td></td>
+              <td>Target plate format (96 or 384)</td>
+              <td>384</td>
+            </tr>
+            <tr>
+              <td><code>--fill-order</code></td>
+              <td></td>
+              <td>Fill order (row or column)</td>
+              <td>row</td>
+            </tr>
+            <tr>
+              <td><code>--unique-only/--all-hits</code></td>
+              <td></td>
+              <td>Pick one well per variant</td>
+              <td>True</td>
+            </tr>
+            <tr>
+              <td><code>--tier</code></td>
+              <td></td>
+              <td>Quality tier filter: A (&ge;100 reads), B (&ge;50), C (&ge;20). All require &gt;90% consensus. Use <code>--tier ''</code> to disable.</td>
+              <td>A</td>
+            </tr>
+            <tr>
+              <td><code>--compact/--no-compact</code></td>
+              <td></td>
+              <td>Pack recovered hits into adjacent wells; omit empty placeholders</td>
+              <td>False</td>
+            </tr>
+            <tr>
+              <td><code>--pileups/--no-pileups</code></td>
+              <td></td>
+              <td>Generate per-well pileup HTML visualizations</td>
+              <td>True</td>
+            </tr>
+            <tr>
+              <td><code>--workers</code></td>
+              <td><code>-w</code></td>
+              <td>Parallel workers for pileup generation</td>
+              <td>4</td>
+            </tr>
+            <tr>
+              <td><code>--include-flank-errors</code></td>
+              <td></td>
+              <td>Include wells with flanking region mismatches</td>
+              <td>False</td>
+            </tr>
+            <tr>
+              <td><code>--include-cons-errors</code></td>
+              <td></td>
+              <td>Include wells with consensus mismatches (Other Error / Silent Mutation)</td>
+              <td>False</td>
+            </tr>
+            <tr>
+              <td><code>--round</code></td>
+              <td><code>-r</code></td>
+              <td>Sequencing round to pick from (1 for initial, 2+ for re-order rounds)</td>
+              <td>1</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h2>Output Files</h2>
+
+        <pre><code class="language-plaintext">my_project/pick/
+  Integra ASSIST Input/
+    hitlist_integra_assist.csv   # Semicolon-delimited CSV for robot
+    README.txt                  # Instructions for the Integra ASSIST
+  pileup/
+    well_1_A3.html              # Per-well pileup visualizations
+    well_1_B7.html
+    ...
+  pick_plate_map.html           # Interactive pick plate map
+  pick_list.json                # Machine-readable pick list</code></pre>
+
+        <h3>Integra ASSIST Format</h3>
+        <p>The output CSV uses semicolon delimiters and is formatted for direct import into the Integra ASSIST PLUS software:</p>
+        <pre><code class="language-plaintext">SampleID;SourcePlateID;SourceWell;TargetPlateID;TargetWell;TransferVolume
+K44A;1;K23;0;A1;5.0
+G45A;1;A11;0;A2;5.0
+UNRECOVERED_X;;;;;0.0</code></pre>
+        <p>
+          Unrecovered variants have <code>TransferVolume = 0</code>, so the robot skips them while preserving
+          the library layout on the target plate. Use <code>--compact</code> to omit these placeholders.
+        </p>
+
+        <h3>Pileup Visualizations</h3>
+        <p>
+          When <code>--pileups</code> is enabled (the default), a per-well HTML pileup is generated for each picked well.
+          These show the aligned reads against the expected reference, with color-coded mismatches and insertions/deletions.
+          Pileups are linked from the interactive pick plate map and the HTML report.
+        </p>
+        <p>
+          Pileup generation requires <code>read_df.csv</code> and per-variant reference FASTAs in the demux output.
+          If you used <a href="demultiplexing.html#remote-execution">remote demux</a>, make sure to fetch with
+          <code>--read-data</code> before running pick.
+        </p>
+
+        <h2>Streak-Out Recovery</h2>
+        <p>
+          During demux, uSort-M detects wells containing two or more correctly-assembled subpopulations of reads
+          (<a href="demultiplexing.html#streak-out-candidate-detection">streak-out candidate detection</a>).
+          When a variant that would otherwise be unrecovered exists as a minority population in a mixed well,
+          <code>usortm pick</code> automatically adds it to the pick plate as a <strong>streakout entry</strong>.
+        </p>
+        <p>
+          Streakout entries appear in the pick plate map in blue and have <code>TransferVolume = 0</code> in the
+          Integra ASSIST CSV (the robot skips them). Instead, these wells should be manually streaked out to
+          isolate the minority clone. Each streakout entry links to a per-well pileup showing the read composition.
+        </p>
+
+        <h2 id="multi-round">Multi-Round Workflow</h2>
+        <p>
+          A single round of sequencing typically recovers ~85&ndash;95% of the library. Variants that were not
+          recovered (dropouts) can be re-synthesized, re-sorted, and re-sequenced in a second round to push
+          recovery higher. uSort-M supports this iterative loop natively.
+        </p>
+
+        <h3>When to Use Multiple Rounds</h3>
+        <ul>
+          <li>Round 1 recovery is below your target (e.g. &lt;90% for a critical library)</li>
+          <li>You need near-complete coverage of the library for downstream assays</li>
+          <li>Streakout alone does not recover enough missing variants</li>
+        </ul>
+
+        <h3>Step-by-Step</h3>
+
+        <h4>1. Export dropout variants for re-synthesis</h4>
+        <p>After picking round 1, generate a synthesis order containing only the unrecovered variants:</p>
+        <pre><code class="language-bash"># IDT eBlocks (96-well plate format)
+usortm reorder my_project/ --format eblocks
+
+# Twist Gene Fragments
+usortm reorder my_project/ --format twist
+
+# IDT oPools
+usortm reorder my_project/ --format opools --pool-name "dropout_r2"
+
+# Use original library sequences (with golden gate adapters)
+usortm reorder my_project/ --format eblocks --library original_library.csv</code></pre>
+        <p>
+          The <code>--library</code> flag replaces dropout sequences with those from the original
+          library CSV (e.g. with golden gate adapters or length-normalizing padding). Use <code>--trim-bsai</code>
+          to trim to 5 bp outside flanking BsaI sites.
+        </p>
+
+        <h4>2. Plan round 2</h4>
+        <p>After re-synthesis, create a round 2 plan using the dropout variants:</p>
+        <pre><code class="language-bash">usortm plan dropout_variants.csv --output my_project/ --round 2</code></pre>
+        <p>This creates a <code>rounds/2/</code> subdirectory within the project with its own barcode assignments.</p>
+
+        <h4>3. Demux and pick round 2</h4>
+        <pre><code class="language-bash"># Demultiplex round 2 data
+usortm demux my_project/ --fastq round2.fastq --round 2
+
+# Generate round 2 pick list
+usortm pick my_project/ --round 2</code></pre>
+
+        <h4>4. Merge all rounds</h4>
+        <p>Combine results from all rounds into a single unified pick plate:</p>
+        <pre><code class="language-bash">usortm merge my_project/</code></pre>
+        <p>
+          <code>merge</code> fills gaps from earlier rounds with results from later rounds, preserving
+          the original library order. Source plate IDs are prefixed with the round number
+          (e.g. <code>R1_3</code>, <code>R2_4</code>) so the Integra ASSIST can distinguish plates
+          from different sequencing rounds.
+        </p>
+
+        <h4>5. Generate the merged report</h4>
+        <pre><code class="language-bash">usortm report my_project/ --round merged</code></pre>
+        <p>The merged report includes recovery curves showing cumulative variant recovery across rounds, merged plate maps, and combined detail tables.</p>
+
+        <h3>Merge Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--rounds</code></td>
+              <td><code>-r</code></td>
+              <td>Comma-separated round numbers (e.g. <code>1,2</code>)</td>
+              <td>all completed rounds</td>
+            </tr>
+            <tr>
+              <td><code>--tier</code></td>
+              <td></td>
+              <td>Minimum quality tier (A/B/C)</td>
+              <td>C</td>
+            </tr>
+            <tr>
+              <td><code>--volume</code></td>
+              <td><code>-v</code></td>
+              <td>Transfer volume (&micro;L)</td>
+              <td>5.0</td>
+            </tr>
+            <tr>
+              <td><code>--target-format</code></td>
+              <td></td>
+              <td>Target plate format (96 or 384)</td>
+              <td>384</td>
+            </tr>
+            <tr>
+              <td><code>--fill-order</code></td>
+              <td></td>
+              <td>Fill order (row or column)</td>
+              <td>row</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>Project Directory Layout</h3>
+        <p>After two rounds and a merge, the project directory looks like:</p>
+        <pre><code class="language-plaintext">my_project/
+  usortm_project.json       # Master project state
+  variants.csv              # Original library
+  demux_output/             # Round 1 demux results
+  pick/                     # Round 1 pick results
+  rounds/
+    2/
+      usortm_round.json     # Round 2 state
+      variants.csv          # Dropout variants
+      demux_output/         # Round 2 demux results
+      pick/                 # Round 2 pick results
+  merged/
+    well_assignments.csv    # Combined well assignments
+    pick/
+      hitlist_integra_assist.csv
+      pick_plate_map.html
+  report/
+    summary.html            # Merged report</code></pre>
+
+        <h2>Generating Reports</h2>
+        <pre><code class="language-bash"># Single-round report
+usortm report my_project/
+
+# Report for a specific round
+usortm report my_project/ --round 2
+
+# Merged multi-round report
+usortm report my_project/ --round merged</code></pre>
+        <p>
+          The HTML report (<code>summary.html</code>) includes interactive demux plate maps, pick plate maps,
+          per-variant pileup links, and hit-picking detail tables. Open it in any browser.
+        </p>
+
+        <footer class="footer">
+          <p>
+            uSort-M is developed by the <a href="https://www.fordycelab.com">Fordyce Lab</a> at Stanford University.
+          </p>
+          <p style="font-size: 0.85em; color: var(--color-text-muted); margin-top: 0.5rem;">
+            This site uses Google Analytics to understand documentation usage patterns. We anonymize IP addresses and do not collect personally identifiable information.
+          </p>
+        </footer>
+      </div>
+    </main>
+  </div>
+  <script>hljs.highlightAll();</script>
+
+  <!-- Theme toggle script -->
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+      html.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+
+      updateThemeUI(newTheme);
+    }
+
+    function updateThemeUI(theme) {
+      const moon = document.getElementById('icon-moon');
+      const sun = document.getElementById('icon-sun');
+
+      if (theme === 'dark') {
+        moon.style.display = 'none';
+        sun.style.display = 'block';
+      } else {
+        moon.style.display = 'block';
+        sun.style.display = 'none';
+      }
+    }
+
+    // Initialize theme on page load
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const hour = new Date().getHours();
+      const isNight = hour >= 20 || hour < 7;
+      const theme = savedTheme || (prefersDark || isNight ? 'dark' : 'light');
+
+      document.documentElement.setAttribute('data-theme', theme);
+      updateThemeUI(theme);
+    })();
+  </script>
+  <script src="search.js"></script>
+</body>
+</html>

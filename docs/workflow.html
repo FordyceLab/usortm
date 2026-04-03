@@ -120,8 +120,9 @@
         <li><a href="sorting.html">FACS Sorting</a></li>
         <li><a href="barcoding.html">PCR Barcoding</a></li>
         <li><a href="demultiplexing.html">Demultiplexing</a></li>
+        <li><a href="hitpicking.html">Hit Picking</a></li>
       </ul>
-      
+
       <div class="sidebar-section">Reference</div>
       <ul class="sidebar-nav">
         <li><a href="cli.html">CLI Reference</a></li>
@@ -300,19 +301,35 @@ usortm demux project/ --fastq data.fastq --library-csv variants.csv
 usortm demux project/ --fastq data.fastq --reference reference.fasta</code></pre>
         <p>The <code>demux</code> command runs the LevSeq barcode pipeline: reference alignment with minimap2, strand splitting, barcode demux with Dorado, per-well consensus generation, and variant calling.</p>
 
-        <p><strong>Generate pick list:</strong></p>
-        <pre><code class="language-bash">usortm pick project/</code></pre>
-        <p>Creates an Integra ASSIST PLUS-compatible CSV file for automated cherry-picking of sequence-verified clones, ordered to match your input library.</p>
-
-        <p><strong>Generate analysis report:</strong></p>
-        <pre><code class="language-bash">usortm report project/</code></pre>
-        <p>Produces reports (HTML, CSV, JSON) with coverage statistics, plate maps, and variant recovery metrics.</p>
+        <p><strong>Run remotely?</strong> If you don't have the compute tools installed locally, you can submit demux jobs to a remote server via SSH. See <a href="demultiplexing.html#remote-execution">Remote Execution</a>.</p>
 
         <p><a href="demultiplexing.html">Demultiplexing details &rarr;</a></p>
-        
+
         <h3>7. Hit Picking</h3>
-        <p>Cherry-pick sequence-verified clones into a final arrayed format.</p>
-        <p>The <code>usortm pick</code> command generates Integra ASSIST PLUS-compatible hit lists for automated liquid handling.</p>
+        <p>Cherry-pick sequence-verified clones into a final arrayed format:</p>
+        <pre><code class="language-bash"># Generate pick list and per-well pileup visualizations
+usortm pick project/
+
+# Generate analysis report
+usortm report project/</code></pre>
+        <p>The <code>usortm pick</code> command generates Integra ASSIST PLUS-compatible hit lists for automated liquid handling, with per-well pileup visualizations and interactive plate maps.</p>
+
+        <p><a href="hitpicking.html">Hit picking details &rarr;</a></p>
+
+        <h3>8. Reorder & Re-sort (Optional)</h3>
+        <p>If initial recovery is below your target, re-synthesize dropout variants and repeat the workflow for a second round:</p>
+        <pre><code class="language-bash"># Export dropout variants for re-synthesis
+usortm reorder project/ --format eblocks
+
+# Plan, demux, and pick round 2
+usortm plan dropout_variants.csv --output project/ --round 2
+usortm demux project/ --fastq round2.fastq --round 2
+usortm pick project/ --round 2
+
+# Merge all rounds into a unified pick plate
+usortm merge project/
+usortm report project/ --round merged</code></pre>
+        <p><a href="hitpicking.html#multi-round">Multi-round workflow details &rarr;</a></p>
 
         <h2>File Formats</h2>
 
