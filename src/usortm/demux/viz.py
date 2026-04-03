@@ -349,7 +349,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
             const mut_url = src.data['mutation_url'][indices[0]];
             const url = so_url || mut_url;
             if (url && url.length > 0) {
-                window.open(url, '_blank');
+                (window.top || window).open(url, '_blank');
             }
             src.selected.indices = [];
         }
@@ -658,7 +658,7 @@ def make_pick_plate_map_bokeh(pick_list, target_format=384,
         if (indices.length > 0) {
             const url = src.data['pileup_url'][indices[0]];
             if (url && url.length > 0) {
-                window.open(url, '_blank');
+                (window.top || window).open(url, '_blank');
             }
             src.selected.indices = [];
         }

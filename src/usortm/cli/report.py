@@ -1627,6 +1627,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         # regardless of how deep the report is nested.
         return (
             f'<iframe srcdoc="{content}" width="100%" height="{height}" '
+            f'sandbox="allow-scripts allow-top-navigation allow-popups" '
             f'style="border:none;"></iframe>'
         )
 
