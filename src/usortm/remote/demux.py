@@ -901,8 +901,6 @@ exit $EXIT_CODE
                 )
             self.conn.run(f"mkdir -p {demux_remote}", hide=True)
             # Upload essential files (small)
-            if on_upload:
-                on_upload("metadata CSVs", 0)
             for fname in ("well_df.csv", "well_assignments.csv", "demux_summary.json"):
                 local_f = local_demux / fname
                 if local_f.exists():
@@ -924,8 +922,6 @@ exit $EXIT_CODE
             if local_refs.exists():
                 import tarfile as _tarfile
                 import tempfile as _tmpfile
-                if on_upload:
-                    on_upload("variant FASTAs (tar)", 0)
                 remote_ref = f"{demux_remote}/reference_fasta/single_ref_fastas"
                 self.conn.run(f"mkdir -p {remote_ref}", hide=True)
                 with _tmpfile.NamedTemporaryFile(suffix=".tar", delete=False) as tmp:
