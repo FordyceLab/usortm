@@ -453,6 +453,29 @@ exit $EXIT_CODE
             if "OK" in exists.stdout:
                 self.conn.get(remote_path, str(local_demux / fname))
 
+        # Streakout pileup HTMLs — referenced by plate_map.html tap-tool links
+        remote_streakout = f"{remote_demux}/streakout"
+        n_streakout = self.conn.run(
+            f'ls {remote_streakout}/*.html 2>/dev/null | wc -l || echo 0',
+            hide=True, warn=True,
+        )
+        n_html = int(n_streakout.stdout.strip() or 0)
+        if n_html > 0:
+            import tarfile as _tarfile
+            remote_tar = f"{remote_demux}/streakout_html.tar"
+            self.conn.run(
+                f'tar -cf "{remote_tar}" -C "{remote_demux}" streakout/',
+                hide=True,
+            )
+            local_tar = local_demux / "streakout_html.tar"
+            self.conn.sftp().get(remote_tar, str(local_tar))
+            local_streakout = local_demux / "streakout"
+            local_streakout.mkdir(exist_ok=True)
+            with _tarfile.open(local_tar) as tf:
+                tf.extractall(local_demux)
+            local_tar.unlink()
+            self.conn.run(f'rm -f "{remote_tar}"', hide=True, warn=True)
+
         # Update project state
         self._update_project_state(project_dir, job_key, metadata_downloaded=True)
 
@@ -823,6 +846,395 @@ exit $EXIT_CODE
                 self.conn.run(f"rm -rf {job_dir}", hide=True, warn=True)
 
         return to_delete
+
+    # ── Remote Pick ────────────────────────────────────────────────
+
+    PICK_STAGES = [
+        ("Upload demux data",      "__pick_upload__"),
+        ("Filter & pick wells",    "pick/pick_list.json"),
+        ("Generate pileups",       "pick/pileup"),
+        ("Generate plate map",     "pick/pick_plate_map.html"),
+    ]
+
+    def submit_pick(
+        self,
+        project_dir: Path,
+        job_key: str,
+        *,
+        tier: Optional[str] = "A",
+        workers: int = 4,
+        include_cons_errors: bool = False,
+        include_flank_errors: bool = False,
+        pileups: bool = True,
+        unique_only: bool = True,
+        compact: bool = False,
+        target_format: int = 384,
+        fill_order: str = "row",
+        volume: float = 5.0,
+        targets: Optional[Path] = None,
+        round_num: int = 1,
+    ) -> str:
+        """Submit a pick job on the remote using existing demux output.
+
+        If demux was run locally (no remote demux_output), uploads the
+        necessary files first.  Returns the job_key.
+        """
+        project_dir = Path(project_dir)
+        job_dir = f"{self.remote_job_dir}/{job_key}"
+        project_remote = f"{job_dir}/project"
+        demux_remote = f"{project_remote}/demux_output"
+        inputs_dir = f"{job_dir}/inputs"
+
+        def _remote_exists(path: str) -> bool:
+            r = self.conn.run(f'[ -e "{path}" ] && echo 1 || echo 0', hide=True, warn=True)
+            return r.stdout.strip() == "1"
+
+        # Check if demux output exists on remote; if not, upload from local
+        uploaded_demux = False
+        if not _remote_exists(f"{demux_remote}/well_df.csv"):
+            local_demux = project_dir / "demux_output"
+            if not local_demux.exists():
+                raise ValueError(
+                    "No demux output on remote or locally. Run demux first."
+                )
+            self.conn.run(f"mkdir -p {demux_remote}", hide=True)
+            # Upload essential files
+            for fname in ("well_df.csv", "well_assignments.csv", "demux_summary.json"):
+                local_f = local_demux / fname
+                if local_f.exists():
+                    self.conn.put(str(local_f), f"{demux_remote}/{fname}")
+            # read_df.csv (needed for pileups)
+            for candidate in ("read_df.csv.gz", "read_df.csv"):
+                local_f = local_demux / candidate
+                if local_f.exists():
+                    self.conn.sftp().put(str(local_f), f"{demux_remote}/{candidate}")
+                    break
+            # Reference FASTAs (needed for pileups)
+            local_refs = local_demux / "reference_fasta" / "single_ref_fastas"
+            if local_refs.exists():
+                import tarfile as _tarfile
+                import tempfile as _tmpfile
+                remote_ref = f"{demux_remote}/reference_fasta/single_ref_fastas"
+                self.conn.run(f"mkdir -p {remote_ref}", hide=True)
+                with _tmpfile.NamedTemporaryFile(suffix=".tar", delete=False) as tmp:
+                    tmp_tar = tmp.name
+                with _tarfile.open(tmp_tar, "w") as tf:
+                    tf.add(str(local_refs), arcname="single_ref_fastas")
+                self.conn.put(tmp_tar, f"{demux_remote}/refs.tar")
+                self.conn.run(
+                    f'tar -xf "{demux_remote}/refs.tar" -C "{demux_remote}/reference_fasta/" '
+                    f'&& rm -f "{demux_remote}/refs.tar"',
+                    hide=True,
+                )
+                Path(tmp_tar).unlink(missing_ok=True)
+            # Library reference FASTA
+            for fname in ("library_reference.fasta",):
+                local_f = local_demux / fname
+                if local_f.exists():
+                    self.conn.put(str(local_f), f"{demux_remote}/{fname}")
+            uploaded_demux = True
+
+        # Upload targets file if provided
+        if targets:
+            self.conn.run(f"mkdir -p {inputs_dir}", hide=True)
+            self.conn.put(str(targets), f"{inputs_dir}/pick_targets.csv")
+
+        # Resolve usortm path
+        cfg = load_config().get("connection", {})
+        usortm_path = cfg.get("usortm_path") or self._find_remote_usortm()
+
+        # Build pick command
+        cmd_parts = [
+            f'"{usortm_path}" pick',
+            f'"{project_remote}"',
+            f"--workers {workers}",
+            f"--target-format {target_format}",
+            f'--fill-order "{fill_order}"',
+            f"--volume {volume}",
+            f"--round {round_num}",
+        ]
+        if tier is not None:
+            cmd_parts.append(f'--tier "{tier}"')
+        else:
+            cmd_parts.append('--tier ""')
+        cmd_parts.append("--pileups" if pileups else "--no-pileups")
+        cmd_parts.append("--unique-only" if unique_only else "--all-hits")
+        cmd_parts.append("--compact" if compact else "--no-compact")
+        if include_cons_errors:
+            cmd_parts.append("--include-cons-errors")
+        if include_flank_errors:
+            cmd_parts.append("--include-flank-errors")
+        if targets:
+            cmd_parts.append(f'--targets "{inputs_dir}/pick_targets.csv"')
+
+        pick_cmd = " \\\n    ".join(cmd_parts)
+
+        script = f"""#!/bin/bash -l
+set -euo pipefail
+
+JOB_DIR="{job_dir}"
+
+# Ensure conda env tools are on PATH
+USORTM_BIN="$(dirname "{usortm_path}")"
+export PATH="$USORTM_BIN:$PATH"
+
+echo "Pick started: $(date)" > "$JOB_DIR/pick_status.txt"
+echo "RUNNING" >> "$JOB_DIR/pick_status.txt"
+
+# Run pick
+{pick_cmd} \\
+    2>&1 | tee "$JOB_DIR/pick.log"
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "Pick completed: $(date)" >> "$JOB_DIR/pick_status.txt"
+    echo "COMPLETED" >> "$JOB_DIR/pick_status.txt"
+else
+    echo "Pick failed (exit $EXIT_CODE): $(date)" >> "$JOB_DIR/pick_status.txt"
+    echo "FAILED" >> "$JOB_DIR/pick_status.txt"
+fi
+
+exit $EXIT_CODE
+"""
+        with open("/tmp/_usortm_pick.sh", "w") as f:
+            f.write(script)
+        self.conn.put("/tmp/_usortm_pick.sh", f"{job_dir}/pick_run.sh")
+        self.conn.run(f"chmod +x {job_dir}/pick_run.sh", hide=True)
+
+        # Reset pick status
+        self.conn.run(
+            f'echo "Submitted: $(date)" > "{job_dir}/pick_status.txt"',
+            hide=True,
+        )
+
+        # Launch
+        result = self.conn.run(
+            f"cd {job_dir} && setsid ./pick_run.sh </dev/null > pick_nohup.out 2>&1 & echo $!",
+            hide=True,
+        )
+        pid = result.stdout.strip()
+
+        # Update project state
+        state_file = project_dir / "usortm_project.json"
+        if state_file.exists():
+            with open(state_file) as f:
+                project = json.load(f)
+        else:
+            project = {"workflow_steps": {}}
+
+        project.setdefault("workflow_steps", {}).setdefault("pick", {})
+        project["workflow_steps"]["pick"]["remote"] = {
+            "job_key": job_key,
+            "host": self.conn.host,
+            "pid": pid,
+            "submitted_at": datetime.now().isoformat(),
+            "uploaded_demux": uploaded_demux,
+            "metadata_downloaded": False,
+            "pileups_downloaded": False,
+        }
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
+
+        return job_key
+
+    def pick_status(self, job_key: str) -> dict:
+        """Check pick job status on the remote."""
+        job_dir = f"{self.remote_job_dir}/{job_key}"
+        status_result = self.conn.run(
+            f'cat {job_dir}/pick_status.txt 2>/dev/null || echo "NO_STATUS"',
+            hide=True, warn=True,
+        )
+        lines = status_result.stdout.strip().split("\n")
+
+        if "COMPLETED" in lines:
+            status = "COMPLETED"
+        elif "FAILED" in lines:
+            status = "FAILED"
+        elif "RUNNING" in lines:
+            status = "RUNNING"
+        else:
+            status = "UNKNOWN"
+
+        return {"job_key": job_key, "status": status, "status_lines": lines}
+
+    def get_detailed_pick_status(self, job_key: str) -> dict:
+        """Return pick status + per-stage progress."""
+        basic = self.pick_status(job_key)
+        job_dir = f"{self.remote_job_dir}/{job_key}"
+        project_dir = f"{job_dir}/project"
+
+        # Build artifact checks
+        tests = []
+        for _label, artifact in self.PICK_STAGES:
+            if artifact == "__pick_upload__":
+                # Demux data present = upload done (or was already there)
+                tests.append(
+                    f'[ -f "{project_dir}/demux_output/well_df.csv" ] && echo 1 || echo 0'
+                )
+            else:
+                tests.append(
+                    f'[ -e "{project_dir}/{artifact}" ] && echo 1 || echo 0'
+                )
+
+        probe = " ; ".join(tests)
+        result = self.conn.run(probe, hide=True, warn=True)
+        lines = result.stdout.strip().split("\n")
+
+        stages = []
+        for i, (label, _) in enumerate(self.PICK_STAGES):
+            raw = lines[i].strip() if i < len(lines) else "0"
+            stages.append({"label": label, "done": raw == "1"})
+
+        # Pileup progress: count completed pileup files
+        pileup_info = ""
+        if basic["status"] == "RUNNING":
+            pileup_count = self.conn.run(
+                f'ls {project_dir}/pick/pileup/*.html 2>/dev/null | wc -l || echo 0',
+                hide=True, warn=True,
+            )
+            n_pileups = pileup_count.stdout.strip()
+            # Get total wells from pick_list.json if available
+            total_check = self.conn.run(
+                f'python3 -c "import json; d=json.load(open(\'{project_dir}/pick/pick_list.json\')); '
+                f'print(d.get(\'total_hits\', \'?\'))" 2>/dev/null || echo ""',
+                hide=True, warn=True,
+            )
+            total = total_check.stdout.strip()
+            if n_pileups and int(n_pileups) > 0:
+                if total and total != "?":
+                    pileup_info = f"Pileups: {n_pileups}/{total}"
+                else:
+                    pileup_info = f"Pileups: {n_pileups} generated"
+
+        # Last log line
+        log_tail = self.conn.run(
+            f"tail -n 5 {job_dir}/pick.log 2>/dev/null | "
+            r"sed 's/\x1b\[[0-9;]*m//g' | grep -v '^\s*$' | tail -n 1",
+            hide=True, warn=True,
+        )
+        last_line = pileup_info or log_tail.stdout.strip()
+
+        return {**basic, "stages": stages, "last_log_line": last_line}
+
+    def fetch_pick(
+        self, job_key: str, project_dir: Path,
+        on_file=None, transfer_callback=None,
+    ) -> Path:
+        """Download pick results from remote."""
+        import tarfile as _tarfile
+        project_dir = Path(project_dir)
+        local_pick = project_dir / "pick"
+        local_pick.mkdir(parents=True, exist_ok=True)
+
+        job_dir = f"{self.remote_job_dir}/{job_key}"
+        remote_pick = f"{job_dir}/project/pick"
+
+        def _size(remote_path: str) -> int:
+            r = self.conn.run(
+                f'stat -c%s "{remote_path}" 2>/dev/null || echo 0',
+                hide=True, warn=True,
+            )
+            try:
+                return int(r.stdout.strip())
+            except ValueError:
+                return 0
+
+        # Metadata files (small)
+        for fname in ("pick_list.json", "pick_plate_map.html"):
+            remote_path = f"{remote_pick}/{fname}"
+            exists = self.conn.run(
+                f'[ -f "{remote_path}" ] && echo OK || echo MISSING',
+                hide=True,
+            )
+            if "OK" in exists.stdout:
+                self.conn.get(remote_path, str(local_pick / fname))
+
+        # Integra ASSIST output
+        integra_dir = f"{remote_pick}/Integra ASSIST Input"
+        local_integra = local_pick / "Integra ASSIST Input"
+        local_integra.mkdir(parents=True, exist_ok=True)
+        for fname in ("hitlist_integra_assist.csv", "README.txt"):
+            remote_path = f"{integra_dir}/{fname}"
+            exists = self.conn.run(
+                f'[ -f "{remote_path}" ] && echo OK || echo MISSING',
+                hide=True,
+            )
+            if "OK" in exists.stdout:
+                self.conn.get(remote_path, str(local_integra / fname))
+
+        # Pileups (tar + download like FASTAs)
+        pileup_count = self.conn.run(
+            f'ls {remote_pick}/pileup/*.html 2>/dev/null | wc -l || echo 0',
+            hide=True, warn=True,
+        )
+        n_pileups = int(pileup_count.stdout.strip() or 0)
+        if n_pileups > 0:
+            remote_tar = f"{remote_pick}/pileups.tar"
+            self.conn.run(
+                f'tar -cf "{remote_tar}" -C "{remote_pick}" pileup/',
+                hide=True,
+            )
+            tar_size = _size(remote_tar)
+            if on_file:
+                on_file(f"pileups ({n_pileups} files)", tar_size)
+            local_tar = local_pick / "pileups.tar"
+            self.conn.sftp().get(remote_tar, str(local_tar), callback=transfer_callback)
+            with _tarfile.open(local_tar) as tf:
+                tf.extractall(local_pick)
+            local_tar.unlink()
+            self.conn.run(f'rm -f "{remote_tar}"', hide=True, warn=True)
+
+        # Mutation pileups (written to demux_output/mutation/pileup/)
+        remote_mut = f"{job_dir}/project/demux_output/mutation/pileup"
+        mut_count = self.conn.run(
+            f'ls {remote_mut}/*.html 2>/dev/null | wc -l || echo 0',
+            hide=True, warn=True,
+        )
+        n_mut = int(mut_count.stdout.strip() or 0)
+        if n_mut > 0:
+            local_mut = project_dir / "demux_output" / "mutation" / "pileup"
+            local_mut.mkdir(parents=True, exist_ok=True)
+            remote_mut_tar = f"{remote_mut}/mut_pileups.tar"
+            self.conn.run(
+                f'tar -cf "{remote_mut_tar}" -C "{remote_mut}/.." pileup/',
+                hide=True,
+            )
+            mut_tar_size = _size(remote_mut_tar)
+            if on_file:
+                on_file(f"mutation pileups ({n_mut} files)", mut_tar_size)
+            local_mut_tar = project_dir / "demux_output" / "mutation" / "mut_pileups.tar"
+            self.conn.sftp().get(remote_mut_tar, str(local_mut_tar), callback=transfer_callback)
+            with _tarfile.open(local_mut_tar) as tf:
+                tf.extractall(project_dir / "demux_output" / "mutation")
+            local_mut_tar.unlink()
+            self.conn.run(f'rm -f "{remote_mut_tar}"', hide=True, warn=True)
+
+        # Update project state
+        state_file = project_dir / "usortm_project.json"
+        if state_file.exists():
+            with open(state_file) as f:
+                project = json.load(f)
+            pick_remote = project.get("workflow_steps", {}).get("pick", {}).get("remote", {})
+            if pick_remote.get("job_key") == job_key:
+                pick_remote["metadata_downloaded"] = True
+                pick_remote["pileups_downloaded"] = n_pileups > 0
+                project["workflow_steps"]["pick"]["completed"] = True
+                with open(state_file, "w") as f:
+                    json.dump(project, f, indent=2)
+
+        return local_pick
+
+    def get_pick_log(self, job_key: str, lines: int = 50) -> str:
+        """Return the last *lines* of the remote pick.log."""
+        job_dir = f"{self.remote_job_dir}/{job_key}"
+        result = self.conn.run(
+            f"tail -n {lines} {job_dir}/pick.log 2>/dev/null || "
+            f"tail -n {lines} {job_dir}/pick_nohup.out 2>/dev/null || "
+            f'echo "(no pick log found)"',
+            hide=True, warn=True,
+        )
+        return result.stdout
 
     @classmethod
     def from_project(cls, project_dir: Path, **kwargs) -> tuple["RemoteDemux", str]:

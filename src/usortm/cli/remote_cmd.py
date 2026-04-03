@@ -295,6 +295,7 @@ def remote_demux(
         ctx = _get_progress_ctx()
         if ctx:
             ctx.stop()
+        mgr.conn.close()
 
     if fastq_url and not fastq_uploaded:
         console.print("[green]\u2713[/green] FASTQ already on remote — download skipped")
@@ -686,3 +687,277 @@ def remote_clean(
 
     deleted = mgr.clean(keep_keys=keep_keys)
     console.print(f"[green]\u2713[/green] Deleted {len(deleted)} job director{'y' if len(deleted) == 1 else 'ies'}.")
+
+
+# ── pick ─────────────────────────────────────────────────────────────
+
+
+@remote_app.command(name="pick")
+def remote_pick(
+    project_dir: Path = typer.Argument(
+        ...,
+        help="Path to uSort-M project directory.",
+        exists=True,
+    ),
+    tier: Optional[str] = typer.Option("A", "--tier", help="Quality tier: A/B/C or '' to disable."),
+    workers: int = typer.Option(4, "--workers", "-w", help="Parallel workers for pileup generation."),
+    include_cons_errors: bool = typer.Option(False, "--include-cons-errors", help="Include wells with consensus errors."),
+    include_flank_errors: bool = typer.Option(False, "--include-flank-errors", help="Include wells with flank mismatches."),
+    pileups: bool = typer.Option(True, "--pileups/--no-pileups", help="Generate pileup HTMLs."),
+    unique_only: bool = typer.Option(True, "--unique-only/--all-hits", help="One well per variant."),
+    compact: bool = typer.Option(False, "--compact/--no-compact", help="Omit empty placeholder wells."),
+    target_format: int = typer.Option(384, "--target-format", help="96 or 384-well plate."),
+    fill_order: str = typer.Option("row", "--fill-order", help="row or column."),
+    volume: float = typer.Option(5.0, "--volume", "-v", help="Transfer volume (µL)."),
+    targets: Optional[Path] = typer.Option(None, "--targets", "-t", help="CSV with variant targets."),
+    round_num: int = typer.Option(1, "--round", "-r", help="Sequencing round.", min=1),
+):
+    """Submit a pick job to the remote server.
+
+    Uses the demux output already on the remote (from a previous
+    ``usortm remote demux``).  If demux was run locally, the necessary
+    files are uploaded automatically.
+    """
+    from usortm.remote import RemoteDemux
+
+    try:
+        mgr, job_key = RemoteDemux.from_project(project_dir)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    console.print(Panel.fit(
+        "[brand]uSort-M[/brand] Remote Pick",
+        border_style=BORDER_STYLE,
+    ))
+    console.print(f"[green]\u2713[/green] Connected to [bold]{mgr.conn.host}[/bold]")
+    console.print(f"[green]\u2713[/green] Using demux job: [bold]{job_key}[/bold]")
+
+    try:
+        mgr.submit_pick(
+            project_dir=project_dir,
+            job_key=job_key,
+            tier=tier,
+            workers=workers,
+            include_cons_errors=include_cons_errors,
+            include_flank_errors=include_flank_errors,
+            pileups=pileups,
+            unique_only=unique_only,
+            compact=compact,
+            target_format=target_format,
+            fill_order=fill_order,
+            volume=volume,
+            targets=targets,
+            round_num=round_num,
+        )
+    finally:
+        mgr.conn.close()
+
+    console.print(f"[green]\u2713[/green] Pick job submitted: [bold]{job_key}[/bold]")
+    tier_label = f" (Tier {tier})" if tier else ""
+    console.print(f"  [dim]Pileups: {'yes' if pileups else 'no'} · Workers: {workers}{tier_label}[/dim]")
+    console.print()
+    console.print(f"[bold]Next:[/bold] [cyan]usortm remote pick-status {project_dir}/[/cyan]")
+
+
+# ── pick-status ──────────────────────────────────────────────────────
+
+
+def _render_pick_status(info: dict, project_dir):
+    """Build pick status display as a Rich renderable Group."""
+    from rich.console import Group
+    from rich.text import Text
+
+    parts = []
+    status = info["status"]
+    status_color = {"RUNNING": "yellow", "COMPLETED": "green", "FAILED": "red"}.get(status, "white")
+    job_key = info.get("job_key", "?")
+
+    parts.append(Text(""))
+    parts.append(Panel.fit(
+        f"[brand]uSort-M[/brand] Remote Pick  ·  [bold]{job_key}[/bold]  ·  [{status_color}]{status}[/{status_color}]",
+        border_style=BORDER_STYLE,
+    ))
+    parts.append(Text(""))
+
+    stages = info.get("stages", [])
+    current_idx = None
+    if status == "RUNNING":
+        for i in range(len(stages) - 1, -1, -1):
+            if stages[i]["done"]:
+                current_idx = i
+                break
+        if current_idx is None:
+            current_idx = 0
+
+    for i, stage in enumerate(stages):
+        label = stage["label"]
+        done = stage["done"]
+
+        if done and (current_idx is None or i < current_idx or status != "RUNNING"):
+            icon = "[green]\u2713[/green]"
+            style = ""
+        elif done and i == current_idx and status == "RUNNING":
+            icon = "[yellow]\u25b6[/yellow]"
+            style = "[bold]"
+        elif i == current_idx and status == "RUNNING" and not done:
+            icon = "[yellow]\u25b6[/yellow]"
+            style = "[bold]"
+        else:
+            icon = "[dim]\u25cb[/dim]"
+            style = "[dim]"
+
+        close = "[/bold]" if style == "[bold]" else "[/dim]" if style == "[dim]" else ""
+        parts.append(Text.from_markup(f"  {icon}  {style}{label}{close}"))
+
+    last_line = info.get("last_log_line", "").strip()
+    if last_line and status == "RUNNING":
+        parts.append(Text(""))
+        parts.append(Text.from_markup(f"  [dim]{last_line}[/dim]"))
+
+    parts.append(Text(""))
+    if status == "COMPLETED":
+        parts.append(Text.from_markup(f"[bold]Next:[/bold] [cyan]usortm remote pick-fetch {project_dir}/[/cyan]"))
+    elif status == "FAILED":
+        parts.append(Text.from_markup(f"[bold]Check log:[/bold] [cyan]usortm remote pick-log {project_dir}/[/cyan]"))
+    parts.append(Text(""))
+
+    return Group(*parts)
+
+
+@remote_app.command(name="pick-status")
+def remote_pick_status(
+    project_dir: Path = typer.Argument(
+        ...,
+        help="Path to uSort-M project directory.",
+        exists=True,
+    ),
+    watch: bool = typer.Option(False, "--watch", "-w", help="Auto-refresh until job completes."),
+    interval: int = typer.Option(15, "--interval", "-i", help="Refresh interval in seconds (with --watch)."),
+):
+    """Check the status of a remote pick job."""
+    import time
+    from usortm.remote.demux import RemoteDemux
+    from rich.live import Live
+
+    try:
+        mgr, job_key = RemoteDemux.from_project(project_dir)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not watch:
+        info = mgr.get_detailed_pick_status(job_key)
+        console.print(_render_pick_status(info, project_dir))
+        return
+
+    try:
+        with Live(console=console, refresh_per_second=1) as live:
+            while True:
+                info = mgr.get_detailed_pick_status(job_key)
+                live.update(_render_pick_status(info, project_dir))
+                if info["status"] in ("COMPLETED", "FAILED"):
+                    break
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+
+
+# ── pick-fetch ───────────────────────────────────────────────────────
+
+
+@remote_app.command(name="pick-fetch")
+def remote_pick_fetch(
+    project_dir: Path = typer.Argument(
+        ...,
+        help="Path to uSort-M project directory.",
+        exists=True,
+    ),
+):
+    """Download pick results from the remote server."""
+    from usortm.remote.demux import RemoteDemux
+
+    try:
+        mgr, job_key = RemoteDemux.from_project(project_dir)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    # Check pick completed
+    info = mgr.pick_status(job_key)
+    if info["status"] != "COMPLETED":
+        console.print(
+            f"[yellow]Pick job is {info['status']}.[/yellow] Wait for completion first."
+        )
+        raise typer.Exit(1)
+
+    console.print(f"Fetching pick results for [bold]{job_key}[/bold]...")
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    )
+    _active_task = None
+
+    def _on_file(fname: str, size_bytes: int):
+        nonlocal _active_task
+        _active_task = progress.add_task(f"  {fname}", total=size_bytes or None)
+
+    def _transfer_cb(transferred: int, total: int):
+        if _active_task is not None:
+            progress.update(_active_task, completed=transferred, total=total)
+
+    progress.start()
+    try:
+        local_pick = mgr.fetch_pick(
+            job_key, project_dir,
+            on_file=_on_file,
+            transfer_callback=_transfer_cb,
+        )
+    finally:
+        progress.stop()
+
+    console.print(f"[green]\u2713[/green] Pick results saved to {local_pick}")
+    console.print()
+    console.print(f"[bold]Next:[/bold] [cyan]usortm report {project_dir}/[/cyan]")
+
+
+# ── pick-log ─────────────────────────────────────────────────────────
+
+
+@remote_app.command(name="pick-log")
+def remote_pick_log(
+    project_dir: Path = typer.Argument(
+        ...,
+        help="Path to uSort-M project directory.",
+        exists=True,
+    ),
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show."),
+):
+    """Show the remote pick job log."""
+    from usortm.remote.demux import RemoteDemux
+
+    try:
+        mgr, job_key = RemoteDemux.from_project(project_dir)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    log = mgr.get_pick_log(job_key, lines=lines)
+    console.print(log)
