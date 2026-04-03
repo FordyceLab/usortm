@@ -158,15 +158,50 @@ class RemoteDemux:
             )
             fastq_uploaded = not already
         else:
-            remote_fastq_name = Path(str(fastq)).name
-            remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
-            if _remote_exists(remote_fastq_path):
-                fastq_path = remote_fastq_path  # already there from previous submit
+            fastq = Path(str(fastq))
+            # If fastq is a directory, concatenate all FASTQ files into one
+            if fastq.is_dir():
+                fq_files = sorted(
+                    p for p in fastq.iterdir()
+                    if p.name.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz"))
+                )
+                if not fq_files:
+                    raise ValueError(f"No FASTQ files found in {fastq}")
+                remote_fastq_name = f"{fastq.name}_combined.fastq"
+                remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
+                if _remote_exists(remote_fastq_path):
+                    fastq_path = remote_fastq_path
+                else:
+                    # Upload each file and concatenate on remote
+                    for i, fq in enumerate(fq_files):
+                        sftp = self.conn.sftp()
+                        tmp_remote = f"{inputs_dir}/_part_{i}"
+                        sftp.put(str(fq), tmp_remote, callback=upload_callback)
+                    # Concatenate (handles mixed .gz and plain)
+                    cat_parts = []
+                    for i, fq in enumerate(fq_files):
+                        tmp_remote = f"{inputs_dir}/_part_{i}"
+                        if fq.name.endswith(".gz"):
+                            cat_parts.append(f'zcat "{tmp_remote}"')
+                        else:
+                            cat_parts.append(f'cat "{tmp_remote}"')
+                    concat_cmd = " ; ".join(cat_parts) + f' > "{remote_fastq_path}"'
+                    self.conn.run(concat_cmd, hide=True)
+                    # Clean up parts
+                    for i in range(len(fq_files)):
+                        self.conn.run(f'rm -f "{inputs_dir}/_part_{i}"', hide=True, warn=True)
+                    fastq_path = remote_fastq_path
+                    fastq_uploaded = True
             else:
-                sftp = self.conn.sftp()
-                sftp.put(str(fastq), remote_fastq_path, callback=upload_callback)
-                fastq_path = remote_fastq_path
-                fastq_uploaded = True
+                remote_fastq_name = fastq.name
+                remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
+                if _remote_exists(remote_fastq_path):
+                    fastq_path = remote_fastq_path  # already there from previous submit
+                else:
+                    sftp = self.conn.sftp()
+                    sftp.put(str(fastq), remote_fastq_path, callback=upload_callback)
+                    fastq_path = remote_fastq_path
+                    fastq_uploaded = True
 
         # Resolve usortm path
         cfg = load_config().get("connection", {})
