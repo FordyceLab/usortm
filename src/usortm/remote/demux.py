@@ -864,6 +864,8 @@ exit $EXIT_CODE
         tier: Optional[str] = "A",
         workers: int = 4,
         include_cons_errors: bool = False,
+        on_upload=None,
+        upload_callback=None,
         include_flank_errors: bool = False,
         pileups: bool = True,
         unique_only: bool = True,
@@ -898,29 +900,45 @@ exit $EXIT_CODE
                     "No demux output on remote or locally. Run demux first."
                 )
             self.conn.run(f"mkdir -p {demux_remote}", hide=True)
-            # Upload essential files
+            # Upload essential files (small)
+            if on_upload:
+                on_upload("metadata CSVs", 0)
             for fname in ("well_df.csv", "well_assignments.csv", "demux_summary.json"):
                 local_f = local_demux / fname
                 if local_f.exists():
                     self.conn.put(str(local_f), f"{demux_remote}/{fname}")
-            # read_df.csv (needed for pileups)
+            # read_df.csv (needed for pileups — can be large)
             for candidate in ("read_df.csv.gz", "read_df.csv"):
                 local_f = local_demux / candidate
                 if local_f.exists():
-                    self.conn.sftp().put(str(local_f), f"{demux_remote}/{candidate}")
+                    sz = local_f.stat().st_size
+                    if on_upload:
+                        on_upload(candidate, sz)
+                    self.conn.sftp().put(
+                        str(local_f), f"{demux_remote}/{candidate}",
+                        callback=upload_callback,
+                    )
                     break
             # Reference FASTAs (needed for pileups)
             local_refs = local_demux / "reference_fasta" / "single_ref_fastas"
             if local_refs.exists():
                 import tarfile as _tarfile
                 import tempfile as _tmpfile
+                if on_upload:
+                    on_upload("variant FASTAs (tar)", 0)
                 remote_ref = f"{demux_remote}/reference_fasta/single_ref_fastas"
                 self.conn.run(f"mkdir -p {remote_ref}", hide=True)
                 with _tmpfile.NamedTemporaryFile(suffix=".tar", delete=False) as tmp:
                     tmp_tar = tmp.name
                 with _tarfile.open(tmp_tar, "w") as tf:
                     tf.add(str(local_refs), arcname="single_ref_fastas")
-                self.conn.put(tmp_tar, f"{demux_remote}/refs.tar")
+                tar_size = Path(tmp_tar).stat().st_size
+                if on_upload:
+                    on_upload(f"variant FASTAs ({tar_size // 1024}K tar)", tar_size)
+                self.conn.sftp().put(
+                    tmp_tar, f"{demux_remote}/refs.tar",
+                    callback=upload_callback,
+                )
                 self.conn.run(
                     f'tar -xf "{demux_remote}/refs.tar" -C "{demux_remote}/reference_fasta/" '
                     f'&& rm -f "{demux_remote}/refs.tar"',

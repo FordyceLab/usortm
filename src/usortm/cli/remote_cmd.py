@@ -754,6 +754,32 @@ def remote_pick(
     console.print(f"[green]\u2713[/green] Connected to [bold]{mgr.conn.host}[/bold]")
     console.print(f"[green]\u2713[/green] Job key: [bold]{job_key}[/bold]")
 
+    _upload_progress: dict = {}
+
+    def _on_upload(fname: str, size_bytes: int):
+        if "ctx" not in _upload_progress:
+            ctx = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                DownloadColumn(),
+                TransferSpeedColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            )
+            ctx.start()
+            _upload_progress["ctx"] = ctx
+        else:
+            # Complete previous task
+            ctx = _upload_progress["ctx"]
+        task = ctx.add_task(f"  Uploading {fname}", total=size_bytes or None)
+        _upload_progress["task"] = task
+
+    def _upload_cb(transferred: int, total: int):
+        if "ctx" in _upload_progress and "task" in _upload_progress:
+            _upload_progress["ctx"].update(
+                _upload_progress["task"], completed=transferred, total=total,
+            )
+
     try:
         mgr.submit_pick(
             project_dir=project_dir,
@@ -770,8 +796,12 @@ def remote_pick(
             volume=volume,
             targets=targets,
             round_num=round_num,
+            on_upload=_on_upload,
+            upload_callback=_upload_cb,
         )
     finally:
+        if "ctx" in _upload_progress:
+            _upload_progress["ctx"].stop()
         mgr.conn.close()
 
     console.print(f"[green]\u2713[/green] Pick job submitted: [bold]{job_key}[/bold]")
