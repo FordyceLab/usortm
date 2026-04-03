@@ -957,6 +957,12 @@ exit $EXIT_CODE
             self.conn.run(f"mkdir -p {inputs_dir}", hide=True)
             self.conn.put(str(targets), f"{inputs_dir}/pick_targets.csv")
 
+        # Upload local project JSON so pick sees demux.completed = true
+        local_state = project_dir / "usortm_project.json"
+        self.conn.run(f"mkdir -p {project_remote}", hide=True)
+        if local_state.exists():
+            self.conn.put(str(local_state), f"{project_remote}/usortm_project.json")
+
         # Resolve usortm path
         cfg = load_config().get("connection", {})
         usortm_path = cfg.get("usortm_path") or self._find_remote_usortm()
