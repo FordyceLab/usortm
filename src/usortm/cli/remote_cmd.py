@@ -252,8 +252,16 @@ def remote_demux(
         console.print(f"[dim]FASTQ will be downloaded on remote: [bold]{url_filename}[/bold][/dim]")
 
     if fastq:
-        file_size = fastq.stat().st_size
+        # Compute total size: sum of files if directory, single file otherwise
+        if fastq.is_dir():
+            file_size = sum(
+                p.stat().st_size for p in fastq.iterdir()
+                if p.name.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz"))
+            )
+        else:
+            file_size = fastq.stat().st_size
         _progress_state: dict = {}
+        _progress_transferred: dict = {"total": 0, "prev_file_done": 0}
 
         def upload_callback(transferred: int, total: int):
             if "ctx" not in _progress_state:
@@ -268,7 +276,14 @@ def remote_demux(
                 ctx.start()
                 _progress_state["ctx"] = ctx
                 _progress_state["task"] = ctx.add_task(f"Uploading {fastq.name}", total=file_size)
-            _progress_state["ctx"].update(_progress_state["task"], completed=transferred)
+            # For directory uploads (multiple files), accumulate across files
+            if fastq.is_dir():
+                current = _progress_transferred["prev_file_done"] + transferred
+                _progress_state["ctx"].update(_progress_state["task"], completed=current)
+                if transferred == total:
+                    _progress_transferred["prev_file_done"] = current
+            else:
+                _progress_state["ctx"].update(_progress_state["task"], completed=transferred)
 
         def _get_progress_ctx():
             return _progress_state.get("ctx")
@@ -619,13 +634,14 @@ def remote_clean(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without deleting."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
 ):
-    """Delete orphaned remote job directories.
+    """Delete remote job directories.
 
-    If a project directory is given, its job key is kept; all other job
-    directories on the remote are candidates for deletion.  Without a
-    project directory, all jobs are listed and you choose interactively.
+    Lists all remote jobs and lets you select which to delete.
+    If a project directory is given, its job key is marked as
+    current and excluded from the selection.
     """
     from usortm.remote.demux import RemoteDemux
+    import questionary
 
     try:
         mgr = RemoteDemux()
@@ -633,7 +649,7 @@ def remote_clean(
         console.print(f"[red]Connection failed:[/red] {e}")
         raise typer.Exit(1)
 
-    # Determine which keys to keep
+    # Determine which keys to protect (current project)
     keep_keys: list[str] = []
     if project_dir:
         import json
@@ -647,45 +663,54 @@ def remote_clean(
                 console.print(f"Keeping current project job: [bold]{key}[/bold]")
 
     jobs = mgr.list_jobs()
-    to_delete = [j for j in jobs if j["job_key"] not in keep_keys]
+    candidates = [j for j in jobs if j["job_key"] not in keep_keys]
 
-    if not to_delete:
+    if not candidates:
         console.print("[green]Nothing to clean.[/green]")
         return
 
     from datetime import datetime
-    from rich.status import Status as RichStatus
 
-    table = Table(box=box.SIMPLE, title="Jobs to delete" if not dry_run else "Would delete")
+    status_colors = {"COMPLETED": "green", "FAILED": "red", "RUNNING": "yellow"}
+    sorted_candidates = sorted(candidates, key=lambda j: j["mtime"], reverse=True)
+
+    # Display the table for all modes
+    table = Table(box=box.SIMPLE, title="Remote jobs")
     table.add_column("Job Key", style="bold")
     table.add_column("Status")
     table.add_column("Size")
     table.add_column("Last Modified")
-
-    status_colors = {"COMPLETED": "green", "FAILED": "red", "RUNNING": "yellow"}
-    for job in sorted(to_delete, key=lambda j: j["mtime"], reverse=True):
+    for job in sorted_candidates:
         status = job["status"]
         color = status_colors.get(status, "white")
         age = datetime.fromtimestamp(job["mtime"]).strftime("%Y-%m-%d %H:%M") if job["mtime"] else ""
         table.add_row(job["job_key"], f"[{color}]{status}[/{color}]", job["size"], age)
-
     console.print(table)
 
     if dry_run:
         console.print("[dim]Dry run — nothing deleted.[/dim]")
         return
 
-    if not yes:
-        import questionary
-        confirmed = questionary.confirm(
-            f"Delete {len(to_delete)} job director{'y' if len(to_delete) == 1 else 'ies'}?",
-            default=False,
+    if yes:
+        # --yes: delete all candidates without prompting
+        selected_keys = [j["job_key"] for j in sorted_candidates]
+    else:
+        choices = [
+            questionary.Choice(title=job["job_key"], value=job["job_key"])
+            for job in sorted_candidates
+        ]
+
+        selected_keys = questionary.checkbox(
+            "Select jobs to delete:",
+            choices=choices,
         ).ask()
-        if not confirmed:
-            console.print("[dim]Aborted.[/dim]")
+
+        if selected_keys is None or len(selected_keys) == 0:
+            console.print("[dim]Nothing selected.[/dim]")
             return
 
-    deleted = mgr.clean(keep_keys=keep_keys)
+    keep = [k for k in [j["job_key"] for j in jobs] if k not in selected_keys]
+    deleted = mgr.clean(keep_keys=keep, dry_run=False)
     console.print(f"[green]\u2713[/green] Deleted {len(deleted)} job director{'y' if len(deleted) == 1 else 'ies'}.")
 
 
