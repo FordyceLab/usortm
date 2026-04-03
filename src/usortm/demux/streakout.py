@@ -1308,44 +1308,15 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         n_rows = len(rows_encoded)
         n_cols = ref_len
 
-        # Build aligned translation comparison
-        protein_line = ""
-        if ref_protein and cons_protein:
-            ref_spans = []
-            cons_spans = []
-            for r_aa, c_aa in zip(ref_protein, cons_protein):
-                if r_aa == c_aa:
-                    ref_spans.append(f'<span class="aa-match">{_html.escape(r_aa)}</span>')
-                    cons_spans.append(f'<span class="aa-match">{_html.escape(c_aa)}</span>')
-                else:
-                    ref_spans.append(f'<span class="aa-diff">{_html.escape(r_aa)}</span>')
-                    cons_spans.append(f'<span class="aa-diff">{_html.escape(c_aa)}</span>')
-            protein_line = (
-                f'<div class="translation-block">'
-                f'<div class="translation-row">'
-                f'<span class="translation-label">Ref&nbsp;&nbsp;</span>'
-                f'<span class="translation-seq">{"".join(ref_spans)}</span>'
-                f'</div>'
-                f'<div class="translation-row">'
-                f'<span class="translation-label">Cons</span>'
-                f'<span class="translation-seq">{"".join(cons_spans)}</span>'
-                f'</div>'
-                f'</div>'
-            )
-        elif cons_protein:
-            protein_line = (
-                f'<div class="protein-seq">'
-                f'<span class="protein-label">Cons translation&nbsp;&nbsp;</span>'
-                f'{_html.escape(cons_protein)}'
-                f'</div>'
-            )
+        # Translation data for canvas rendering
+        ref_protein_js = _json.dumps(ref_protein) if ref_protein else "null"
+        cons_protein_js = _json.dumps(cons_protein) if cons_protein else "null"
 
         if n_rows == 0:
             pileup_block = (
                 f'<div class="pileup-empty">'
                 f'No aligned reads available ({g["n_reads"]} reads unaligned)'
                 f'</div>'
-                f'{protein_line}'
             )
         else:
             pileup_block = (
@@ -1361,7 +1332,6 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 f'</div>'
                 f'<div class="pileup-info">{n_rows} aligned reads &times; '
                 f'{n_cols} bp</div>'
-                f'{protein_line}'
                 f'</div>'
                 f'<script>'
                 f'(function(){{'
@@ -1369,7 +1339,9 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 f'var cons={cons_js};'
                 f'var rows={rows_js};'
                 f'var flanks={flanks_js};'
-                f'drawPileup("pileup-{idx}","ruler-{idx}","labels-{idx}",ref,cons,rows,flanks,"scroll-{idx}","wrap-{idx}");'
+                f'var refAA={ref_protein_js};'
+                f'var consAA={cons_protein_js};'
+                f'drawPileup("pileup-{idx}","ruler-{idx}","labels-{idx}",ref,cons,rows,flanks,"scroll-{idx}","wrap-{idx}",refAA,consAA);'
                 f'}})();'
                 f'</script>'
             )
@@ -1468,42 +1440,6 @@ h1 {{
     font-weight: 600;
     margin-right: 0.25rem;
     user-select: none;
-}}
-.translation-block {{
-    margin-top: 0.6rem;
-    font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
-    font-size: 9pt;
-    line-height: 1.5;
-    overflow-x: auto;
-    white-space: nowrap;
-}}
-.translation-row {{
-    display: flex;
-    align-items: baseline;
-}}
-.translation-label {{
-    color: var(--muted);
-    font-weight: 600;
-    width: 3rem;
-    flex-shrink: 0;
-    user-select: none;
-}}
-.translation-seq {{
-    letter-spacing: 0.5px;
-}}
-.aa-match {{
-    color: var(--muted);
-}}
-.aa-diff {{
-    color: #e03131;
-    font-weight: 700;
-    background: rgba(224, 49, 49, 0.1);
-    border-radius: 2px;
-    padding: 0 1px;
-}}
-[data-theme="dark"] .aa-diff {{
-    color: #ff6b6b;
-    background: rgba(255, 107, 107, 0.15);
 }}
 .pileup-container {{
     margin-bottom: 0.5rem;
@@ -1608,7 +1544,7 @@ h1 {{
 }}
 </style>
 <script>
-function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scrollId, wrapId) {{
+function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scrollId, wrapId, refAA, consAA) {{
   var canvas = document.getElementById(canvasId);
   var rulerCanvas = document.getElementById(rulerId);
   var labelsEl = document.getElementById(labelsId);
@@ -1622,7 +1558,14 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   var gap = 4;
   var totalW = nCols * cellW;
   var dpr = window.devicePixelRatio || 1;
-  var pileupH = refH + gap + consH + gap + nRows * cellH;
+
+  // Translation rows below reads (aligned to insert region)
+  var hasAA = refAA && consAA && flanks;
+  var aaH = hasAA ? 14 : 0;       // height of each AA row
+  var aaGap = hasAA ? 6 : 0;      // gap before AA section
+  var aaCodonW = 3 * cellW;        // each AA spans 3 nucleotide columns
+
+  var pileupH = refH + gap + consH + gap + nRows * cellH + aaGap + (hasAA ? aaH * 2 + 2 : 0);
   canvas.width = totalW * dpr;
   canvas.height = pileupH * dpr;
   canvas.style.width = totalW + 'px';
@@ -1762,6 +1705,22 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       readsLabel.style.height = (nRows * cellH) + 'px';
       labelsEl.appendChild(readsLabel);
     }}
+    if (hasAA) {{
+      var aaGapSpacer = document.createElement('span');
+      aaGapSpacer.style.height = aaGap + 'px';
+      labelsEl.appendChild(aaGapSpacer);
+      var refAALabel = document.createElement('span');
+      refAALabel.textContent = 'Ref AA';
+      refAALabel.style.height = aaH + 'px';
+      labelsEl.appendChild(refAALabel);
+      var aaRowGap = document.createElement('span');
+      aaRowGap.style.height = '2px';
+      labelsEl.appendChild(aaRowGap);
+      var consAALabel = document.createElement('span');
+      consAALabel.textContent = 'Cons AA';
+      consAALabel.style.height = aaH + 'px';
+      labelsEl.appendChild(consAALabel);
+    }}
   }}
   // --- Reference row ---
   ctx.fillStyle = refColor;
@@ -1794,6 +1753,65 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
         ctx.fillStyle = baseColors[ch] || '#94a3b8';
       }}
       ctx.fillRect(c * cellW, y, cellW, cellH);
+    }}
+  }}
+  // --- Translation rows (aligned to insert region) ---
+  var aaY = readsY + nRows * cellH + aaGap;
+  if (hasAA) {{
+    var insStart = flanks[0];
+    var aaMatchColor = isDark ? '#4a5568' : '#d1d5db';
+    var aaDiffColor = isDark ? '#ff6b6b' : '#e03131';
+    var aaDiffBg = isDark ? 'rgba(255,107,107,0.18)' : 'rgba(224,49,49,0.1)';
+    var aaBg = isDark ? '#1e293b' : '#f8fafc';
+    var aaFont = Math.min(aaH - 2, Math.max(7, aaCodonW - 2));
+    ctx.font = aaFont + 'px SF Mono,Menlo,Consolas,monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Draw background for the insert region
+    var insX = insStart * cellW;
+    var insW = refAA.length * aaCodonW;
+    ctx.fillStyle = aaBg;
+    ctx.fillRect(insX, aaY, insW, aaH * 2 + 2);
+
+    for (var ai = 0; ai < refAA.length; ai++) {{
+      var ax = insStart * cellW + ai * aaCodonW;
+      var rAA = refAA[ai];
+      var cAA = consAA[ai];
+      var match = rAA === cAA;
+
+      // Ref AA row
+      if (!match) {{
+        ctx.fillStyle = aaDiffBg;
+        ctx.fillRect(ax, aaY, aaCodonW, aaH);
+      }}
+      ctx.fillStyle = match ? aaMatchColor : aaDiffColor;
+      if (aaCodonW >= 7) {{
+        ctx.fillText(rAA, ax + aaCodonW / 2, aaY + aaH / 2);
+      }} else {{
+        ctx.fillRect(ax + 1, aaY + 2, aaCodonW - 2, aaH - 4);
+      }}
+
+      // Cons AA row
+      var caaY = aaY + aaH + 2;
+      if (!match) {{
+        ctx.fillStyle = aaDiffBg;
+        ctx.fillRect(ax, caaY, aaCodonW, aaH);
+      }}
+      ctx.fillStyle = match ? aaMatchColor : aaDiffColor;
+      if (aaCodonW >= 7) {{
+        ctx.fillText(cAA, ax + aaCodonW / 2, caaY + aaH / 2);
+      }} else {{
+        ctx.fillRect(ax + 1, caaY + 2, aaCodonW - 2, aaH - 4);
+      }}
+    }}
+
+    // Subtle codon grid lines
+    ctx.strokeStyle = isDark ? '#334155' : '#e5e7eb';
+    ctx.lineWidth = 0.5;
+    for (var ai = 1; ai < refAA.length; ai++) {{
+      var lx = insStart * cellW + ai * aaCodonW;
+      ctx.beginPath(); ctx.moveTo(lx, aaY); ctx.lineTo(lx, aaY + aaH * 2 + 2); ctx.stroke();
     }}
   }}
   // --- Region boundary dashed lines on pileup canvas ---
@@ -1870,7 +1888,20 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       var base = ch === '.' ? refSeq[col] : ch;
       var note = ch === '.' ? ' (match)' : ch === '-' ? '' : ' (mismatch)';
       tooltip.textContent = rl + 'Consensus pos ' + (col + 1) + ': ' + base + note;
-    }} else {{
+    }} else if (hasAA && yp >= aaY && yp < aaY + aaH * 2 + 2) {{
+      var insStart = flanks[0];
+      var aaIdx = Math.floor((col - insStart) / 3);
+      if (aaIdx >= 0 && aaIdx < refAA.length) {{
+        var isRefRow = yp < aaY + aaH;
+        var which = isRefRow ? 'Ref' : 'Cons';
+        var aa = isRefRow ? refAA[aaIdx] : consAA[aaIdx];
+        var other = isRefRow ? consAA[aaIdx] : refAA[aaIdx];
+        var note = aa === other ? ' (match)' : ' \u2260 ' + (isRefRow ? 'Cons' : 'Ref') + ': ' + other;
+        tooltip.textContent = which + ' AA ' + (aaIdx + 1) + ': ' + aa + note;
+      }} else {{
+        tooltip.style.display = 'none'; return;
+      }}
+    }} else if (yp >= readsY && yp < readsY + nRows * cellH) {{
       var row_idx = Math.floor((yp - readsY) / cellH);
       if (row_idx >= 0 && row_idx < nRows) {{
         var ch = rows[row_idx][col];
@@ -1879,6 +1910,8 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       }} else {{
         tooltip.style.display = 'none'; return;
       }}
+    }} else {{
+      tooltip.style.display = 'none'; return;
     }}
     tooltip.style.display = 'block';
     tooltip.style.left = (e.clientX + 12) + 'px';
