@@ -719,12 +719,30 @@ def remote_pick(
     files are uploaded automatically.
     """
     from usortm.remote import RemoteDemux
+    from usortm.remote.demux import _make_job_key
+    import json as _json
 
+    # Try to reuse existing remote demux job key; fall back to creating
+    # a new connection + key for the local-demux → remote-pick case.
     try:
         mgr, job_key = RemoteDemux.from_project(project_dir)
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+    except ValueError:
+        try:
+            mgr = RemoteDemux()
+        except Exception as e:
+            console.print(f"[red]Connection failed:[/red] {e}")
+            raise typer.Exit(1)
+        # Read or generate a job key
+        state_file = project_dir / "usortm_project.json"
+        if state_file.exists():
+            with open(state_file) as _f:
+                _proj = _json.load(_f)
+            job_key = (
+                _proj.get("workflow_steps", {})
+                .get("pick", {}).get("remote", {}).get("job_key")
+            ) or _make_job_key()
+        else:
+            job_key = _make_job_key()
     except Exception as e:
         console.print(f"[red]Connection failed:[/red] {e}")
         raise typer.Exit(1)
@@ -734,7 +752,7 @@ def remote_pick(
         border_style=BORDER_STYLE,
     ))
     console.print(f"[green]\u2713[/green] Connected to [bold]{mgr.conn.host}[/bold]")
-    console.print(f"[green]\u2713[/green] Using demux job: [bold]{job_key}[/bold]")
+    console.print(f"[green]\u2713[/green] Job key: [bold]{job_key}[/bold]")
 
     try:
         mgr.submit_pick(
@@ -828,6 +846,32 @@ def _render_pick_status(info: dict, project_dir):
     return Group(*parts)
 
 
+def _get_pick_remote(project_dir: Path):
+    """Get RemoteDemux manager and job_key for pick commands.
+
+    Checks pick remote state first, falls back to demux remote state.
+    """
+    import json as _json
+    from usortm.remote.demux import RemoteDemux
+
+    state_file = Path(project_dir) / "usortm_project.json"
+    if not state_file.exists():
+        raise ValueError("No usortm_project.json found")
+
+    with open(state_file) as f:
+        project = _json.load(f)
+
+    # Try pick remote state first
+    pick_remote = project.get("workflow_steps", {}).get("pick", {}).get("remote")
+    if pick_remote and pick_remote.get("job_key"):
+        host = pick_remote.get("host")
+        mgr = RemoteDemux(host=host)
+        return mgr, pick_remote["job_key"]
+
+    # Fall back to demux remote state
+    return RemoteDemux.from_project(project_dir)
+
+
 @remote_app.command(name="pick-status")
 def remote_pick_status(
     project_dir: Path = typer.Argument(
@@ -840,11 +884,10 @@ def remote_pick_status(
 ):
     """Check the status of a remote pick job."""
     import time
-    from usortm.remote.demux import RemoteDemux
     from rich.live import Live
 
     try:
-        mgr, job_key = RemoteDemux.from_project(project_dir)
+        mgr, job_key = _get_pick_remote(project_dir)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -881,10 +924,8 @@ def remote_pick_fetch(
     ),
 ):
     """Download pick results from the remote server."""
-    from usortm.remote.demux import RemoteDemux
-
     try:
-        mgr, job_key = RemoteDemux.from_project(project_dir)
+        mgr, job_key = _get_pick_remote(project_dir)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -948,10 +989,8 @@ def remote_pick_log(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show."),
 ):
     """Show the remote pick job log."""
-    from usortm.remote.demux import RemoteDemux
-
     try:
-        mgr, job_key = RemoteDemux.from_project(project_dir)
+        mgr, job_key = _get_pick_remote(project_dir)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
