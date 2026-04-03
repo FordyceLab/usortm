@@ -256,7 +256,7 @@ def remote_demux(
         if fastq.is_dir():
             file_size = sum(
                 p.stat().st_size for p in fastq.iterdir()
-                if p.name.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz"))
+                if p.name.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz", ".zip"))
             )
         else:
             file_size = fastq.stat().st_size

@@ -159,36 +159,86 @@ class RemoteDemux:
             fastq_uploaded = not already
         else:
             fastq = Path(str(fastq))
-            # If fastq is a directory, concatenate all FASTQ files into one
+            # If fastq is a directory, upload contents and concatenate on remote
             if fastq.is_dir():
+                _FQ_EXTS = (".fastq", ".fastq.gz", ".fq", ".fq.gz")
+                _ZIP_EXTS = (".zip",)
+
                 fq_files = sorted(
                     p for p in fastq.iterdir()
-                    if p.name.endswith((".fastq", ".fastq.gz", ".fq", ".fq.gz"))
+                    if p.name.endswith(_FQ_EXTS)
                 )
-                if not fq_files:
-                    raise ValueError(f"No FASTQ files found in {fastq}")
+                zip_files = sorted(
+                    p for p in fastq.iterdir()
+                    if p.name.endswith(_ZIP_EXTS)
+                )
+                if not fq_files and not zip_files:
+                    raise ValueError(f"No FASTQ or ZIP files found in {fastq}")
+
                 remote_fastq_name = f"{fastq.name}_combined.fastq"
                 remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
                 if _remote_exists(remote_fastq_path):
                     fastq_path = remote_fastq_path
                 else:
-                    # Upload each file and concatenate on remote
-                    for i, fq in enumerate(fq_files):
+                    part_idx = 0
+                    zip_extract_dir = f"{inputs_dir}/_zip_extracted"
+
+                    # Upload plain FASTQ files
+                    for fq in fq_files:
                         sftp = self.conn.sftp()
-                        tmp_remote = f"{inputs_dir}/_part_{i}"
+                        tmp_remote = f"{inputs_dir}/_part_{part_idx}"
                         sftp.put(str(fq), tmp_remote, callback=upload_callback)
-                    # Concatenate (handles mixed .gz and plain)
+                        part_idx += 1
+
+                    # Upload and extract ZIP files on remote
+                    for zf in zip_files:
+                        sftp = self.conn.sftp()
+                        zip_remote = f"{inputs_dir}/_upload_{zf.name}"
+                        sftp.put(str(zf), zip_remote, callback=upload_callback)
+                        self.conn.run(
+                            f'mkdir -p "{zip_extract_dir}" && '
+                            f'unzip -o "{zip_remote}" -d "{zip_extract_dir}/" >/dev/null 2>&1 && '
+                            f'rm -f "{zip_remote}"',
+                            hide=True,
+                        )
+                    # Find extracted FASTQs and move them to parts
+                    if zip_files:
+                        ls_result = self.conn.run(
+                            f'find "{zip_extract_dir}" '
+                            r'\( -name "*.fastq" -o -name "*.fastq.gz" '
+                            r'-o -name "*.fq" -o -name "*.fq.gz" \) '
+                            f'-type f 2>/dev/null | sort',
+                            hide=True, warn=True,
+                        )
+                        for line in ls_result.stdout.strip().split("\n"):
+                            line = line.strip()
+                            if line:
+                                self.conn.run(
+                                    f'mv "{line}" "{inputs_dir}/_part_{part_idx}"',
+                                    hide=True,
+                                )
+                                part_idx += 1
+                        self.conn.run(f'rm -rf "{zip_extract_dir}"', hide=True, warn=True)
+
+                    # Concatenate all parts (detect gz by extension from original names)
+                    # Use python on remote to detect gzip by magic bytes
                     cat_parts = []
-                    for i, fq in enumerate(fq_files):
+                    for i in range(part_idx):
                         tmp_remote = f"{inputs_dir}/_part_{i}"
-                        if fq.name.endswith(".gz"):
-                            cat_parts.append(f'zcat "{tmp_remote}"')
-                        else:
-                            cat_parts.append(f'cat "{tmp_remote}"')
-                    concat_cmd = " ; ".join(cat_parts) + f' > "{remote_fastq_path}"'
+                        cat_parts.append(
+                            f'python3 -c "'
+                            f"import sys,gzip;"
+                            f"f=open('{tmp_remote}','rb');"
+                            f"gz=f.read(2)==b'\\x1f\\x8b';"
+                            f"f.close();"
+                            f"o=gzip.open if gz else open;"
+                            f"sys.stdout.buffer.write(o('{tmp_remote}','rb').read())"
+                            f'"'
+                        )
+                    concat_cmd = "{ " + " ; ".join(cat_parts) + f' ; }} > "{remote_fastq_path}"'
                     self.conn.run(concat_cmd, hide=True)
                     # Clean up parts
-                    for i in range(len(fq_files)):
+                    for i in range(part_idx):
                         self.conn.run(f'rm -f "{inputs_dir}/_part_{i}"', hide=True, warn=True)
                     fastq_path = remote_fastq_path
                     fastq_uploaded = True
