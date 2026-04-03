@@ -1289,12 +1289,16 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         _ins_start = flank_lengths[0] if flank_lengths else 0
         _ins_end = ref_len - (flank_lengths[1] if flank_lengths else 0)
         insert_dna = consensus_dna[_ins_start:_ins_end]
-        protein = ""
+        ref_insert_dna = ref_seq[_ins_start:_ins_end]
+
+        cons_protein = ""
+        ref_protein = ""
         try:
             from Bio.Seq import Seq as _BioSeq
-            _translatable = insert_dna[:len(insert_dna) - len(insert_dna) % 3]
-            if _translatable:
-                protein = str(_BioSeq(_translatable).translate())
+            _trim = len(insert_dna) - len(insert_dna) % 3
+            if _trim:
+                cons_protein = str(_BioSeq(insert_dna[:_trim]).translate())
+                ref_protein = str(_BioSeq(ref_insert_dna[:_trim]).translate())
         except Exception:
             pass
 
@@ -1304,12 +1308,35 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         n_rows = len(rows_encoded)
         n_cols = ref_len
 
+        # Build aligned translation comparison
         protein_line = ""
-        if protein:
+        if ref_protein and cons_protein:
+            ref_spans = []
+            cons_spans = []
+            for r_aa, c_aa in zip(ref_protein, cons_protein):
+                if r_aa == c_aa:
+                    ref_spans.append(f'<span class="aa-match">{_html.escape(r_aa)}</span>')
+                    cons_spans.append(f'<span class="aa-match">{_html.escape(c_aa)}</span>')
+                else:
+                    ref_spans.append(f'<span class="aa-diff">{_html.escape(r_aa)}</span>')
+                    cons_spans.append(f'<span class="aa-diff">{_html.escape(c_aa)}</span>')
+            protein_line = (
+                f'<div class="translation-block">'
+                f'<div class="translation-row">'
+                f'<span class="translation-label">Ref&nbsp;&nbsp;</span>'
+                f'<span class="translation-seq">{"".join(ref_spans)}</span>'
+                f'</div>'
+                f'<div class="translation-row">'
+                f'<span class="translation-label">Cons</span>'
+                f'<span class="translation-seq">{"".join(cons_spans)}</span>'
+                f'</div>'
+                f'</div>'
+            )
+        elif cons_protein:
             protein_line = (
                 f'<div class="protein-seq">'
-                f'<span class="protein-label">Insert sequence&nbsp;&nbsp;</span>'
-                f'{_html.escape(protein)}'
+                f'<span class="protein-label">Cons translation&nbsp;&nbsp;</span>'
+                f'{_html.escape(cons_protein)}'
                 f'</div>'
             )
 
@@ -1441,6 +1468,42 @@ h1 {{
     font-weight: 600;
     margin-right: 0.25rem;
     user-select: none;
+}}
+.translation-block {{
+    margin-top: 0.6rem;
+    font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+    font-size: 9pt;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: nowrap;
+}}
+.translation-row {{
+    display: flex;
+    align-items: baseline;
+}}
+.translation-label {{
+    color: var(--muted);
+    font-weight: 600;
+    width: 3rem;
+    flex-shrink: 0;
+    user-select: none;
+}}
+.translation-seq {{
+    letter-spacing: 0.5px;
+}}
+.aa-match {{
+    color: var(--muted);
+}}
+.aa-diff {{
+    color: #e03131;
+    font-weight: 700;
+    background: rgba(224, 49, 49, 0.1);
+    border-radius: 2px;
+    padding: 0 1px;
+}}
+[data-theme="dark"] .aa-diff {{
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.15);
 }}
 .pileup-container {{
     margin-bottom: 0.5rem;
