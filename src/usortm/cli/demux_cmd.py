@@ -115,6 +115,16 @@ def demux(
             "Defaults to cutinase backbone masks."
         ),
     ),
+    reads_per_well: int = typer.Option(
+        20,
+        "--reads-per-well",
+        help=(
+            "Number of reads to sample per well for variant assignment "
+            "(used in --orient-ref / --vector-fasta mode). Increase for "
+            "libraries with near-identical variants (e.g. single-substitution)."
+        ),
+        min=1,
+    ),
     round_num: int = typer.Option(
         1,
         "--round",
@@ -312,6 +322,7 @@ def demux(
             subsample=subsample,
             orient_ref=orient_ref,
             vector_fasta=vector_fasta,
+            reads_per_well=reads_per_well,
         )
 
         progress.update(task, description="Done!", completed=True)
@@ -797,6 +808,7 @@ def _run_demux(
     subsample: Optional[int] = None,
     orient_ref: Optional[Path] = None,
     vector_fasta: Optional[Path] = None,
+    reads_per_well: int = 20,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -815,6 +827,8 @@ def _run_demux(
         progress_callback: Optional progress update function.
         mask_config: Optional dict with ``fbc`` and ``rbc`` mask sequences.
         subsample: Optional number of reads to subsample before processing.
+        reads_per_well: Number of reads to sample per well for variant
+            assignment in orient-ref / vector-fasta mode.
 
     Returns:
         Results dict with input_reads, aligned_reads, demuxed_reads,
@@ -844,6 +858,7 @@ def _run_demux(
             subsample=subsample,
             orient_ref=orient_ref,
             vector_fasta=vector_fasta,
+            reads_per_well=reads_per_well,
         )
     else:
         raise NotImplementedError(
@@ -980,9 +995,27 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         "flank_check" in data
         for data in results["well_assignments"].values()
     )
+    has_protein = any(
+        "protein_check" in data
+        for data in results["well_assignments"].values()
+    )
+    has_confidence = any(
+        "assignment_confidence" in data
+        for data in results["well_assignments"].values()
+    )
+    has_flagged = any(
+        "n_flagged_positions" in data
+        for data in results["well_assignments"].values()
+    )
     header = ["plate", "well", "reads", "variant", "consensus_fraction", "cons_check"]
     if has_flanks:
         header.append("flank_check")
+    if has_protein:
+        header.append("protein_check")
+    if has_confidence:
+        header.append("assignment_confidence")
+    if has_flagged:
+        header.extend(["n_flagged_positions", "max_mismatch_frac"])
 
     with open(output_dir / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
@@ -999,4 +1032,11 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
             ]
             if has_flanks:
                 row.append(data.get("flank_check", ""))
+            if has_protein:
+                row.append(data.get("protein_check", ""))
+            if has_confidence:
+                row.append(data.get("assignment_confidence", ""))
+            if has_flagged:
+                row.append(data.get("n_flagged_positions", ""))
+                row.append(data.get("max_mismatch_frac", ""))
             writer.writerow(row)

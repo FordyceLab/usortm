@@ -850,6 +850,13 @@ def _build_pileup_from_bam(
                 rows.append(row)
     except Exception as exc:
         logger.warning("BAM pileup extraction failed: %s", exc)
+
+    # Cluster reads by mismatch pattern (see _build_pileup_grid).
+    if rows:
+        rows.sort(key=lambda row: "".join(
+            "." if m or b == "-" else b.upper() for b, m in row
+        ))
+
     return rows
 
 
@@ -1095,6 +1102,12 @@ def _build_pileup_from_bam_realign(
         except Exception as exc:
             logger.warning("Re-aligned BAM pileup parsing failed: %s", exc)
 
+    # Cluster reads by mismatch pattern (see _build_pileup_grid).
+    if rows:
+        rows.sort(key=lambda row: "".join(
+            "." if m or b == "-" else b.upper() for b, m in row
+        ))
+
     return rows
 
 
@@ -1188,6 +1201,17 @@ def _build_pileup_grid(
                 len(group_reads), ref_fasta,
             )
 
+    # Cluster reads by mismatch pattern so subpopulations are adjacent.
+    # Key: "." for match/gap, actual base for mismatch → identical patterns
+    # sort together.  Fewest mismatches first (dots sort before letters).
+    if rows:
+        def _mismatch_key(row):
+            return "".join(
+                "." if is_match or base == "-" else base.upper()
+                for base, is_match in row
+            )
+        rows.sort(key=_mismatch_key)
+
     return rows
 
 
@@ -1261,22 +1285,32 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                     chars.append(base_char.upper())
             rows_encoded.append("".join(chars))
 
-        # Build consensus from pileup: majority base at each position
+        # Build consensus from pileup: majority base at each position.
+        # Also track positions where >10% of reads disagree with the
+        # reference — these are flagged in the ruler as problem positions.
         from collections import Counter
         consensus_encoded = []
+        flagged_cols = []
         ref_seq = g["ref_seq"]
+        _MISMATCH_THRESHOLD = 0.10
         for col_idx in range(ref_len):
             counts = Counter()
             for row in g["pileup_rows"]:
                 base, _ = row[col_idx]
                 if base != "-":
                     counts[base.upper()] += 1
+            total = sum(counts.values())
             if counts:
                 cons_base = counts.most_common(1)[0][0]
                 if cons_base == ref_seq[col_idx].upper():
                     consensus_encoded.append(".")
                 else:
                     consensus_encoded.append(cons_base)
+                # Flag if >10% of reads differ from reference
+                ref_base = ref_seq[col_idx].upper()
+                ref_count = counts.get(ref_base, 0)
+                if total and (total - ref_count) / total > _MISMATCH_THRESHOLD:
+                    flagged_cols.append(col_idx)
             else:
                 consensus_encoded.append("-")
         consensus_str = "".join(consensus_encoded)
@@ -1305,6 +1339,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         ref_seq_js = _json.dumps(ref_seq)
         rows_js = _json.dumps(rows_encoded)
         cons_js = _json.dumps(consensus_str)
+        flagged_js = _json.dumps(flagged_cols)
         n_rows = len(rows_encoded)
         n_cols = ref_len
 
@@ -1341,7 +1376,8 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 f'var flanks={flanks_js};'
                 f'var refAA={ref_protein_js};'
                 f'var consAA={cons_protein_js};'
-                f'drawPileup("pileup-{idx}","ruler-{idx}","labels-{idx}",ref,cons,rows,flanks,"scroll-{idx}","wrap-{idx}",refAA,consAA);'
+                f'var flaggedCols={flagged_js};'
+                f'drawPileup("pileup-{idx}","ruler-{idx}","labels-{idx}",ref,cons,rows,flanks,"scroll-{idx}","wrap-{idx}",refAA,consAA,flaggedCols);'
                 f'}})();'
                 f'</script>'
             )
@@ -1456,8 +1492,6 @@ h1 {{
 }}
 .pileup-scroll {{
     overflow-x: auto;
-    overflow-y: hidden;
-    max-height: 60vh;
     scrollbar-width: none;
     background: transparent;
     border: none;
@@ -1544,7 +1578,7 @@ h1 {{
 }}
 </style>
 <script>
-function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scrollId, wrapId, refAA, consAA) {{
+function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scrollId, wrapId, refAA, consAA, flaggedCols) {{
   var canvas = document.getElementById(canvasId);
   var rulerCanvas = document.getElementById(rulerId);
   var labelsEl = document.getElementById(labelsId);
@@ -1552,7 +1586,7 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   var nCols = refSeq.length;
   var nRows = rows.length;
   var cellW = nCols < 200 ? 4 : nCols < 500 ? 3 : 2;
-  var cellH = nRows < 100 ? 3 : 2;
+  var cellH = nRows < 100 ? 3 : nRows < 400 ? 2 : 1;
   var refH = Math.max(cellH, 6);
   var consH = refH;
   var gap = 4;
@@ -1563,12 +1597,16 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   var hasAA = refAA && consAA && flanks;
   var aaH = hasAA ? 14 : 0;       // height of each AA row
   var aaGap = hasAA ? 6 : 0;      // gap before AA section
-  var aaCodonW = 3 * cellW;        // each AA spans 3 nucleotide columns
+  var aaCodonW = Math.max(3 * cellW, 8);  // min 8px so AA letters are legible
+
+  // Canvas must be wide enough for both the nucleotide pileup and the AA section
+  var aaEndPx = hasAA ? flanks[0] * cellW + refAA.length * aaCodonW : 0;
+  var canvasW = Math.max(totalW, aaEndPx);
 
   var pileupH = refH + gap + consH + gap + nRows * cellH + aaGap + (hasAA ? aaH * 2 + 2 : 0);
-  canvas.width = totalW * dpr;
+  canvas.width = canvasW * dpr;
   canvas.height = pileupH * dpr;
-  canvas.style.width = totalW + 'px';
+  canvas.style.width = canvasW + 'px';
   canvas.style.height = pileupH + 'px';
   var ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
@@ -1581,11 +1619,14 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   var baseColors = isDark
     ? {{'A':'#ff6b6b','T':'#339af0','C':'#ffa94d','G':'#ffd43b'}}
     : {{'A':'#e03131','T':'#1971c2','C':'#e8590c','G':'#e67700'}};
-  // Mismatch columns: consensus differs from reference (not '.' and not '-')
-  var mismatchCols = [];
-  for (var _mi = 0; _mi < cons.length; _mi++) {{
-    var _ch = cons[_mi];
-    if (_ch !== '.' && _ch !== '-') mismatchCols.push(_mi);
+  // Flagged columns: positions where >10% of reads disagree with reference.
+  // Falls back to consensus-derived mismatches when flaggedCols not provided.
+  var mismatchCols = flaggedCols || [];
+  if (!flaggedCols) {{
+    for (var _mi = 0; _mi < cons.length; _mi++) {{
+      var _ch = cons[_mi];
+      if (_ch !== '.' && _ch !== '-') mismatchCols.push(_mi);
+    }}
   }}
   var triRowH = mismatchCols.length > 0 ? 13 : 0;
   function isVector(col) {{
@@ -1597,16 +1638,16 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   // --- Ruler ---
   var rulerH = (flanks ? 24 : 14) + triRowH;
   if (rulerCanvas) {{
-    rulerCanvas.width = totalW * dpr;
+    rulerCanvas.width = canvasW * dpr;
     rulerCanvas.height = rulerH * dpr;
-    rulerCanvas.style.width = totalW + 'px';
+    rulerCanvas.style.width = canvasW + 'px';
     rulerCanvas.style.height = rulerH + 'px';
     var rc = rulerCanvas.getContext('2d');
     rc.scale(dpr, dpr);
     var tickColor = isDark ? '#64748b' : '#94a3b8';
     var labelColor = isDark ? '#e0e0e0' : '#1e293b';
     var boundaryColor = isDark ? '#f59e0b' : '#d97706';
-    rc.clearRect(0, 0, totalW, rulerH);
+    rc.clearRect(0, 0, canvasW, rulerH);
     var tickBottom = rulerH - triRowH;
     // Region labels on top row (if flanks present)
     var tickRowY = 0;

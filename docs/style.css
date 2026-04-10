@@ -541,6 +541,41 @@ a:hover {
   margin-bottom: 1.5rem;
 }
 
+/* Scroll-fade indicators for wide tables.
+   JS wraps each .table-wrapper in a .table-scroll-container
+   and toggles can-scroll-left / can-scroll-right classes. */
+.table-scroll-container {
+  position: relative;
+}
+
+.table-scroll-container::before,
+.table-scroll-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2rem;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.table-scroll-container::before {
+  left: 0;
+  background: linear-gradient(to right, var(--color-bg), transparent);
+  border-radius: 6px 0 0 6px;
+}
+
+.table-scroll-container::after {
+  right: 0;
+  background: linear-gradient(to left, var(--color-bg), transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+.table-scroll-container.can-scroll-right::after { opacity: 1; }
+.table-scroll-container.can-scroll-left::before { opacity: 1; }
+
 table {
   width: auto;
   flex-shrink: 0;

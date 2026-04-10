@@ -347,7 +347,7 @@ def _load_well_assignments(assignments_file: Path) -> list:
     with open(assignments_file, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            well_data.append({
+            entry = {
                 "plate": row["plate"],
                 "well": row["well"],
                 "variant": row["variant"],
@@ -355,7 +355,11 @@ def _load_well_assignments(assignments_file: Path) -> list:
                 "consensus_fraction": float(row["consensus_fraction"]),
                 "cons_check": row.get("cons_check", ""),
                 "flank_check": row.get("flank_check", ""),
-            })
+            }
+            nfp = row.get("n_flagged_positions", "")
+            if nfp:
+                entry["n_flagged_positions"] = int(nfp)
+            well_data.append(entry)
     return well_data
 
 
@@ -445,7 +449,7 @@ def _load_well_assignments_merged(assignments_file: Path,
     with open(assignments_file, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            raw.append({
+            entry = {
                 "plate": f"R{row['round']}_{row['plate']}",  # prefix with round
                 "well": row["well"],
                 "variant": row["variant"],
@@ -453,7 +457,11 @@ def _load_well_assignments_merged(assignments_file: Path,
                 "consensus_fraction": float(row["consensus_fraction"]),
                 "cons_check": row.get("cons_check", ""),
                 "flank_check": row.get("flank_check", ""),
-            })
+            }
+            nfp = row.get("n_flagged_positions", "")
+            if nfp:
+                entry["n_flagged_positions"] = int(nfp)
+            raw.append(entry)
 
     # Compute total reads per prefixed plate and drop ghost plates
     plate_totals: dict[str, int] = {}
@@ -727,6 +735,7 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     - **Tier C:** ≥20 reads AND >90% consensus  (includes Tier A + B)
     """
     has_flank_data = any(w.get("flank_check") for w in well_data)
+    has_flagged_data = any(w.get("n_flagged_positions") for w in well_data)
 
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
@@ -735,6 +744,7 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
             and w["consensus_fraction"] > 0.9
             and w.get("cons_check", "") not in ("Other Error", "Error")
             and (not has_flank_data or w.get("flank_check", "") == "OK")
+            and (not has_flagged_data or not w.get("n_flagged_positions", 0))
         }
 
     tier_a_set = _qualifying_variants(100)
@@ -1591,8 +1601,9 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         )
 
     tier_note = (
-        '<p class="note">All tiers require &gt;90% consensus and no mutations. Only unique variants '
-        '(best well per variant). Tiers are cumulative (B includes A, C includes B).</p>'
+        '<p class="note">All tiers require &gt;90% consensus, no mutations, and no positions with '
+        '&gt;10% non-reference reads. Only unique variants (best well per variant). '
+        'Tiers are cumulative (B includes A, C includes B).</p>'
         if tiers else ""
     )
 

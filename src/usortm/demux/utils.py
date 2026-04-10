@@ -1182,9 +1182,15 @@ def reassign_refs_from_consensus(well_df, ref_fasta,
         else:
             padded = cons_arr[:max_ref_len]
 
-        # Vectorized: count matches against all refs at once
-        matches = np.sum(ref_matrix == padded, axis=1)
+        # Vectorized: count matches against all refs at once.
+        # Mask out N (ambiguous) positions in the consensus — treat them as
+        # wildcards rather than mismatches.  Without this, N at a variant's
+        # single-mutation position causes all variants to tie (N != any base),
+        # and np.argmax silently picks the first one in FASTA order.
+        n_mask = padded != ord('N')  # True where consensus is NOT N
+        matches = np.sum((ref_matrix == padded) & n_mask, axis=1)
         best_idx = int(np.argmax(matches))
+        best_score = int(matches[best_idx])
 
         best_ref = ref_ids[best_idx]
         best_seq = ref_seqs_str[best_idx]
@@ -1192,8 +1198,20 @@ def reassign_refs_from_consensus(well_df, ref_fasta,
         well_df.at[idx, "major_ref"] = best_ref
         well_df.at[idx, "ref_seq"] = best_seq
         well_df.at[idx, "ref_len"] = len(best_seq)
-        well_df.at[idx, "major_freq"] = float(matches[best_idx]) / len(best_seq)
+        # Compute match fraction over non-N positions only
+        n_comparable = int(np.sum(n_mask))
+        well_df.at[idx, "major_freq"] = (
+            float(best_score) / n_comparable if n_comparable else 0.0
+        )
         n_reassigned += 1
+
+        # Flag ties — when multiple variants score identically, the
+        # assignment is unreliable (common in near-identical libraries).
+        n_tied = int(np.sum(matches == best_score))
+        if n_tied > 1:
+            if "assignment_ambiguous" not in well_df.columns:
+                well_df["assignment_ambiguous"] = False
+            well_df.at[idx, "assignment_ambiguous"] = True
 
     logger.info("Reassigned %d wells to library variants from consensus", n_reassigned)
     return well_df
@@ -1203,9 +1221,10 @@ def assign_variants_from_reads(
     well_df, read_df, ref_fasta,
     well_fastqs_dir=None,
     minimap2_path=None, workers=4,
-    reads_per_well=5,
+    reads_per_well=20,
     full_length_ref_dir=None,
     min_read_len=300,
+    min_mapq=0,
 ):
     """Assign library variants to wells by aligning a sample of reads.
 
@@ -1239,6 +1258,13 @@ def assign_variants_from_reads(
             Reads shorter than this (e.g. concatemer split-reads ~150 bp that
             only cover the 5' flank) are skipped.  Wells whose reads are all
             shorter than this threshold will be marked ``"unassigned"``.
+        min_mapq: Minimum mapping quality to accept an alignment.  Reads
+            with MAPQ below this threshold are discarded.  minimap2 assigns
+            MAPQ=0 when multiple reference targets produce equally-scoring
+            alignments, which is common in libraries of near-identical
+            variants.  Default is 0 (accept all alignments) since majority
+            voting over more reads is more robust than MAPQ filtering for
+            near-identical libraries.
 
     Returns:
         Updated well_df with ``major_ref``, ``ref_seq``, ``ref_len`` columns.
@@ -1324,12 +1350,24 @@ def assign_variants_from_reads(
         stdout=subprocess.PIPE, stderr=mm2_stderr_fh,
     )
 
-    # Parse PAF output
-    # PAF columns: qname, qlen, qstart, qend, strand, tname, ...
+    # Parse PAF output — extract target name and MAPQ for quality filtering.
+    # PAF columns: 0=qname 1=qlen 2=qstart 3=qend 4=strand 5=tname
+    #              6=tlen 7=tstart 8=tend 9=matches 10=block_len 11=mapq
+    # minimap2 assigns MAPQ=0 when the read maps equally well to multiple
+    # near-identical references.  Filtering these prevents misattribution
+    # in single-substitution libraries.
     read_to_ref = {}
+    n_low_mapq = 0
     for raw_line in mm2.stdout:
-        parts = raw_line.decode("utf-8", errors="replace").split("\t", 7)
-        if len(parts) < 6:
+        parts = raw_line.decode("utf-8", errors="replace").split("\t", 13)
+        if len(parts) < 12:
+            continue
+        try:
+            mapq = int(parts[11])
+        except (ValueError, IndexError):
+            continue
+        if mapq < min_mapq:
+            n_low_mapq += 1
             continue
         read_name = parts[0].split("|")[0]
         read_to_ref[read_name] = parts[5]  # target name
@@ -1341,6 +1379,8 @@ def assign_variants_from_reads(
             logger.warning("minimap2 variant assignment failed (rc=%d): %s",
                            mm2.returncode, f.read()[:500])
     tmp_obj.cleanup()
+    if n_low_mapq:
+        print(f"  Filtered {n_low_mapq:,} ambiguous read alignments (MAPQ < {min_mapq})")
 
     # Build well_pos lookup from read_df
     read_to_well = dict(zip(read_df["read_name"], read_df["well_pos"]))
@@ -1356,7 +1396,10 @@ def assign_variants_from_reads(
         well_counts[well][ref_name] += 1
 
     # Assign majority variant to each well
+    if "assignment_confidence" not in well_df.columns:
+        well_df["assignment_confidence"] = np.nan
     n_assigned = 0
+    n_ambiguous = 0
     for well, counts in well_counts.items():
         best_ref, best_count = counts.most_common(1)[0]
         mask = well_df["global_well"] == well
@@ -1372,6 +1415,16 @@ def assign_variants_from_reads(
         well_df.loc[mask, "ref_len"] = len(ref_seq)
         total = sum(counts.values())
         well_df.loc[mask, "major_freq"] = best_count / total if total else 0
+
+        # Assignment confidence: fraction of aligned reads supporting the
+        # majority variant.  Low confidence (e.g. 55/45 split) indicates
+        # ambiguous assignment — common in near-identical libraries.
+        confidence = best_count / total if total else 0
+        well_df.loc[mask, "assignment_confidence"] = confidence
+        if len(counts) > 1:
+            second_count = counts.most_common(2)[1][1]
+            if second_count / total > 0.3:
+                n_ambiguous += 1
         n_assigned += 1
 
     # Wells that got no alignments couldn't be assigned — mark them clearly
@@ -1382,12 +1435,15 @@ def assign_variants_from_reads(
         well_df.loc[unassigned_mask, "ref_seq"] = ""
         well_df.loc[unassigned_mask, "ref_len"] = 0
         well_df.loc[unassigned_mask, "major_freq"] = 0.0
+        well_df.loc[unassigned_mask, "assignment_confidence"] = 0.0
         n_unassigned = int(unassigned_mask.sum())
         print(f"  {n_unassigned} wells could not be assigned to any library variant "
               f"(reads too short or no alignment)")
 
-
     print(f"  Assigned variants to {n_assigned:,} / {len(well_df):,} wells")
+    if n_ambiguous:
+        print(f"  {n_ambiguous} wells have ambiguous assignment "
+              f"(2nd variant >30% of reads)")
     return well_df
 
 
@@ -1771,6 +1827,154 @@ def parse_vector_fasta(vector_fasta_path: str) -> tuple:
     return flank_5p, flank_3p
 
 
+def _extract_variable_region(cons_seq, ref_seq, flank_5p_len=0, flank_3p_len=0):
+    """Extract the variable region from a consensus sequence.
+
+    Tries flank-length trimming first (when available), then falls back to
+    string search for the start of the reference sequence.
+
+    Returns the variable portion of cons_seq, or None on failure.
+    """
+    if not cons_seq or not ref_seq:
+        return None
+    cons_upper = cons_seq.upper()
+    ref_upper = ref_seq.upper()
+    ref_len = len(ref_upper)
+
+    # Method 1: trim by known flank lengths
+    if flank_5p_len or flank_3p_len:
+        end = len(cons_upper) - flank_3p_len if flank_3p_len else len(cons_upper)
+        trimmed = cons_upper[flank_5p_len:end]
+        if abs(len(trimmed) - ref_len) <= 3:
+            return trimmed[:ref_len]
+
+    # Method 2: if consensus is already the right length, use it directly
+    if len(cons_upper) == ref_len:
+        return cons_upper
+
+    # Method 3: find the variable region by anchoring on the first 20 bp
+    start = cons_upper.find(ref_upper[:20])
+    if start >= 0 and start + ref_len <= len(cons_upper):
+        return cons_upper[start:start + ref_len]
+
+    return None
+
+
+def _protein_check(ref_seq, cons_var, frame_offset=0):
+    """Compare protein translations of reference and consensus variable regions.
+
+    Returns one of: "Match", "Silent", "Missense", "Frameshift", or None if
+    comparison is not possible.
+    """
+    if not ref_seq or not cons_var:
+        return None
+    ref_upper = ref_seq.upper()
+    cons_upper = cons_var.upper()
+
+    # Skip if consensus contains too many N bases (unreliable translation)
+    n_count = cons_upper.count('N')
+    if n_count > len(cons_upper) * 0.05:
+        return None
+
+    # Replace N with the reference base for translation (best-guess)
+    cons_for_translation = list(cons_upper)
+    for i, c in enumerate(cons_for_translation):
+        if c == 'N' and i < len(ref_upper):
+            cons_for_translation[i] = ref_upper[i]
+    cons_for_translation = ''.join(cons_for_translation)
+
+    # Trim to complete codons from the frame offset
+    def _trim_to_codons(seq, offset):
+        seq = seq[offset:]
+        return seq[:len(seq) - len(seq) % 3]
+
+    try:
+        ref_codons = _trim_to_codons(ref_upper, frame_offset)
+        cons_codons = _trim_to_codons(cons_for_translation, frame_offset)
+        if len(ref_codons) != len(cons_codons):
+            return "Frameshift"
+        ref_protein = str(Seq(ref_codons).translate())
+        cons_protein = str(Seq(cons_codons).translate())
+        if ref_protein == cons_protein:
+            if ref_codons == cons_codons:
+                return "Match"
+            return "Silent"
+        return "Missense"
+    except Exception:
+        return None
+
+
+def _check_column_agreement(
+    well: str,
+    consensus_dir: str,
+    orf_seq: str,
+    orf_start: int,
+    threshold: float = 0.10,
+    min_depth: int = 10,
+) -> dict:
+    """Check per-column read agreement in the variable region.
+
+    Opens the per-well read BAM and checks each ORF position for reads
+    that disagree with the assigned variant's reference.  Positions where
+    >*threshold* fraction of reads differ are flagged.
+
+    Args:
+        well: Global well identifier (e.g. "1A1").
+        consensus_dir: Directory containing per-well BAMs ({well}.bam).
+        orf_seq: The assigned variant's ORF sequence (from well_df ref_seq).
+        orf_start: 0-based start of the ORF in the BAM reference coordinate
+            system (= flank_5p_len).
+        threshold: Maximum non-reference fraction allowed (default 0.10).
+        min_depth: Minimum read depth at a position to evaluate it.
+
+    Returns:
+        Dict with keys: n_flagged_positions, min_agreement, max_mismatch_frac.
+    """
+    import pysam
+    from collections import Counter
+
+    result = {"n_flagged_positions": 0, "min_agreement": 1.0, "max_mismatch_frac": 0.0}
+    bam_path = os.path.join(consensus_dir, f"{well}.bam")
+    if not os.path.exists(bam_path):
+        return result
+
+    orf_len = len(orf_seq)
+    try:
+        bam = pysam.AlignmentFile(bam_path, "rb", check_sq=False)
+        flagged = 0
+        min_agree = 1.0
+        max_mismatch = 0.0
+        for col in bam.pileup(min_base_quality=0):
+            orf_pos = col.reference_pos - orf_start
+            if orf_pos < 0 or orf_pos >= orf_len:
+                continue
+            counts = Counter()
+            for read in col.pileups:
+                if not read.is_del and not read.is_refskip:
+                    base = read.alignment.query_sequence[read.query_position].upper()
+                    counts[base] += 1
+            total = sum(counts.values())
+            if total < min_depth:
+                continue
+            ref_base = orf_seq[orf_pos].upper()
+            ref_count = counts.get(ref_base, 0)
+            agreement = ref_count / total
+            mismatch_frac = 1.0 - agreement
+            if agreement < min_agree:
+                min_agree = agreement
+            if mismatch_frac > max_mismatch:
+                max_mismatch = mismatch_frac
+            if mismatch_frac > threshold:
+                flagged += 1
+        bam.close()
+        result["n_flagged_positions"] = flagged
+        result["min_agreement"] = round(min_agree, 4)
+        result["max_mismatch_frac"] = round(max_mismatch, 4)
+    except Exception:
+        pass
+    return result
+
+
 def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
                     consensus_dir: str = None, frame_offset: int = 0):
     """Extract reference matches using consensus CIGAR string.
@@ -1778,16 +1982,22 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
     When flank lengths are provided (from --vector-fasta), also checks
     flanking regions for mismatches using the consensus BAM alignment.
 
+    Also performs protein-level comparison of the consensus variable region
+    against the assigned variant's reference, stored in a ``protein_check``
+    column ("Match", "Silent", "Missense", "Frameshift", or empty).
+
     Args:
         well_df: Per-well DataFrame with CIGAR, ref_len, ref_seq, cons_seq.
         flank_5p_len: Length of the 5' flanking region (0 = no flank check).
         flank_3p_len: Length of the 3' flanking region (0 = no flank check).
         consensus_dir: Path to consensus BAM directory (required when flanks
             are provided).
+        frame_offset: Reading frame offset (0, 1, or 2) for protein translation.
 
     Returns:
-        Updated well_df with cons_check column (and flank_check,
-        flank_5p_mismatches, flank_3p_mismatches when flanks are provided).
+        Updated well_df with cons_check and protein_check columns (and
+        flank_check, flank_5p_mismatches, flank_3p_mismatches when flanks
+        are provided).
     """
     has_flanks = (flank_5p_len > 0 or flank_3p_len > 0) and consensus_dir
 
@@ -1814,6 +2024,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
             # Replace the noisy 5-read sampling fraction with the actual
             # per-position variable-region match fraction from the consensus BAM.
             well_df.at[index, "major_freq"] = flank_result["var_match_fraction"]
+            well_df.at[index, "var_n_count"] = flank_result["var_n_count"]
         else:
             # Original CIGAR-based logic
             if cigar is None or ref_len is None or pd.isna(ref_len):
@@ -1838,7 +2049,119 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
 
         well_df.at[index, "cons_check"] = status
 
+        # Per-column read agreement check: scan the per-well read BAM for
+        # positions where >10% of reads disagree with the reference.
+        if has_flanks and status in ("Perfect Match", "Silent Mutation") and ref_seq:
+            col_result = _check_column_agreement(
+                well, consensus_dir, ref_seq, flank_5p_len,
+            )
+            well_df.at[index, "n_flagged_positions"] = col_result["n_flagged_positions"]
+            well_df.at[index, "max_mismatch_frac"] = col_result["max_mismatch_frac"]
+
+        # Protein-level check: compare translation of the variable region
+        # in the consensus against the assigned variant's reference.
+        if status == "Perfect Match":
+            # BAM-based analysis already confirmed 0 mismatches and 0 indels
+            # in the variable region — protein must match.  Skip the less
+            # reliable substring extraction which can fail when flank indels
+            # shift the consensus coordinates.
+            well_df.at[index, "protein_check"] = "Match"
+        elif ref_seq and cons_seq and ref_len and not pd.isna(ref_len):
+            cons_var = _extract_variable_region(
+                cons_seq, ref_seq, flank_5p_len, flank_3p_len,
+            )
+            pcheck = _protein_check(ref_seq, cons_var, frame_offset)
+            well_df.at[index, "protein_check"] = pcheck or ""
+        else:
+            well_df.at[index, "protein_check"] = ""
+
     return well_df
+
+
+def detect_consensus_hotspots(well_df, threshold=0.1, flank_5p_len=0, flank_3p_len=0):
+    """Scan wells for systematic mismatch positions in the variable region.
+
+    When a large fraction of wells share the same mismatch at the same
+    position, it's usually a library-level issue (synthesis error, PCR
+    recombination) rather than random sequencing noise.
+
+    Args:
+        well_df: Per-well DataFrame with ref_seq and cons_seq columns.
+        threshold: Minimum fraction of wells with a mismatch at a position
+            to report it as a hotspot.
+        flank_5p_len: Length of the 5' flanking region to strip from consensus.
+        flank_3p_len: Length of the 3' flanking region to strip from consensus.
+
+    Returns:
+        List of dicts with keys: position, ref_base, alt_base, n_wells,
+        fraction, codon_position, aa_position.  Empty list if no hotspots.
+    """
+    from collections import Counter
+
+    # Collect per-position mismatch counts
+    pos_mismatches: dict[int, Counter] = {}
+    n_compared = 0
+
+    for _, row in well_df.iterrows():
+        ref_seq = row.get("ref_seq")
+        cons_seq = row.get("cons_seq")
+        if not ref_seq or not cons_seq or (isinstance(ref_seq, float) and pd.isna(ref_seq)):
+            continue
+
+        cons_var = _extract_variable_region(
+            cons_seq, ref_seq, flank_5p_len, flank_3p_len,
+        )
+        if cons_var is None:
+            continue
+
+        ref_upper = ref_seq.upper()
+        n_compared += 1
+        for i in range(min(len(ref_upper), len(cons_var))):
+            if cons_var[i] != ref_upper[i] and cons_var[i] != 'N':
+                if i not in pos_mismatches:
+                    pos_mismatches[i] = Counter()
+                pos_mismatches[i][cons_var[i]] += 1
+
+    if n_compared == 0:
+        return []
+
+    hotspots = []
+    for pos, alt_counts in sorted(pos_mismatches.items()):
+        for alt_base, count in alt_counts.most_common(1):
+            frac = count / n_compared
+            if frac >= threshold:
+                # Get the reference base from the first available ref_seq
+                ref_base = "?"
+                for _, row in well_df.iterrows():
+                    rs = row.get("ref_seq")
+                    if rs and not (isinstance(rs, float) and pd.isna(rs)):
+                        if pos < len(rs):
+                            ref_base = rs.upper()[pos]
+                        break
+                hotspots.append({
+                    "position": pos,
+                    "ref_base": ref_base,
+                    "alt_base": alt_base,
+                    "n_wells": count,
+                    "fraction": round(frac, 3),
+                    "codon_position": pos % 3,
+                    "aa_position": pos // 3 + 1,
+                })
+
+    if hotspots:
+        logger.info(
+            "Detected %d consensus hotspot(s) affecting >%.0f%% of wells:",
+            len(hotspots), threshold * 100,
+        )
+        for hs in hotspots:
+            logger.info(
+                "  Position %d (%s→%s): %d/%d wells (%.0f%%), aa %d codon pos %d",
+                hs["position"], hs["ref_base"], hs["alt_base"],
+                hs["n_wells"], n_compared, hs["fraction"] * 100,
+                hs["aa_position"], hs["codon_position"],
+            )
+
+    return hotspots
 
 
 def _check_flanking_regions(
@@ -1864,6 +2187,7 @@ def _check_flanking_regions(
         "flank_5p_mismatches": 0,
         "flank_3p_mismatches": 0,
         "var_match_fraction": 0.0,
+        "var_n_count": 0,
     }
 
     cons_bam = os.path.join(consensus_dir, f"{well}_consensus_align.bam")
@@ -1901,6 +2225,7 @@ def _check_flanking_regions(
     var_mismatches = 0
     var_matches = 0
     var_indels = 0
+    var_n_count = 0
 
     query_seq = read.query_sequence
 
@@ -1926,7 +2251,12 @@ def _check_flanking_regions(
             if qpos is None:
                 var_indels += 1
             elif ref_base is not None and ref_base.islower():
-                var_mismatches += 1
+                # Pysam flags this as mismatch. Distinguish N (ambiguous
+                # consensus) from a real substitution.
+                if query_seq[qpos] in ('N', 'n'):
+                    var_n_count += 1
+                else:
+                    var_mismatches += 1
             else:
                 var_matches += 1
         else:
@@ -1936,10 +2266,12 @@ def _check_flanking_regions(
             elif ref_base is not None and ref_base.islower():
                 flank_3p_mm += 1
 
-    # Determine variable region status (same categories as CIGAR logic)
-    if var_mismatches == 0 and var_indels == 0 and var_matches == variable_len:
+    # Determine variable region status (same categories as CIGAR logic).
+    # N bases in consensus (ambiguous calls) are counted separately from
+    # real mismatches — they indicate uncertainty, not a confirmed error.
+    if var_mismatches == 0 and var_indels == 0 and (var_matches + var_n_count) == variable_len:
         cons_check = "Perfect Match"
-    elif var_indels == 0 and var_matches + var_mismatches == variable_len:
+    elif var_indels == 0 and var_matches + var_mismatches + var_n_count == variable_len:
         # Same length — check for silent mutations
         # Extract variable-region subsequences for translation check
         var_query_bases = []
@@ -1947,8 +2279,14 @@ def _check_flanking_regions(
         for qpos, rpos, ref_base in pairs:
             if rpos is not None and flank_5p_len <= rpos < flank_5p_len + variable_len:
                 if qpos is not None and ref_base is not None:
-                    var_query_bases.append(query_seq[qpos])
-                    var_ref_bases.append(ref_base.upper())
+                    qbase = query_seq[qpos]
+                    rbase = ref_base.upper()
+                    # Substitute N with reference base for translation
+                    # (consistent with _protein_check behavior).
+                    if qbase in ('N', 'n'):
+                        qbase = rbase
+                    var_query_bases.append(qbase)
+                    var_ref_bases.append(rbase)
         if len(var_query_bases) == variable_len and len(var_ref_bases) == variable_len:
             try:
                 q_protein = Seq("".join(var_query_bases)[frame_offset:]).translate()
@@ -1980,7 +2318,8 @@ def _check_flanking_regions(
     result["flank_check"] = flank_check
     result["flank_5p_mismatches"] = flank_5p_mm
     result["flank_3p_mismatches"] = flank_3p_mm
-    result["var_match_fraction"] = var_matches / variable_len if variable_len else 0.0
+    result["var_match_fraction"] = (var_matches + var_n_count) / variable_len if variable_len else 0.0
+    result["var_n_count"] = var_n_count
     return result
 
 def export_reference_map(df, 

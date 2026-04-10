@@ -397,6 +397,7 @@ def pick(
                         "variant": w["variant"],
                         "reads": w["reads"],
                         "consensus_fraction": w["consensus_fraction"],
+                        "cons_check": w.get("cons_check", ""),
                         "target_plate": w["plate"],
                         "target_well": w["well"],
                     }
@@ -569,6 +570,12 @@ def _load_well_assignments(assignments_file: Path) -> list:
             fc = row.get("flank_check", "")
             if fc:
                 entry["flank_check"] = fc
+            ac = row.get("assignment_confidence", "")
+            if ac:
+                entry["assignment_confidence"] = float(ac)
+            nfp = row.get("n_flagged_positions", "")
+            if nfp:
+                entry["n_flagged_positions"] = int(nfp)
             well_data.append(entry)
 
     return well_data
@@ -674,7 +681,8 @@ def _generate_pick_list(
             1 if cons == "Silent Mutation" else
             2
         )
-        return (category, -w["consensus_fraction"], -w["reads"])
+        conf = w.get("assignment_confidence", 0) or 0
+        return (category, -conf, -w["consensus_fraction"], -w["reads"])
 
     sorted_wells = sorted(well_data, key=_well_sort_key)
 
@@ -709,6 +717,15 @@ def _generate_pick_list(
                 or w["cons_check"] in _ACCEPTABLE_CONS
             ]
 
+    # Exclude wells with per-column mismatch flags (>10% non-reference
+    # reads at any ORF position indicates contamination or mixed population).
+    has_any_flagged = any(w.get("n_flagged_positions") for w in sorted_wells)
+    if has_any_flagged:
+        sorted_wells = [
+            w for w in sorted_wells
+            if not w.get("n_flagged_positions", 0)
+        ]
+
     for well in sorted_wells:
         variant = well["variant"]
 
@@ -727,6 +744,7 @@ def _generate_pick_list(
             "reads": well["reads"],
             "consensus_fraction": well["consensus_fraction"],
             "cons_check": well.get("cons_check", ""),
+            "assignment_confidence": well.get("assignment_confidence", 0),
         })
 
         seen_variants.add(variant)

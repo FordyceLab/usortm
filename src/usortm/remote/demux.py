@@ -81,6 +81,7 @@ class RemoteDemux:
         threads: int = 8,
         workers: int = 4,
         subsample: Optional[int] = None,
+        log_status=None,
         extra_args: Optional[list[str]] = None,
         upload_callback=None,
     ) -> tuple[str, bool]:
@@ -121,35 +122,45 @@ class RemoteDemux:
         )
         job_key = existing_remote.get("job_key") or _make_job_key()
 
+        def _log(msg: str):
+            if log_status:
+                log_status(msg)
+
         job_dir = f"{self.remote_job_dir}/{job_key}"
         inputs_dir = f"{job_dir}/inputs"
         self.conn.run(f"mkdir -p {inputs_dir}", hide=True)
+        _log(f"Job directory: {job_key}")
 
         def _remote_exists(path: str) -> bool:
             r = self.conn.run(f'[ -e "{path}" ] && echo 1 || echo 0', hide=True, warn=True)
             return r.stdout.strip() == "1"
 
         # Upload small inputs unconditionally (they may have changed)
+        uploaded = []
         if reference:
             self.conn.put(str(reference), f"{inputs_dir}/reference.fasta")
+            uploaded.append("reference")
         if library_csv:
             self.conn.put(str(library_csv), f"{inputs_dir}/library.csv")
+            uploaded.append("library CSV")
         if vector_fasta:
             self.conn.put(str(vector_fasta), f"{inputs_dir}/vector.fasta")
+            uploaded.append("vector FASTA")
         if mask_config:
             self.conn.put(str(mask_config), f"{inputs_dir}/mask_config.toml")
+            uploaded.append("mask config")
+        if uploaded:
+            _log(f"Uploaded {', '.join(uploaded)}")
 
         # FASTQ — only transfer if not already present on remote
+        _log("Checking FASTQ...")
         fastq_uploaded = False
         if remote_fastq:
             if not _remote_exists(remote_fastq):
                 raise FileNotFoundError(f"Remote FASTQ not found: {remote_fastq}")
             fastq_path = remote_fastq
+            _log("Using remote FASTQ")
         elif fastq_url:
-            # The run script downloads and normalises to a canonical path.
-            # Use a shell variable reference so the demux command resolves
-            # the path at runtime (needed because ZIP archives contain files
-            # with unknown names, and the file may or may not be gzipped).
             fastq_path = "$FASTQ_PATH"
             canonical = f"{inputs_dir}/reads.fastq"
             already = (
@@ -157,6 +168,7 @@ class RemoteDemux:
                 or _remote_exists(f"{canonical}.gz")
             )
             fastq_uploaded = not already
+            _log("FASTQ will be downloaded on remote" if not already else "FASTQ already on remote")
         else:
             fastq = Path(str(fastq))
             # If fastq is a directory, upload contents and concatenate on remote
@@ -179,6 +191,7 @@ class RemoteDemux:
                 remote_fastq_path = f"{inputs_dir}/{remote_fastq_name}"
                 if _remote_exists(remote_fastq_path):
                     fastq_path = remote_fastq_path
+                    _log("Combined FASTQ already on remote")
                 else:
                     part_idx = 0
                     zip_extract_dir = f"{inputs_dir}/_zip_extracted"
@@ -257,6 +270,7 @@ class RemoteDemux:
         cfg = load_config().get("connection", {})
         usortm_path = cfg.get("usortm_path") or self._find_remote_usortm()
 
+        _log("Generating run script...")
         # (Re-)write run script and (re-)launch
         script = self._generate_run_script(
             job_dir=job_dir,
@@ -287,6 +301,7 @@ class RemoteDemux:
 
         # Launch — setsid fully detaches from the SSH session so Fabric
         # doesn't block waiting for the background process to finish.
+        _log("Launching job...")
         result = self.conn.run(
             f"cd {job_dir} && setsid ./run.sh </dev/null > nohup.out 2>&1 & echo $!",
             hide=True,

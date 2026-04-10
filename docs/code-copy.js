@@ -1,3 +1,33 @@
+// Scroll-fade indicators for wide tables
+document.addEventListener('DOMContentLoaded', function() {
+  function updateScrollFade(wrapper, container) {
+    var tol = 2;
+    var canLeft = wrapper.scrollLeft > tol;
+    var canRight = wrapper.scrollLeft + wrapper.clientWidth < wrapper.scrollWidth - tol;
+    container.classList.toggle('can-scroll-left', canLeft);
+    container.classList.toggle('can-scroll-right', canRight);
+  }
+
+  document.querySelectorAll('.table-wrapper').forEach(function(w) {
+    // Wrap in a container so pseudo-elements overlay correctly
+    var container = document.createElement('div');
+    container.className = 'table-scroll-container';
+    w.parentNode.insertBefore(container, w);
+    container.appendChild(w);
+
+    updateScrollFade(w, container);
+    w.addEventListener('scroll', function() { updateScrollFade(w, container); }, { passive: true });
+  });
+
+  // Re-check after fonts/images settle
+  window.addEventListener('load', function() {
+    document.querySelectorAll('.table-scroll-container').forEach(function(c) {
+      var w = c.querySelector('.table-wrapper');
+      if (w) updateScrollFade(w, c);
+    });
+  });
+});
+
 // Add copy buttons to all code blocks
 document.addEventListener('DOMContentLoaded', function() {
   // Find all pre elements with code

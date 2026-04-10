@@ -130,6 +130,7 @@ def run_levseq_pipeline(
     subsample: Optional[int] = None,
     orient_ref: Optional[Path] = None,
     vector_fasta: Optional[Path] = None,
+    reads_per_well: int = 20,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -394,6 +395,7 @@ def run_levseq_pipeline(
                 minimap2_path=tool_paths["minimap2"],
                 workers=workers,
                 full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
+                reads_per_well=reads_per_well,
             )
 
             _progress("Generating consensus against assigned references...")
@@ -408,7 +410,7 @@ def run_levseq_pipeline(
             )
 
             # Backfill read_df ref_name from well_df so plate map shows
-            # the reassigned variant instead of the orient-ref name.
+            # the assigned variant instead of the orient-ref name.
             well_to_ref = dict(zip(
                 well_df["global_well"],
                 well_df["major_ref"],
@@ -487,6 +489,18 @@ def run_levseq_pipeline(
                 v for c in candidates for v in c["recoverable_variants"]
             }),
         }
+
+    # --- Stage 10.6: Consensus hotspot detection ---
+    if reference is not None:
+        _flank_5p_len = len(flank_5p) if flank_5p is not None else 0
+        _flank_3p_len = len(flank_3p) if flank_3p is not None else 0
+        hotspots = utils.detect_consensus_hotspots(
+            well_df,
+            threshold=0.1,
+            flank_5p_len=_flank_5p_len,
+            flank_3p_len=_flank_3p_len,
+        )
+        pipeline_stats["consensus_hotspots"] = hotspots
 
     _progress("Finalizing results...")
 
@@ -694,10 +708,33 @@ def _translate_to_cli_format(
             "cons_check": cons_check_val,
         }
 
+        # Include protein-level check if available
+        _pc = row.get("protein_check")
+        if _pc is not None and pd.notna(_pc) and _pc:
+            entry["protein_check"] = str(_pc)
+
+        # Include assignment confidence if available
+        _ac = row.get("assignment_confidence")
+        if _ac is not None and pd.notna(_ac):
+            entry["assignment_confidence"] = float(_ac)
+
         # Include flanking check if available
         _fc = row.get("flank_check")
         if _fc is not None and pd.notna(_fc):
             entry["flank_check"] = str(_fc)
+
+        # Include N-base count in variable region if > 0
+        _vn = row.get("var_n_count")
+        if _vn is not None and pd.notna(_vn) and int(_vn) > 0:
+            entry["var_n_count"] = int(_vn)
+
+        # Include per-column mismatch flags if available
+        _nfp = row.get("n_flagged_positions")
+        if _nfp is not None and pd.notna(_nfp):
+            entry["n_flagged_positions"] = int(_nfp)
+        _mmf = row.get("max_mismatch_frac")
+        if _mmf is not None and pd.notna(_mmf):
+            entry["max_mismatch_frac"] = round(float(_mmf), 4)
 
         well_assignments[key] = entry
 
