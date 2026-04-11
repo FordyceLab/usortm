@@ -291,6 +291,9 @@ def remote_demux(
         def _get_progress_ctx():
             return None
 
+    def _log_status(msg: str):
+        console.print(f"  [dim]{msg}[/dim]")
+
     try:
         job_key, fastq_uploaded = mgr.submit(
             project_dir=project_dir,
@@ -305,6 +308,7 @@ def remote_demux(
             workers=workers,
             subsample=subsample,
             upload_callback=upload_callback,
+            log_status=_log_status,
         )
     finally:
         ctx = _get_progress_ctx()
