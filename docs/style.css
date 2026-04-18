@@ -843,6 +843,80 @@ pre:hover .code-copy-btn {
   font-size: 0.875em;
 }
 
+/* Inline info tooltip — small warning badge with hover-revealed popover.
+   Use inside a cell that lives in a .table-wrapper--overflow so the tip
+   isn't clipped by the wrapper's overflow. */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 0.4em;
+  border-radius: 50%;
+  background: var(--color-warning);
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  cursor: help;
+  position: relative;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.info-tip-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  width: 240px;
+  padding: 0.65rem 0.8rem;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 100;
+  white-space: normal;
+}
+
+.info-tip-popover::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--color-text);
+}
+
+.info-tip-popover strong {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
+.info-tip:hover .info-tip-popover,
+.info-tip:focus .info-tip-popover,
+.info-tip:focus-within .info-tip-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Opt-out of overflow clipping so .info-tip-popover can escape the table */
+.table-wrapper--overflow {
+  overflow: visible;
+}
+
 /* Footer */
 .footer {
   margin-top: 4rem;
