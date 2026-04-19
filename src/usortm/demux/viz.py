@@ -2,6 +2,12 @@ import re, string, numpy as np, pandas as pd
 
 import bionumpy as bnp
 
+# `include_groups=False` is only a valid kwarg for DataFrameGroupBy.apply
+# on pandas >= 2.2. On older pandas it's forwarded to the user function
+# and raises TypeError. Gate it behind a version check.
+_PD_VERSION = tuple(int(x) for x in pd.__version__.split(".")[:2] if x.isdigit())
+_APPLY_KWARGS = {"include_groups": False} if _PD_VERSION >= (2, 2) else {}
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -158,7 +164,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
           .apply(lambda x: "<br/>".join(
               [f"<b>{_well_label(x.iloc[0].row, x.iloc[0].col)}</b>"] +
               [f"{r} {p:.0%}" for r,p in zip(x[ref_col], x["frac"])][:max_lines]
-          ), include_groups=False)
+          ), **_APPLY_KWARGS)
           .rename("tooltip").reset_index())
 
     dom = g.sort_values([well_col,"n"], ascending=[True,False]).groupby(well_col).head(1)

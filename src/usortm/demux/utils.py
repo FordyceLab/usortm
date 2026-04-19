@@ -1682,7 +1682,14 @@ def generate_per_well_consensus(
     os.makedirs(well_fastqs_dir, exist_ok=True)
 
     # 1) Write per-well FASTQs if they don't exist yet
-    all_wells = read_df['well_pos'].unique()
+    all_wells = read_df['well_pos'].dropna().unique()
+
+    if len(all_wells) == 0:
+        logger.warning(
+            "generate_per_well_consensus: no wells with classified reads — "
+            "skipping per-well consensus generation."
+        )
+        return well_df
 
     sample_fq = os.path.join(well_fastqs_dir, f"{all_wells[0]}.fastq")
     if not os.path.exists(sample_fq):

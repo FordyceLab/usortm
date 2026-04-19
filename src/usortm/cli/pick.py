@@ -682,7 +682,7 @@ def _generate_pick_list(
             2
         )
         conf = w.get("assignment_confidence", 0) or 0
-        return (category, -conf, -w["consensus_fraction"], -w["reads"])
+        return (category, -conf, -w["reads"], -w["consensus_fraction"])
 
     sorted_wells = sorted(well_data, key=_well_sort_key)
 
