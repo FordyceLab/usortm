@@ -72,32 +72,28 @@ html, body {
   transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
 }
 
-/* Smooth transitions for theme-affected elements. Scoped to named targets
-   instead of the universal selector to avoid scroll jank on mobile
-   — applying transitions to every element and pseudo-element is a common
-   perf footgun on mid-range phones. */
-body,
-.sidebar,
-.main,
-.content,
-.callout,
-.feature-card,
-.result-card,
-.cost-chart,
+/* Theme transitions: keep the universal selector so every text/bg/border
+   animates smoothly on theme flip, but limit to the three cheap properties
+   (background-color, color, border-color). Heavier properties (box-shadow,
+   fill, stroke) are transitioned only on the handful of elements that
+   actually need them, declared below. */
+*, *::before, *::after {
+  transition: background-color 0.2s ease-in-out,
+              color 0.2s ease-in-out,
+              border-color 0.2s ease-in-out;
+}
+
 .btn,
 .theme-toggle,
 .theme-svg,
 pre,
-code,
-table,
-th,
-td,
-.hero,
-.footer,
-.sidebar-nav a {
+.callout,
+.feature-card,
+.result-card,
+.cost-chart {
   transition: background-color 0.2s ease-in-out,
-              border-color 0.2s ease-in-out,
               color 0.2s ease-in-out,
+              border-color 0.2s ease-in-out,
               box-shadow 0.2s ease-in-out,
               fill 0.2s ease-in-out,
               stroke 0.2s ease-in-out;
@@ -222,7 +218,11 @@ td,
   font-size: 0.875rem;
   font-family: var(--font-sans);
   box-sizing: border-box;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  /* Extends (doesn't replace) the universal bg/color/border transition. */
+  transition: background-color 0.2s ease-in-out,
+              color 0.2s ease-in-out,
+              border-color 0.2s,
+              box-shadow 0.2s;
   outline: none;
 }
 
@@ -292,6 +292,27 @@ td,
   font-size: 0.85rem;
   color: var(--color-text);
   line-height: 1.3;
+}
+
+/* Single-line preview of the matched passage, with each term highlighted.
+   Overflow is truncated with an ellipsis so the dropdown stays compact. */
+.search-result-snippet {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-title mark,
+.search-result-snippet mark {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 600;
 }
 
 .search-loading,
@@ -982,8 +1003,13 @@ pre:hover .code-copy-btn {
     border-bottom: 1px solid var(--color-border);
     padding: 0;
     z-index: 90;
+    /* Extends (doesn't replace) the universal bg/color/border transition
+       so theme flips animate smoothly alongside the drawer expansion. */
     transition: max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.28s ease;
+                box-shadow 0.28s ease,
+                background-color 0.2s ease-in-out,
+                color 0.2s ease-in-out,
+                border-color 0.2s ease-in-out;
   }
 
   /* Expanded — overlay over content */

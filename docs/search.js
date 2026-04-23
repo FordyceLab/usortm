@@ -35,6 +35,52 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  function escRegExp(s) {
+    return s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  }
+
+  // Wrap every case-insensitive occurrence of any term in <mark>.
+  // Input must already be HTML-escaped (tags in terms would otherwise survive).
+  function highlightTerms(escapedHtml, terms) {
+    if (!terms.length) return escapedHtml;
+    var pattern = terms.map(escRegExp).join('|');
+    return escapedHtml.replace(new RegExp('(' + pattern + ')', 'gi'), '<mark>$1</mark>');
+  }
+
+  // Extract a ~120-char window around the first term match, with ellipses
+  // for truncation and each term occurrence wrapped in <mark>. Returns ''
+  // if the text contains no term hits (title-only matches).
+  function buildSnippet(text, terms, windowLen) {
+    windowLen = windowLen || 120;
+    if (!text || !terms.length) return '';
+    var textLow = text.toLowerCase();
+    var firstIdx = -1;
+    terms.forEach(function (t) {
+      var i = textLow.indexOf(t);
+      if (i >= 0 && (firstIdx === -1 || i < firstIdx)) firstIdx = i;
+    });
+    if (firstIdx === -1) return '';
+
+    // Favor context AFTER the match over context before it.
+    var prefixLen = Math.floor(windowLen / 3);
+    var start = Math.max(0, firstIdx - prefixLen);
+    var end = Math.min(text.length, start + windowLen);
+
+    // Snap to nearest word boundary so we don't start/end mid-word.
+    if (start > 0) {
+      var sp = text.indexOf(' ', start);
+      if (sp > 0 && sp - start < 15) start = sp + 1;
+    }
+    if (end < text.length) {
+      var sp2 = text.lastIndexOf(' ', end);
+      if (sp2 > start + windowLen / 2) end = sp2;
+    }
+
+    var prefix = start > 0 ? '…' : '';
+    var suffix = end < text.length ? '…' : '';
+    return prefix + highlightTerms(escHtml(text.slice(start, end)), terms) + suffix;
+  }
+
   // ── Index building ──────────────────────────────────────────────────────────
   var index = null;   // null = not yet built
   var building = null; // Promise while build is in progress
@@ -178,7 +224,7 @@
       results.style.display = 'block';
     }
 
-    function renderResults(items) {
+    function renderResults(items, terms) {
       results.innerHTML = '';
       activeIdx = -1;
       if (!items.length) {
@@ -186,13 +232,17 @@
         results.style.display = 'block';
         return;
       }
+      terms = terms || [];
       items.forEach(function (item) {
         var a = document.createElement('a');
         a.href = item.url;
         a.className = 'search-result-item';
+        var titleHtml = highlightTerms(escHtml(item.title), terms);
+        var snippetHtml = buildSnippet(item.text || '', terms);
         a.innerHTML =
           '<span class="search-result-page">' + escHtml(item.page) + '</span>' +
-          '<span class="search-result-title">' + escHtml(item.title) + '</span>';
+          '<span class="search-result-title">' + titleHtml + '</span>' +
+          (snippetHtml ? '<span class="search-result-snippet">' + snippetHtml + '</span>' : '');
         a.addEventListener('mousedown', function (e) { e.preventDefault(); });
         a.addEventListener('click', function () { hideResults(); input.value = ''; });
         results.appendChild(a);
@@ -202,11 +252,12 @@
 
     function doSearch(q) {
       if (!q.trim()) { hideResults(); return; }
+      var terms = q.toLowerCase().split(/\s+/).filter(Boolean);
       if (index === null) {
         renderLoading();
-        buildIndex().then(function () { renderResults(search(q)); });
+        buildIndex().then(function () { renderResults(search(q), terms); });
       } else {
-        renderResults(search(q));
+        renderResults(search(q), terms);
       }
     }
 
