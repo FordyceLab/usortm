@@ -72,10 +72,32 @@ html, body {
   transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
 }
 
-/* Smooth transitions for all theme-affected elements */
-*, *::before, *::after {
+/* Smooth transitions for theme-affected elements. Scoped to named targets
+   instead of the universal selector to avoid scroll jank on mobile
+   — applying transitions to every element and pseudo-element is a common
+   perf footgun on mid-range phones. */
+body,
+.sidebar,
+.main,
+.content,
+.callout,
+.feature-card,
+.result-card,
+.cost-chart,
+.btn,
+.theme-toggle,
+.theme-svg,
+pre,
+code,
+table,
+th,
+td,
+.hero,
+.footer,
+.sidebar-nav a {
   transition: background-color 0.2s ease-in-out,
               border-color 0.2s ease-in-out,
+              color 0.2s ease-in-out,
               box-shadow 0.2s ease-in-out,
               fill 0.2s ease-in-out,
               stroke 0.2s ease-in-out;
@@ -532,11 +554,14 @@ a:hover {
   margin-top: 0.25rem;
 }
 
-/* Tables — GitHub-style with cell borders and alternating rows */
+/* Tables — GitHub-style with cell borders and alternating rows.
+   `display: block` + `text-align: center` keeps narrow tables centered without
+   breaking horizontal scroll on wide tables (flex + justify-content: center
+   hides left columns behind the initial scroll position on mobile Safari). */
 .table-wrapper {
   overflow-x: auto;
-  display: flex;
-  justify-content: center;
+  display: block;
+  text-align: center;
   margin-top: 1.5rem;
   margin-bottom: 1.5rem;
 }
@@ -578,7 +603,8 @@ a:hover {
 
 table {
   width: auto;
-  flex-shrink: 0;
+  display: inline-block;
+  text-align: left;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.9375rem;
@@ -592,6 +618,11 @@ th, td {
   padding: 0.5rem 0.75rem;
   border-right: 1px solid var(--color-table-border);
   border-bottom: 1px solid var(--color-table-border);
+  /* Don't inherit the content-wide `word-break: break-word` — shattering
+     code identifiers (e.g. `demux` → `dem\nux`) makes CLI tables unreadable
+     on narrow screens. The wrapper's `overflow-x: auto` handles wide tables. */
+  word-break: normal;
+  overflow-wrap: normal;
 }
 
 th:last-child, td:last-child {
@@ -640,7 +671,7 @@ pre {
   line-height: 1.6;
   border: 1px solid var(--color-code-border);
   position: relative;
-  max-width: 88%;
+  max-width: 100%;
 }
 
 /* Add subtle shadow for light mode */
@@ -708,6 +739,16 @@ pre [class*="hljs-"] {
 
 pre:hover .code-copy-btn {
   opacity: 1;
+}
+
+/* Touch devices don't fire :hover — keep the button visible and tap-sized. */
+@media (hover: none) {
+  .code-copy-btn {
+    opacity: 1;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.8125rem;
+    min-height: 36px;
+  }
 }
 
 .code-copy-btn:hover {
@@ -928,12 +969,14 @@ pre:hover .code-copy-btn {
 
 /* Mobile responsive */
 @media (max-width: 900px) {
-  /* Collapsed topbar — only 58px visible */
+  /* Collapsed topbar — header + always-visible search row (≈112px).
+     Burying search behind the hamburger made it unfindable, so we keep
+     the search input on-screen at all times on mobile. */
   .sidebar {
     width: 100%;
     position: fixed;
     height: auto;
-    max-height: 58px;
+    max-height: 112px;
     overflow: hidden;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
@@ -961,6 +1004,14 @@ pre:hover .code-copy-btn {
   /* Nav content — always rendered, clipped by sidebar overflow when collapsed */
   .sidebar-search {
     padding: 0.75rem 1rem 0;
+  }
+
+  /* Search results need to escape the collapsed topbar's overflow: hidden. */
+  .search-results {
+    position: fixed;
+    top: 112px;
+    left: 1rem;
+    right: 1rem;
   }
 
   .sidebar-nav {
@@ -1007,7 +1058,7 @@ pre:hover .code-copy-btn {
     justify-content: center;
     position: absolute;
     top: 11px;
-    right: calc(1rem + 40px + 0.5rem); /* left of .theme-toggle */
+    right: calc(1rem + 40px + 0.75rem); /* left of .theme-toggle, with 12px gap */
     width: 36px;
     height: 36px;
     border: none;
@@ -1029,8 +1080,13 @@ pre:hover .code-copy-btn {
 
   .main {
     margin-left: 0;
-    margin-top: 58px;
+    margin-top: 112px;
     padding: 1.5rem 1rem;
+    /* Flex items default to min-width: auto, which prevents them from
+       shrinking below their intrinsic content width. On mobile that
+       produces ~25px of horizontal overflow — force the item to respect
+       the viewport. */
+    min-width: 0;
   }
 
   .hero {
@@ -1082,7 +1138,26 @@ pre:hover .code-copy-btn {
     padding: 1rem;
     max-width: 100%;
   }
-  
+
+  /* Breathing room inside horizontally-scrolled tables so the first/last
+     column doesn't hug the screen edge. */
+  .table-wrapper {
+    padding-inline: 0.5rem;
+  }
+
+  /* Tighter headings on very narrow phones so they don't crowd the topbar. */
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1.125rem; }
+
+  /* Nudge borderline-small UI text up to the 16px touch floor. */
+  .sidebar-nav a,
+  .callout,
+  .feature-card p,
+  .btn,
+  #site-search-input {
+    font-size: 1rem;
+  }
+
   .btn {
     display: block;
     text-align: center;

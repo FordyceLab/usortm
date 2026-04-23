@@ -436,12 +436,22 @@
       color: var(--color-link);
     }
     
+    /* "What will it cost?" heading — generous vertical rhythm on desktop,
+       tight on mobile so users don't face a wall of whitespace. */
+    .cost-title {
+      text-align: center;
+      margin-top: 6rem;
+    }
+
     @media (max-width: 900px) {
       .cost-section {
         grid-template-columns: 1fr;
       }
       .quick-stats {
         grid-template-columns: 1fr 1fr;
+      }
+      .cost-title {
+        margin-top: 2.5rem;
       }
     }
   </style>
@@ -540,7 +550,7 @@
 
         <!-- Cost Calculator Section -->
         <section>
-          <h2 style="text-align: center; margin-top: 6rem;">What will it cost?</h2>
+          <h2 class="cost-title">What will it cost?</h2>
 
           <p class="input-sentence" style="text-align: center; line-height: 1.4; margin-bottom: 0.25rem;">
             My gene is
