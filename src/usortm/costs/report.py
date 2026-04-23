@@ -226,17 +226,36 @@ def generate_estimate_report(data):
         # ── Table 1: uSort-M Cost Breakdown ──
         y = _section_title(fig, LEFT, y, "uSort-M Cost Breakdown")
 
+        def _per_seq(v):
+            return f"${v / lib_size:,.2f}" if lib_size > 0 else "—"
+
+        usortm_total = data["usortm_total"]
+        two_round_total = data.get("two_round_total")
+        show_two_round = (
+            data.get("resynth") is not None
+            and two_round_total is not None
+            and two_round_total < usortm_total
+        )
+
         cost_data = [
-            ["Synthesis", _fmt_cost(data["synthesis_cost"])],
-            ["Cloning", _fmt_cost(data["cloning_cost"])],
-            ["Sorting", _fmt_cost(data["sorting_cost"])],
-            ["Barcoding + Sequencing", _fmt_cost(data["barcoding_cost"] + data["sequencing_cost"])],
-            ["Hit-picking", _fmt_cost(data["hitpicking_cost"])],
-            ["Total", _fmt_cost(data["usortm_total"])],
+            ["Synthesis", _fmt_cost(data["synthesis_cost"]), _per_seq(data["synthesis_cost"])],
+            ["Cloning", _fmt_cost(data["cloning_cost"]), _per_seq(data["cloning_cost"])],
+            ["Sorting", _fmt_cost(data["sorting_cost"]), _per_seq(data["sorting_cost"])],
+            ["Barcoding", _fmt_cost(data["barcoding_cost"]), _per_seq(data["barcoding_cost"])],
+            ["Sequencing", _fmt_cost(data["sequencing_cost"]), _per_seq(data["sequencing_cost"])],
+            ["Hit-picking", _fmt_cost(data["hitpicking_cost"]), _per_seq(data["hitpicking_cost"])],
         ]
+        if show_two_round:
+            cost_data.append(["Total (single-round)", _fmt_cost(usortm_total), _per_seq(usortm_total)])
+            cost_data.append(["Total (with resynthesis)", _fmt_cost(two_round_total), _per_seq(two_round_total)])
+        else:
+            cost_data.append(["Total", _fmt_cost(usortm_total), _per_seq(usortm_total)])
+
+        best_usortm_total = two_round_total if show_two_round else usortm_total
         t1_h = _table_height(len(cost_data))
-        ax1 = fig.add_axes([LEFT, y - t1_h, 0.40, t1_h])
-        _add_table(ax1, ["Step", "Cost"], cost_data, col_widths=[0.65, 0.35])
+        ax1 = fig.add_axes([LEFT, y - t1_h, 0.52, t1_h])
+        _add_table(ax1, ["Step", "Total", "Per Sequence"], cost_data,
+                   col_widths=[0.50, 0.25, 0.25])
         y -= t1_h + _SEC_GAP
 
         # ── Table 2: Strategy Comparison ──
@@ -297,47 +316,66 @@ def generate_estimate_report(data):
 
             col_labels = ["Step"]
             if compare:
-                col_labels.append("Direct Synthesis")
+                col_labels.extend(["Direct Synthesis", "Per Sequence"])
             if sdm_compare:
-                col_labels.append("SDM")
+                col_labels.extend(["SDM", "Per Sequence"])
 
             rows = []
 
-            def _row(label, trad_val=None, sdm_val=None):
+            def _per_seq(v):
+                return f"${v / lib_size:,.2f}" if isinstance(v, (int, float)) and lib_size > 0 else ""
+
+            def _row(label, trad_val=None, sdm_val=None, trad_num=None, sdm_num=None):
                 r = [label]
                 if compare:
                     r.append(trad_val or "")
+                    r.append(_per_seq(trad_num))
                 if sdm_compare:
                     r.append(sdm_val or "")
+                    r.append(_per_seq(sdm_num))
                 rows.append(r)
 
             _row("Synthesis",
                  _fmt_cost(data.get("trad_synthesis")) if compare else None,
-                 f"{_fmt_cost(data.get('sdm_primers'))} (primers)" if sdm_compare else None)
+                 _fmt_cost(data.get("sdm_primers")) if sdm_compare else None,
+                 trad_num=data.get("trad_synthesis") if compare else None,
+                 sdm_num=data.get("sdm_primers") if sdm_compare else None)
+            sdm_cloning_combined = (
+                (data.get("sdm_kit") or 0)
+                + (data.get("sdm_transformation") or 0)
+                + (data.get("sdm_consumables") or 0)
+            ) if sdm_compare else None
             _row("Cloning",
                  _fmt_cost(data.get("trad_cloning")) if compare else None,
-                 f"{_fmt_cost(data.get('sdm_kit'))} (Q5 SDM{' + HiFi' if data.get('sdm_include_hifi') else ''})" if sdm_compare else None)
-            if sdm_compare:
-                _row("Transformation",
-                     "N/A" if compare else None,
-                     _fmt_cost(data.get("sdm_transformation")))
-                _row("Consumables",
-                     "N/A" if compare else None,
-                     _fmt_cost(data.get("sdm_consumables")))
+                 _fmt_cost(sdm_cloning_combined) if sdm_compare else None,
+                 trad_num=data.get("trad_cloning") if compare else None,
+                 sdm_num=sdm_cloning_combined if sdm_compare else None)
+            _row("Barcoding",
+                 _fmt_cost(data.get("trad_barcoding")) if compare else None,
+                 _fmt_cost(data.get("sdm_barcoding")) if sdm_compare else None,
+                 trad_num=data.get("trad_barcoding") if compare else None,
+                 sdm_num=data.get("sdm_barcoding") if sdm_compare else None)
             _row("Sequencing",
                  _fmt_cost(data.get("trad_sequencing")) if compare else None,
-                 _fmt_cost(data.get("sdm_sequencing")) if sdm_compare else None)
+                 _fmt_cost(data.get("sdm_sequencing")) if sdm_compare else None,
+                 trad_num=data.get("trad_sequencing") if compare else None,
+                 sdm_num=data.get("sdm_sequencing") if sdm_compare else None)
             _row("Total",
                  _fmt_cost(data.get("trad_total")) if compare else None,
-                 _fmt_cost(data.get("sdm_total")) if sdm_compare else None)
+                 _fmt_cost(data.get("sdm_total")) if sdm_compare else None,
+                 trad_num=data.get("trad_total") if compare else None,
+                 sdm_num=data.get("sdm_total") if sdm_compare else None)
 
-            savings_row = ["vs uSort-M"]
+            vs_label = "vs uSort-M"
+            if best_usortm_total < usortm_total:
+                vs_label = "vs uSort-M (with resynthesis)"
+            savings_row = [vs_label]
             if compare:
-                fold = data["trad_total"] / data["usortm_total"]
-                savings_row.append(f"{fold:.1f}× savings")
+                fold = data["trad_total"] / best_usortm_total
+                savings_row.extend([f"{fold:.1f}× savings", ""])
             if sdm_compare:
-                fold = data["sdm_total"] / data["usortm_total"]
-                savings_row.append(f"{fold:.1f}× savings")
+                fold = data["sdm_total"] / best_usortm_total
+                savings_row.extend([f"{fold:.1f}× savings", ""])
             rows.append(savings_row)
 
             n_cols = len(col_labels)
