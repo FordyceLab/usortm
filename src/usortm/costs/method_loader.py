@@ -171,7 +171,11 @@ def find_methods(seq_length, library_size=None, method_type=None, methods_dir=No
             continue
         if not (method.seq_length_min <= seq_length <= method.seq_length_max):
             continue
-        if library_size is not None and method.library_size_min is not None:
+        if (
+            library_size is not None
+            and method.library_size_min is not None
+            and method.library_size_max is not None
+        ):
             if not (method.library_size_min <= library_size <= method.library_size_max):
                 continue
         results.append(method)

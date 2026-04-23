@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import shlex
 import time
 import tempfile
 from datetime import datetime
@@ -371,6 +372,7 @@ class RemoteDemux:
         wget_block = ""
         if fastq_url:
             canonical = f"{inputs_dir}/reads.fastq"
+            quoted_url = shlex.quote(fastq_url)
             wget_block = f"""
 # Download and normalise FASTQ (skipped if already present)
 FASTQ_PATH="{canonical}"
@@ -378,8 +380,8 @@ if [ -f "{canonical}.gz" ]; then
     FASTQ_PATH="{canonical}.gz"
 elif [ ! -f "{canonical}" ]; then
     TMP="{inputs_dir}/download.tmp"
-    echo "Downloading FASTQ from: {fastq_url}" | tee -a "$JOB_DIR/usortm.log"
-    wget -q -L -O "$TMP" "{fastq_url}"
+    echo "Downloading FASTQ from: {quoted_url}" | tee -a "$JOB_DIR/usortm.log"
+    wget -q -L -O "$TMP" {quoted_url}
     echo "Download complete: $(date)" | tee -a "$JOB_DIR/usortm.log"
 
     # Detect format by magic bytes

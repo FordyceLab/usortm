@@ -45,42 +45,48 @@ def _prompt_synthesis_cost(seq_length, library_size, methods_dir=None):
     # Find compatible methods
     compatible = find_methods(seq_length, library_size=library_size, methods_dir=methods_dir)
 
+    pooled = [m for m in compatible if m.type == "pooled"] if compatible else []
+
+    # Build entries first so we can align the detail column across all rows.
+    entries = []
+    if pooled:
+        entries.append(("section", "POOLED SYNTHESIS"))
+        for m in pooled:
+            detail = f"{m.seq_length_min}–{m.seq_length_max} bp"
+            if m.skew_q90_q10:
+                detail += f", skew {m.skew_q90_q10:.1f}×"
+            entries.append(("choice", m.name, detail, m))
+
+    entries.append(("section", "TILED ASSEMBLY"))
+    entries.append((
+        "choice",
+        "Tiled assembly",
+        f"{TILED_ASSEMBLY_INSERT_LENGTH} bp inserts, assembled into WT gene",
+        "tiled",
+    ))
+
+    entries.append(("section", "OTHER"))
+    entries.append((
+        "choice",
+        "Skip",
+        "specify cost manually with --actual-synthesis",
+        None,
+    ))
+
+    name_w = max(len(e[1]) for e in entries if e[0] == "choice")
+
     choices = []
-
-    # Tiled assembly option (always available for long sequences)
-    choices.append(questionary.Separator(" ── Tiled Assembly ── "))
-    choices.append(questionary.Choice(
-        title=f"Tiled assembly — synthesize {TILED_ASSEMBLY_INSERT_LENGTH} bp inserts, assemble into WT gene",
-        value="tiled",
-    ))
-
-    # Compatible pooled/arrayed methods from TOML definitions
-    if compatible:
-        pooled = [m for m in compatible if m.type == "pooled"]
-        arrayed = [m for m in compatible if m.type == "arrayed"]
-
-        if pooled:
-            choices.append(questionary.Separator(" ── Pooled Synthesis ── "))
-            for m in pooled:
-                skew_label = f"skew {m.skew_q90_q10:.1f}×" if m.skew_q90_q10 else ""
-                choices.append(questionary.Choice(
-                    title=f"{m.name}  [{m.seq_length_min}–{m.seq_length_max} bp, {skew_label}]",
-                    value=m,
-                ))
-
-        if arrayed:
-            choices.append(questionary.Separator(" ── Arrayed Synthesis (per-variant) ── "))
-            for m in arrayed:
-                choices.append(questionary.Choice(
-                    title=f"{m.name}  [{m.seq_length_min}–{m.seq_length_max} bp]",
-                    value=m,
-                ))
-
-    choices.append(questionary.Separator(""))
-    choices.append(questionary.Choice(
-        title="Skip — use --actual-synthesis to specify cost manually",
-        value=None,
-    ))
+    for i, e in enumerate(entries):
+        if e[0] == "section":
+            if i > 0:
+                choices.append(questionary.Separator(" "))
+            choices.append(questionary.Separator(f"  {e[1]}"))
+        else:
+            _, name, detail, value = e
+            choices.append(questionary.Choice(
+                title=f"{name.ljust(name_w)}  │  {detail}",
+                value=value,
+            ))
 
     try:
         answer = questionary.select(
@@ -302,7 +308,7 @@ def estimate(
 
     # Calculate uSort-M costs
     total_wells = int(library_size * fold_sampling)
-    n_plates = max(1, total_wells // 384)
+    n_plates = max(1, (total_wells + 383) // 384)
 
     synthesis_cost = actual_synthesis if actual_synthesis is not None else cf.usortm_synthesis_cost(library_size, seq_length, methods_dir=methods_dir)
     synthesis_method_name = None
@@ -345,8 +351,9 @@ def estimate(
         trad_cloning = cf.parsed_genefragments_assembly_cost(
             library_size, assembly_method='hifi'
         )
+        trad_barcoding = cf.parsed_genefragments_barcoding_cost(library_size)
         trad_sequencing = cf.parsed_genefragments_sequencing_cost(seq_length, library_size)
-        trad_total = trad_synthesis + trad_cloning + trad_sequencing
+        trad_total = trad_synthesis + trad_cloning + trad_barcoding + trad_sequencing
 
     # Calculate SDM costs for comparison
     if sdm_compare:
@@ -354,8 +361,12 @@ def estimate(
         sdm_kit = cf.sdm_kit_cost(library_size, include_hifi=sdm_include_hifi)
         sdm_transformation = cf.sdm_transformation_cost(library_size)
         sdm_consumables = cf.sdm_consumables_cost(library_size)
+        sdm_barcoding = cf.parsed_genefragments_barcoding_cost(library_size)
         sdm_sequencing = cf.parsed_genefragments_sequencing_cost(seq_length, library_size)
-        sdm_total = sdm_primers + sdm_kit + sdm_transformation + sdm_consumables + sdm_sequencing
+        sdm_total = (
+            sdm_primers + sdm_kit + sdm_transformation + sdm_consumables
+            + sdm_barcoding + sdm_sequencing
+        )
     
     # Resynthesis strategy simulation
     resynth = None
@@ -458,6 +469,7 @@ def estimate(
             result["traditional"] = {
                 "synthesis": round(trad_synthesis, 2),
                 "cloning": round(trad_cloning, 2),
+                "barcoding": round(trad_barcoding, 2),
                 "sequencing": round(trad_sequencing, 2),
                 "total": round(trad_total, 2),
             }
@@ -468,6 +480,7 @@ def estimate(
                 "q5_sdm_kit": round(sdm_kit, 2),
                 "transformation": round(sdm_transformation, 2),
                 "consumables": round(sdm_consumables, 2),
+                "barcoding": round(sdm_barcoding, 2),
                 "sequencing": round(sdm_sequencing, 2),
                 "total": round(sdm_total, 2),
             }
@@ -500,9 +513,6 @@ def estimate(
         border_style=BORDER_STYLE,
     ))
 
-    # Show pricing dates from loaded methods
-    _dates = sorted(set(m.date_collected for m in _loaded_methods.values()))
-    console.print(f"  [dim]Pricing date: {', '.join(_dates)}[/dim]")
     console.print()
 
     # Parameters summary
@@ -552,21 +562,58 @@ def estimate(
             return f"{days:.1f} days ({hours:.0f} hrs)"
 
     # ── Section 1: uSort-M Cost Breakdown ──
+    _breakdown_show_two_round = (
+        resynth is not None
+        and two_round_total is not None
+        and two_round_total < usortm_total
+    )
+    _breakdown_title = "uSort-M Cost Breakdown"
+    if _breakdown_show_two_round:
+        _breakdown_title += " (with resynthesis)"
     cost_table = Table(
-        title="uSort-M Cost Breakdown",
+        title=_breakdown_title,
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
     )
     cost_table.add_column("Step", style="muted")
-    cost_table.add_column("Cost", justify="right", style="green")
+    cost_table.add_column("Total", justify="right", style="green")
+    cost_table.add_column("Per Sequence", justify="right", style="green")
 
-    cost_table.add_row(_step_label("Synthesis", "synthesis"), f"${synthesis_cost:,.0f}")
-    cost_table.add_row(_step_label("Cloning", "cloning"), f"${cloning_cost:,.0f}")
-    cost_table.add_row(_step_label("Sorting", "sorting"), f"${sorting_cost:,.0f}")
-    cost_table.add_row(_step_label("Barcoding + Sequencing", "barcoding", "sequencing"), f"${barcoding_cost + sequencing_cost:,.0f}")
-    cost_table.add_row(_step_label("Hit-picking", "hitpicking"), f"${hitpicking_cost:,.0f}")
-    cost_table.add_row("[bold]Total[/bold]", f"[bold green]${usortm_total:,.0f}[/bold green]")
+    def _per_seq(v):
+        return f"${v / library_size:,.2f}"
+
+    cost_table.add_row(_step_label("Synthesis", "synthesis"), f"${synthesis_cost:,.0f}", _per_seq(synthesis_cost))
+    cost_table.add_row(_step_label("Cloning", "cloning"), f"${cloning_cost:,.0f}", _per_seq(cloning_cost))
+    cost_table.add_row(_step_label("Sorting", "sorting"), f"${sorting_cost:,.0f}", _per_seq(sorting_cost))
+    cost_table.add_row(_step_label("Barcoding", "barcoding"), f"${barcoding_cost:,.0f}", _per_seq(barcoding_cost))
+    cost_table.add_row(_step_label("Sequencing", "sequencing"), f"${sequencing_cost:,.0f}", _per_seq(sequencing_cost))
+    cost_table.add_row(_step_label("Hit-picking", "hitpicking"), f"${hitpicking_cost:,.0f}", _per_seq(hitpicking_cost))
+
+    # When resynthesis is simulated and cheaper, show both single-round and
+    # 2-round totals so downstream comparisons (alt methods) can reference
+    # whichever strategy the user would actually run.
+    show_two_round = _breakdown_show_two_round
+    if show_two_round:
+        cost_table.add_row(
+            "Total (single-round)",
+            f"${usortm_total:,.0f}",
+            _per_seq(usortm_total),
+        )
+        cost_table.add_row(
+            "[bold]Total (with resynthesis)[/bold]",
+            f"[bold green]${two_round_total:,.0f}[/bold green]",
+            f"[bold green]{_per_seq(two_round_total)}[/bold green]",
+        )
+    else:
+        cost_table.add_row(
+            "[bold]Total[/bold]",
+            f"[bold green]${usortm_total:,.0f}[/bold green]",
+            f"[bold green]{_per_seq(usortm_total)}[/bold green]",
+        )
+
+    # Best uSort-M total — used by the Alt Methods comparison row below.
+    best_usortm_total = two_round_total if show_two_round else usortm_total
 
     console.print(cost_table)
     console.print()
@@ -675,32 +722,23 @@ def estimate(
             combined_wells = r1_wells_list + [r1_max + w for w in r2_wells_list[1:]]
             combined_cov = r1_cov_list + r2_cov_list[1:]
 
-            # Find where each curve crosses target coverage
-            sr_cross = None
-            for i in range(1, len(sr_wells)):
-                if sr_cov[i] >= target_coverage and sr_cov[i-1] < target_coverage:
-                    # Linear interpolation
-                    frac = (target_coverage - sr_cov[i-1]) / (sr_cov[i] - sr_cov[i-1])
-                    sr_cross = sr_wells[i-1] + frac * (sr_wells[i] - sr_wells[i-1])
-                    break
-
-            resynth_cross = None
-            for i in range(1, len(combined_wells)):
-                if combined_cov[i] >= target_coverage and combined_cov[i-1] < target_coverage:
-                    frac = (target_coverage - combined_cov[i-1]) / (combined_cov[i] - combined_cov[i-1])
-                    resynth_cross = combined_wells[i-1] + frac * (combined_wells[i] - combined_wells[i-1])
-                    break
+            # Mark the actual well counts each strategy uses (matches the
+            # "Wells" row in Strategy Comparison and the savings footnote).
+            sr_cross = total_wells
+            resynth_cross = resynth["total_wells"]
 
             plt.clear_figure()
             plt.plot(sr_wells, sr_cov, color="blue")
             plt.plot(combined_wells, combined_cov, color="green")
             plt.hline(target_coverage, color="red")
 
-            # Top ticks showing where each curve hits target
+            # Top ticks showing where each curve hits target.
+            # Use left alignment so the ▼ glyph itself sits at the x-intercept,
+            # with the well-count label trailing to the right.
             if resynth_cross is not None:
-                plt.text(f"▼{int(resynth_cross):,}", resynth_cross, 0.99, color="green", background="default", alignment="center")
+                plt.text(f"▼{int(resynth_cross):,}", resynth_cross, 0.99, color="green", background="default", alignment="left")
             if sr_cross is not None:
-                plt.text(f"▼{int(sr_cross):,}", sr_cross, 0.99, color="blue", background="default", alignment="center")
+                plt.text(f"▼{int(sr_cross):,}", sr_cross, 0.99, color="blue", background="default", alignment="left")
 
             legend_x = max_wells * 0.95
             plt.text("── Single-round", legend_x, 0.12, color="blue", background="default", alignment="right")
@@ -765,40 +803,63 @@ def estimate(
         alt_table.add_column("Step", style="muted")
         if compare:
             alt_table.add_column("Direct Synthesis", justify="right", style="yellow")
+            alt_table.add_column("Per Sequence", justify="right", style="yellow")
         if sdm_compare:
             alt_table.add_column("SDM", justify="right", style="magenta")
+            alt_table.add_column("Per Sequence", justify="right", style="magenta")
 
-        def _alt_row(label, trad_val=None, sdm_val=None):
-            """Add a row with only the columns that exist."""
+        def _fmt_per_seq(v):
+            return f"${v / library_size:,.2f}" if isinstance(v, (int, float)) else ""
+
+        def _alt_row(label, trad_val=None, sdm_val=None, trad_num=None, sdm_num=None):
+            """Add a row with only the columns that exist.
+
+            *_val is the display string; *_num is the raw numeric cost used
+            for the per-sequence column (None for N/A / meta rows).
+            """
             cols = [label]
             if compare:
                 cols.append(trad_val or "")
+                cols.append(_fmt_per_seq(trad_num))
             if sdm_compare:
                 cols.append(sdm_val or "")
+                cols.append(_fmt_per_seq(sdm_num))
             alt_table.add_row(*cols)
 
         _alt_row("Synthesis",
                  f"${trad_synthesis:,.0f}" if compare else None,
-                 f"${sdm_primers:,.0f} [dim](primers)[/dim]" if sdm_compare else None)
+                 f"${sdm_primers:,.0f}" if sdm_compare else None,
+                 trad_num=trad_synthesis if compare else None,
+                 sdm_num=sdm_primers if sdm_compare else None)
+        # SDM cloning = Q5 SDM kit + transformation + consumables, shown as
+        # one row so the breakdown mirrors the uSort-M / Direct Synthesis layout.
+        sdm_cloning_combined = (sdm_kit + sdm_transformation + sdm_consumables) if sdm_compare else None
         _alt_row("Cloning",
                  f"${trad_cloning:,.0f}" if compare else None,
-                 f"${sdm_kit:,.0f} [dim](Q5 SDM{' + HiFi' if sdm_include_hifi else ''})[/dim]" if sdm_compare else None)
-        if sdm_compare:
-            _alt_row("Transformation",
-                     "N/A" if compare else None,
-                     f"${sdm_transformation:,.0f}")
-            _alt_row("Consumables",
-                     "N/A" if compare else None,
-                     f"${sdm_consumables:,.0f}")
+                 f"${sdm_cloning_combined:,.0f}" if sdm_compare else None,
+                 trad_num=trad_cloning if compare else None,
+                 sdm_num=sdm_cloning_combined if sdm_compare else None)
+        _alt_row("Barcoding",
+                 f"${trad_barcoding:,.0f}" if compare else None,
+                 f"${sdm_barcoding:,.0f}" if sdm_compare else None,
+                 trad_num=trad_barcoding if compare else None,
+                 sdm_num=sdm_barcoding if sdm_compare else None)
         _alt_row("Sequencing",
                  f"${trad_sequencing:,.0f}" if compare else None,
-                 f"${sdm_sequencing:,.0f}" if sdm_compare else None)
+                 f"${sdm_sequencing:,.0f}" if sdm_compare else None,
+                 trad_num=trad_sequencing if compare else None,
+                 sdm_num=sdm_sequencing if sdm_compare else None)
         _alt_row("[bold]Total[/bold]",
                  f"[bold yellow]${trad_total:,.0f}[/bold yellow]" if compare else None,
-                 f"[bold magenta]${sdm_total:,.0f}[/bold magenta]" if sdm_compare else None)
-        _alt_row("[bold]vs uSort-M[/bold]",
-                 f"[bold green]{trad_total / usortm_total:.1f}× savings[/bold green]" if compare else None,
-                 f"[bold green]{sdm_total / usortm_total:.1f}× savings[/bold green]" if sdm_compare else None)
+                 f"[bold magenta]${sdm_total:,.0f}[/bold magenta]" if sdm_compare else None,
+                 trad_num=trad_total if compare else None,
+                 sdm_num=sdm_total if sdm_compare else None)
+        _vs_label = "[bold]vs uSort-M[/bold]"
+        if best_usortm_total < usortm_total:
+            _vs_label = "[bold]vs uSort-M[/bold] [dim](with resynthesis)[/dim]"
+        _alt_row(_vs_label,
+                 f"[bold green]{trad_total / best_usortm_total:.1f}× savings[/bold green]" if compare else None,
+                 f"[bold green]{sdm_total / best_usortm_total:.1f}× savings[/bold green]" if sdm_compare else None)
 
         if sdm_compare:
             n_failures = _math.ceil(library_size * cf.SDM_FAILURE_RATE)
@@ -845,6 +906,7 @@ def estimate(
             "trad_total": trad_total if compare else None,
             "trad_synthesis": trad_synthesis if compare else None,
             "trad_cloning": trad_cloning if compare else None,
+            "trad_barcoding": trad_barcoding if compare else None,
             "trad_sequencing": trad_sequencing if compare else None,
             "sdm_compare": sdm_compare,
             "sdm_total": sdm_total if sdm_compare else None,
@@ -852,6 +914,7 @@ def estimate(
             "sdm_kit": sdm_kit if sdm_compare else None,
             "sdm_transformation": sdm_transformation if sdm_compare else None,
             "sdm_consumables": sdm_consumables if sdm_compare else None,
+            "sdm_barcoding": sdm_barcoding if sdm_compare else None,
             "sdm_sequencing": sdm_sequencing if sdm_compare else None,
             "sdm_include_hifi": sdm_include_hifi,
             "pricing_dates": ", ".join(sorted(set(

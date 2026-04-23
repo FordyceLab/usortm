@@ -465,7 +465,7 @@ def usortm_cloning_cost(library_size):
     if library_size > 1000:
         cost += 50
 
-    return per_rxn*5
+    return cost
 
 def usortm_sorting_cost(library_size, fold_sampling=8, machine_rate=70, operator_rate=65):
     '''Calculate the sorting cost for a given library size.
