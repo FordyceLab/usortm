@@ -28,17 +28,55 @@ from usortm.costs.cost_functions import (
     sdm_transformation_cost,
     sdm_consumables_cost,
 )
+from usortm.costs.method_loader import load_all_methods, compute_cost
+from usortm.simulate.sortm import find_fold_sampling
 from usortm.costs.time_functions import calculate_total_timeline
 
+_methods_cache = None
 
-def calculate_usortm_cost(lib_size, seq_length):
-    """Calculate total uSort-M cost with 4x fold sampling."""
-    foldSampling = 4
-    wells = lib_size * foldSampling
+def _get_methods():
+    global _methods_cache
+    if _methods_cache is None:
+        _methods_cache = load_all_methods()
+    return _methods_cache
 
-    cost = usortm_synthesis_cost(lib_size, seq_length)
+
+def _gene_pools_synthesis_cost(lib_size, seq_length):
+    """Twist Gene Pools synthesis cost for sequences > 350 bp."""
+    m = _get_methods().get("twist_gene_pools")
+    if m is None:
+        return 0
+    cost = compute_cost(m, lib_size, seq_length)
+    return cost if cost is not None else 0
+
+
+def _compute_fold_sampling(skew, ref_lib_size=500):
+    """Simulate fold-sampling required for 90% coverage at a given skew."""
+    fold, _ = find_fold_sampling(
+        target_coverage=0.90,
+        lib_size=ref_lib_size,
+        skew=skew,
+        n_sims=100,
+        seed=42,
+    )
+    return fold
+
+
+def calculate_usortm_cost(lib_size, seq_length, fold_sampling):
+    """Calculate total uSort-M cost using the given fold-sampling.
+
+    Uses Twist Oligo Pools synthesis for <=350 bp and Twist Gene Pools for longer sequences.
+    """
+    wells = lib_size * fold_sampling
+
+    if seq_length <= 350:
+        synthesis = usortm_synthesis_cost(lib_size, seq_length)
+    else:
+        synthesis = _gene_pools_synthesis_cost(lib_size, seq_length)
+
+    cost = synthesis
     cost += usortm_cloning_cost(lib_size)
-    cost += usortm_sorting_cost(lib_size, fold_sampling=foldSampling)
+    cost += usortm_sorting_cost(lib_size, fold_sampling=fold_sampling)
     cost += usortm_barcoding_cost(n_wells=wells)
     cost += usortm_sequencing_cost(n_wells=wells, seq_length=seq_length)
     cost += usortm_hitpicking_cost(lib_size, seq_length)
@@ -71,12 +109,12 @@ def calculate_traditional_range(lib_size, seq_length):
     return min_cost + common, max_cost + common
 
 
-def generate_cost_curves(seq_length, max_lib_size=5000, step=25):
+def generate_cost_curves(seq_length, fold_sampling, skew, max_lib_size=5000, step=25):
     """Generate cost curves for plotting."""
     data = []
 
     for lib_size in range(50, max_lib_size + 1, step):
-        usortm_cost = calculate_usortm_cost(lib_size, seq_length)
+        usortm_cost = calculate_usortm_cost(lib_size, seq_length, fold_sampling)
         trad_cost = calculate_traditional_cost(lib_size, seq_length)
         trad_min, trad_max = calculate_traditional_range(lib_size, seq_length)
 
@@ -91,23 +129,28 @@ def generate_cost_curves(seq_length, max_lib_size=5000, step=25):
             'traditional_max': round(trad_max, 2),
             'sdm_cost': round(sdm_cost, 2),
             'sdm_cost_max': round(sdm_cost_max, 2),
+            'fold_sampling': round(fold_sampling, 1),
+            'skew': skew,
         })
 
     return data
 
 
-def generate_detailed_costs(lib_size, seq_length):
+def generate_detailed_costs(lib_size, seq_length, fold_sampling):
     """Generate detailed breakdown of costs for a specific configuration."""
-    # Calculate derived values first (needed for cost functions)
-    foldSampling = 4
-    wells = lib_size * foldSampling
+    wells = lib_size * fold_sampling
     plates = max(1, -(-wells // 384))  # Ceiling division
 
     # uSort-M breakdown
+    if seq_length <= 350:
+        synthesis_cost = usortm_synthesis_cost(lib_size, seq_length)
+    else:
+        synthesis_cost = _gene_pools_synthesis_cost(lib_size, seq_length)
+
     usortm_breakdown = {
-        'synthesis': usortm_synthesis_cost(lib_size, seq_length),
+        'synthesis': synthesis_cost,
         'cloning': usortm_cloning_cost(lib_size),
-        'sorting': usortm_sorting_cost(lib_size, fold_sampling=foldSampling),
+        'sorting': usortm_sorting_cost(lib_size, fold_sampling=fold_sampling),
         'barcoding': usortm_barcoding_cost(n_wells=wells),
         'sequencing': usortm_sequencing_cost(n_wells=wells, seq_length=seq_length),
         'hitpicking': usortm_hitpicking_cost(lib_size, seq_length),
@@ -124,7 +167,7 @@ def generate_detailed_costs(lib_size, seq_length):
     trad_breakdown['total'] = sum(trad_breakdown.values())
 
     # Calculate timeline
-    timeline = calculate_total_timeline(lib_size, seq_length, fold_sampling=foldSampling)
+    timeline = calculate_total_timeline(lib_size, seq_length, fold_sampling=fold_sampling)
 
     # SDM breakdown
     sdm_breakdown = {
@@ -146,6 +189,7 @@ def generate_detailed_costs(lib_size, seq_length):
         'per_variant_sdm': round(sdm_breakdown['total'] / lib_size, 2),
         'wells': wells,
         'plates': plates,
+        'fold_sampling': round(fold_sampling, 1),
         'timeline': timeline,
     }
 
@@ -155,11 +199,30 @@ def main():
     output_dir = os.path.join(os.path.dirname(__file__), 'cost_data')
     os.makedirs(output_dir, exist_ok=True)
 
+    methods = _get_methods()
+
+    # Simulate fold-sampling required for 90% coverage for each synthesis method.
+    # Twist Oligo Pools (<=350 bp) and Twist Gene Pools (>350 bp) have different skews.
+    m_short = methods.get("twist_oligo_pools")
+    m_long = methods.get("twist_gene_pools")
+    skew_short = m_short.skew_q90_q10 if m_short else 4.0
+    skew_long = m_long.skew_q90_q10 if m_long else 1.5
+
+    print(f"Simulating fold-sampling for short libraries (skew={skew_short:.1f}×, Twist Oligo Pools)...")
+    fold_short = _compute_fold_sampling(skew_short)
+    print(f"  → {fold_short:.1f}× fold-sampling for 90% coverage")
+
+    print(f"Simulating fold-sampling for long libraries (skew={skew_long:.1f}×, Twist Gene Pools)...")
+    fold_long = _compute_fold_sampling(skew_long)
+    print(f"  → {fold_long:.1f}× fold-sampling for 90% coverage")
+
     # Generate curves for all sequence lengths from 100-1500 bp in 50 bp steps
     seq_lengths = list(range(100, 1501, 50))
 
     for seq_len in seq_lengths:
-        curve_data = generate_cost_curves(seq_len)
+        fold = fold_short if seq_len <= 350 else fold_long
+        skew = skew_short if seq_len <= 350 else skew_long
+        curve_data = generate_cost_curves(seq_len, fold, skew)
         filename = f'cost_curve_{seq_len}bp.json'
 
         with open(os.path.join(output_dir, filename), 'w') as f:
@@ -167,8 +230,8 @@ def main():
 
         print(f"✓ Generated {filename}")
 
-    # Generate detailed costs for default configuration
-    default_config = generate_detailed_costs(500, 300)
+    # Generate detailed costs for default configuration (300 bp, short library)
+    default_config = generate_detailed_costs(500, 300, fold_short)
 
     with open(os.path.join(output_dir, 'default_costs.json'), 'w') as f:
         json.dump(default_config, f, indent=2)

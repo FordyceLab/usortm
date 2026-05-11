@@ -13,7 +13,7 @@ library_size_max = 12000
 
 [simulation]
 error_rate = [5e-5, 2e-4]
-skew_q90_q10 = 3.0  # working estimate; measured range is 1.5–5.0
+skew_q90_q10 = 2.0  # working estimate; measured range is 1.5–5.0
 
 [pricing]
 model = "lookup"

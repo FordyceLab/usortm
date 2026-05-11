@@ -183,6 +183,7 @@
       font-size: 2.5rem;
       font-weight: 800;
       line-height: 1;
+      white-space: nowrap;
     }
 
     .cost-value-large.usortm {
@@ -607,6 +608,13 @@
                     </div>
                   </label>
                   <label class="context-option">
+                    <input type="radio" name="library-type" value="mutagenesis">
+                    <div class="option-content">
+                      <div class="option-title">Mutagenesis Library</div>
+                      <div class="option-description">Short tiles cloned into full-length ORF</div>
+                    </div>
+                  </label>
+                  <label class="context-option">
                     <input type="radio" name="library-type" value="sdm">
                     <div class="option-content">
                       <div class="option-title">Site-Directed Mutagenesis</div>
@@ -757,7 +765,7 @@ async function updatePlot(seqLen, currentLib) {
   const costData = await loadCostData(seqLen);
   const currentCosts = interpolateCost(costData, currentLib);
   const libraryType = document.querySelector('input[name="library-type"]:checked').value;
-  const isSDM = libraryType === 'sdm';
+  const isSDM = libraryType === 'sdm' || libraryType === 'mutagenesis';
 
   // Extend data range if needed
   const maxLib = Math.max(Math.max(...costData.map(d => d.library_size)), currentLib * 1.2);
@@ -868,7 +876,11 @@ async function updatePlot(seqLen, currentLib) {
   container.innerHTML = "";
   container.appendChild(plot);
 
-  return currentCosts;
+  // Read simulation parameters from the first data point (constant per seq_length)
+  const foldSampling = costData[0]?.fold_sampling ?? 4;
+  const skew = costData[0]?.skew ?? 4;
+
+  return { ...currentCosts, fold_sampling: foldSampling, skew };
 }
 
 async function updateUI() {
@@ -878,7 +890,7 @@ async function updateUI() {
   const costs = await updatePlot(seqLen, libSize);
 
   const libraryType = document.querySelector('input[name="library-type"]:checked').value;
-  const isSDM = libraryType === 'sdm';
+  const isSDM = libraryType === 'sdm' || libraryType === 'mutagenesis';
 
   // Pick comparison cost based on mode
   const compCost = isSDM ? costs.sdm_cost : costs.traditional_cost;
@@ -905,13 +917,17 @@ async function updateUI() {
   document.getElementById("cost-per-variant-usortm").textContent = `$${cpvUsortm.toFixed(2)}`;
   document.getElementById("cost-per-variant-comparison").textContent = `vs $${cpvComp.toFixed(2)} ${isSDM ? 'SDM' : 'direct'}`;
 
-  // Calculate plates for timeline
-  const foldSampling = 4;
+  // Update simulation parameter display
+  document.getElementById("param-fold-sampling").textContent = `${costs.fold_sampling}×`;
+  document.getElementById("param-skew").textContent = `${costs.skew}× (Q90/Q10)`;
+
+  // Calculate plates for timeline using the simulated fold-sampling
+  const foldSampling = costs.fold_sampling ?? 4;
   const wells = libSize * foldSampling;
   const plates = Math.max(1, Math.ceil(wells / 384));
 
   // Calculate and update total days from timeline
-  const totalDays = updateTimeline(plates, libSize, seqLen);
+  const totalDays = updateTimeline(plates, libSize, seqLen, foldSampling);
   document.getElementById("total-days").textContent = totalDays;
 
   // Update synthesis method recommendation
@@ -937,6 +953,8 @@ function updateSynthesisMethod(seqLen) {
     method = "Q5 Site-Directed Mutagenesis Kit (NEB E0554S)";
   } else if (libraryType === "substitution") {
     method = "Twist Oligo Pools or IDT oPool (30 bp inserts)";
+  } else if (libraryType === "mutagenesis") {
+    method = "Twist Oligo Pools or IDT oPool (30 bp tiles, assembled into ORF)";
   } else {
     // Full gene synthesis
     if (seqLen <= 300) {
@@ -944,7 +962,7 @@ function updateSynthesisMethod(seqLen) {
     } else if (seqLen <= 500) {
       method = "Twist Multiplex Gene Fragments (300-500 bp, $35/fragment)";
     } else {
-      method = "Instance Bio or custom synthesis (>500 bp, note: may have high skew)";
+      method = "Twist Gene Pools (300–1800 bp)";
     }
   }
 
@@ -959,27 +977,35 @@ function updateFootnoteAssumptions(seqLen) {
   const traditionalAssumption = document.getElementById("traditional-assumption");
   const libraryType = document.querySelector('input[name="library-type"]:checked').value;
 
-  // Update uSort-M assumption based on length
-  if (seqLen <= 300) {
-    usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
-  } else {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts from <a href="library-design.html#library-size-skew">commercial vendor</a> assembled into ${seqLen} bp gene to generate substitution library`;
-  }
-
-  // Update comparison assumption based on mode
+  // Update uSort-M assumption based on library type and length
   const compLabel = document.getElementById("comparison-method-label");
-  if (libraryType === 'sdm') {
+
+  if (libraryType === 'mutagenesis') {
+    usortmAssumption.innerHTML = `pool of 30 bp tiles from <a href="library-design.html#library-size-skew">commercial vendor</a>, each containing one or more mutations, cloned into the full-length ${seqLen} bp ORF`;
+    compLabel.textContent = "SDM";
+    traditionalAssumption.innerHTML = `Site-directed mutagenesis per construct (Q5 SDM kit, IDT primers, NEB competent cells)`;
+  } else if (libraryType === 'sdm') {
+    if (seqLen <= 350) {
+      usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
+    } else {
+      usortmAssumption.innerHTML = `pooled ${seqLen} bp gene synthesis via <a href="library-design.html#library-size-skew">Twist Gene Pools</a>`;
+    }
     compLabel.textContent = "SDM";
     traditionalAssumption.innerHTML = `Site-directed mutagenesis per construct (Q5 SDM kit, IDT primers, NEB competent cells)`;
   } else {
+    if (seqLen <= 350) {
+      usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
+    } else {
+      usortmAssumption.innerHTML = `pooled ${seqLen} bp gene synthesis via <a href="library-design.html#library-size-skew">Twist Gene Pools</a>`;
+    }
     compLabel.textContent = "Direct Synthesis";
     traditionalAssumption.innerHTML = `Direct gene fragment synthesis from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
   }
 }
 
-function updateTimeline(plates, libSize, seqLen) {
+function updateTimeline(plates, libSize, seqLen, foldSampling) {
   // Calculate timing
-  const foldSampling = 4;
+  foldSampling = foldSampling ?? 4;
   const wells = libSize * foldSampling;
   const sortMins = plates * 8 + 30;  // 8 min/plate + 30 min setup (per protocol)
   const sortHours = sortMins / 60;
