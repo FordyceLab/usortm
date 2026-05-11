@@ -858,7 +858,11 @@ async function updatePlot(seqLen, currentLib) {
   container.innerHTML = "";
   container.appendChild(plot);
 
-  return currentCosts;
+  // Read simulation parameters from the first data point (constant per seq_length)
+  const foldSampling = costData[0]?.fold_sampling ?? 4;
+  const skew = costData[0]?.skew ?? 4;
+
+  return { ...currentCosts, fold_sampling: foldSampling, skew };
 }
 
 async function updateUI() {
@@ -895,13 +899,17 @@ async function updateUI() {
   document.getElementById("cost-per-variant-usortm").textContent = `$${cpvUsortm.toFixed(2)}`;
   document.getElementById("cost-per-variant-comparison").textContent = `vs $${cpvComp.toFixed(2)} ${isSDM ? 'SDM' : 'direct'}`;
 
-  // Calculate plates for timeline
-  const foldSampling = 4;
+  // Update simulation parameter display
+  document.getElementById("param-fold-sampling").textContent = `${costs.fold_sampling}×`;
+  document.getElementById("param-skew").textContent = `${costs.skew}× (Q90/Q10)`;
+
+  // Calculate plates for timeline using the simulated fold-sampling
+  const foldSampling = costs.fold_sampling ?? 4;
   const wells = libSize * foldSampling;
   const plates = Math.max(1, Math.ceil(wells / 384));
 
   // Calculate and update total days from timeline
-  const totalDays = updateTimeline(plates, libSize, seqLen);
+  const totalDays = updateTimeline(plates, libSize, seqLen, foldSampling);
   document.getElementById("total-days").textContent = totalDays;
 
   // Update synthesis method recommendation
@@ -934,7 +942,7 @@ function updateSynthesisMethod(seqLen) {
     } else if (seqLen <= 500) {
       method = "Twist Multiplex Gene Fragments (300-500 bp, $35/fragment)";
     } else {
-      method = "Instance Bio or custom synthesis (>500 bp, note: may have high skew)";
+      method = "Twist Gene Pools (300–1800 bp)";
     }
   }
 
@@ -952,8 +960,10 @@ function updateFootnoteAssumptions(seqLen) {
   // Update uSort-M assumption based on length
   if (seqLen <= 300) {
     usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
+  } else if (seqLen <= 350) {
+    usortmAssumption.innerHTML = `pool of ${seqLen} bp oligos from <a href="library-design.html#library-size-skew">commercial vendor</a>`;
   } else {
-    usortmAssumption.innerHTML = `pool of 30 bp inserts from <a href="library-design.html#library-size-skew">commercial vendor</a> assembled into ${seqLen} bp gene to generate substitution library`;
+    usortmAssumption.innerHTML = `pooled ${seqLen} bp gene synthesis via <a href="library-design.html#library-size-skew">Twist Gene Pools</a>`;
   }
 
   // Update comparison assumption based on mode
@@ -967,9 +977,9 @@ function updateFootnoteAssumptions(seqLen) {
   }
 }
 
-function updateTimeline(plates, libSize, seqLen) {
+function updateTimeline(plates, libSize, seqLen, foldSampling) {
   // Calculate timing
-  const foldSampling = 4;
+  foldSampling = foldSampling ?? 4;
   const wells = libSize * foldSampling;
   const sortMins = plates * 8 + 30;  // 8 min/plate + 30 min setup (per protocol)
   const sortHours = sortMins / 60;
