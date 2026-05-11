@@ -13,7 +13,7 @@ library_size_max = 696000
 
 [simulation]
 error_rate = [5e-5, 3e-4]
-skew_q90_q10 = 5.0  # TODO: confirm working estimate (no vendor data available)
+skew_q90_q10 = 2.0  # TODO: confirm working estimate (no vendor data available)
 
 [pricing]
 model = "lookup"

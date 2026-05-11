@@ -2,11 +2,11 @@
   "usortm": {
     "synthesis": 1374.02,
     "cloning": 53.6,
-    "sorting": 202.5,
-    "barcoding": 488.65,
+    "sorting": 283.5,
+    "barcoding": 1075.03,
     "sequencing": 500,
     "hitpicking": 79.68,
-    "total": 2698.45
+    "total": 3365.83
   },
   "traditional": {
     "synthesis": 10500.0,
@@ -23,19 +23,20 @@
     "sequencing": 500,
     "total": 10969.0
   },
-  "savings": 6.36,
-  "per_variant_usortm": 5.4,
+  "savings": 5.1,
+  "per_variant_usortm": 6.73,
   "per_variant_traditional": 34.35,
   "per_variant_sdm": 21.94,
-  "wells": 2000,
-  "plates": 6,
+  "wells": 4250.0,
+  "plates": 12.0,
+  "fold_sampling": 8.5,
   "timeline": {
     "assembly_days": 2,
     "sort_days": 1,
-    "barcode_days": 1,
+    "barcode_days": 2,
     "seq_days": 3,
     "demux_days": 1,
-    "total_days": 8,
+    "total_days": 9,
     "timeline": [
       {
         "step": "Library Assembly",
@@ -52,19 +53,19 @@
       {
         "step": "PCR Barcoding",
         "start": 3,
-        "end": 4,
-        "days": 1
+        "end": 5,
+        "days": 2
       },
       {
         "step": "Sequencing",
-        "start": 4,
-        "end": 7,
+        "start": 5,
+        "end": 8,
         "days": 3
       },
       {
         "step": "Demux & Analysis",
-        "start": 7,
-        "end": 8,
+        "start": 8,
+        "end": 9,
         "days": 1
       }
     ]
