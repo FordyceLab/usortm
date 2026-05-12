@@ -152,32 +152,81 @@
         </ul>
 
         <h2>Design Considerations</h2>
-        
+
         <h3 id="library-size-skew">Library Size & Skew</h3>
         <p>
           The most critical factor affecting recovery efficiency is <strong>library skew</strong>—the
-          fold-difference between the most and least abundant variants. The choice of synthesis vendor
-          affects both library skew and sequence length constraints.
+          fold-difference between the most and least abundant variants. Synthesis method determines
+          both skew and the range of supported sequence lengths.
         </p>
 
-        <h4>Commercial Oligo Pool Vendors</h4>
-        <p>
-          For sequences ≤300 bp (or 30 bp inserts for substitution libraries):
-        </p>
-        <ul>
-          <li><a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a> — Excellent uniformity, typically &lt;4-fold skew</li>
-          <li><a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a> — High-quality synthesis, typically &lt;4-fold skew</li>
-        </ul>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Length</th>
+                <th>Max library size</th>
+                <th>Skew (90/10)</th>
+                <th>Delivery</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="https://www.twistbioscience.com/products/oligopools" target="_blank">Twist Oligo Pools</a></td>
+                <td>20–350 bp</td>
+                <td>54,000</td>
+                <td>&lt;4×</td>
+                <td>Uncloned pool</td>
+              </tr>
+              <tr>
+                <td><a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a></td>
+                <td>≤350 bp</td>
+                <td>—</td>
+                <td>&lt;4×</td>
+                <td>Uncloned pool</td>
+              </tr>
+              <tr>
+                <td>Twist Multiplexed Gene Fragments</td>
+                <td>301–500 bp</td>
+                <td>696,000</td>
+                <td>~2×</td>
+                <td>Uncloned pool</td>
+              </tr>
+              <tr>
+                <td>Twist Gene Pools</td>
+                <td>300–1800 bp</td>
+                <td>696,000</td>
+                <td>~1.5×</td>
+                <td>Uncloned pool</td>
+              </tr>
+              <tr>
+                <td>Twist Cloned Oligo Pools</td>
+                <td>1–250 bp</td>
+                <td>696,000</td>
+                <td>~3×</td>
+                <td>Cloned in vector</td>
+              </tr>
+              <tr>
+                <td>Twist Cloned Multiplexed Gene Fragments <span style="font-size:0.85em;color:var(--color-muted,#888)">(Early Access)</span></td>
+                <td>251–450 bp</td>
+                <td>12,000</td>
+                <td>~2×</td>
+                <td>Cloned in vector</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-        <h4>Gene Fragment Vendors</h4>
+        <h4>Arrayed Gene Synthesis</h4>
         <p>
-          For direct gene synthesis (traditional approach, or full-length genes for substitution libraries):
+          For one-at-a-time synthesis of full-length genes (traditional approach, or when pooled
+          options don't meet your length or diversity requirements):
         </p>
         <ul>
-          <li><a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a> — Up to 1800 bp</li>
-          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/gblocks-gene-fragments" target="_blank">IDT gBlocks</a> — 125-3000 bp</li>
-          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/eblocks-gene-fragments" target="_blank">IDT eBlocks</a> — 300-2000 bp</li>
-          <li>Instance Bio — Cost-effective for longer genes, higher skew (10-fold or more)</li>
+          <li><a href="https://www.twistbioscience.com/products/genes/gene-synthesis?tab=fragment" target="_blank">Twist Gene Fragments</a> — 300–5000 bp</li>
+          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/gblocks-gene-fragments" target="_blank">IDT gBlocks</a> — 125–3000 bp</li>
+          <li><a href="https://www.idtdna.com/pages/products/genes-and-gene-fragments/double-stranded-dna-fragments/eblocks-gene-fragments" target="_blank">IDT eBlocks</a> — 300–1500 bp</li>
         </ul>
 
         <div class="callout">
