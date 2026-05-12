@@ -919,6 +919,14 @@ pre:hover .code-copy-btn {
   border-radius: 8px;
   margin-bottom: 0.75rem;
   background: var(--color-card-bg);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem 1.75rem;
+  align-items: start;
+}
+
+.protocol-step.has-tables {
+  grid-template-columns: 1fr 1fr;
 }
 
 .protocol-step::before {
@@ -944,8 +952,8 @@ pre:hover .code-copy-btn {
   font-weight: 600;
 }
 
-.protocol-step > ol,
-.protocol-step > ul {
+.protocol-step-content > ol,
+.protocol-step-content > ul {
   margin: 0;
   padding-left: 1.25rem;
 }
@@ -954,10 +962,14 @@ pre:hover .code-copy-btn {
   margin-bottom: 0.35rem;
 }
 
-.protocol-step .table-wrapper {
-  margin-top: 0.6rem;
-  margin-bottom: 0.25rem;
+.protocol-step-tables .table-wrapper {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
   text-align: left;
+}
+
+.protocol-step-tables .table-wrapper:last-child {
+  margin-bottom: 0;
 }
 
 .protocol-step table {

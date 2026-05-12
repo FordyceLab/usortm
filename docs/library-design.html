@@ -177,28 +177,28 @@
                 <td>20–350 bp</td>
                 <td>54,000</td>
                 <td>&lt;4×</td>
-                <td>Uncloned pool</td>
+                <td>ssDNA pool</td>
               </tr>
               <tr>
                 <td><a href="https://www.idtdna.com/pages/products/custom-dna-rna/dna-oligos/custom-dna-oligos/opools-oligo-pools" target="_blank">IDT oPools</a></td>
                 <td>≤350 bp</td>
                 <td>—</td>
                 <td>&lt;4×</td>
-                <td>Uncloned pool</td>
+                <td>ssDNA pool</td>
               </tr>
               <tr>
                 <td>Twist Multiplexed Gene Fragments</td>
                 <td>301–500 bp</td>
                 <td>696,000</td>
                 <td>~2×</td>
-                <td>Uncloned pool</td>
+                <td>dsDNA pool</td>
               </tr>
               <tr>
                 <td>Twist Gene Pools</td>
                 <td>300–1800 bp</td>
                 <td>696,000</td>
                 <td>~1.5×</td>
-                <td>Uncloned pool</td>
+                <td>dsDNA pool</td>
               </tr>
               <tr>
                 <td>Twist Cloned Oligo Pools</td>
@@ -375,67 +375,72 @@ sfGFP_F64I,F64I</code></pre>
 
         <div class="protocol-steps">
 
-          <div class="protocol-step">
-            <h4>Convert ssDNA Pool to dsDNA</h4>
-            <ol>
-              <li>Resuspend oligo pool to 20 ng/µL in DI water.</li>
-              <li>Set up 25 µL PCR reaction:
-                <div class="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr><th>Component</th><th>Volume</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr><td>KAPA HiFi HotStart ReadyMix (2×)</td><td>12.5 µL</td></tr>
-                      <tr><td>Oligo pool (20 ng/µL)</td><td>0.5 µL</td></tr>
-                      <tr><td>Forward primer (10 µM)</td><td>0.5 µL</td></tr>
-                      <tr><td>Reverse primer (10 µM)</td><td>0.5 µL</td></tr>
-                      <tr><td>H₂O</td><td>11.0 µL</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </li>
-              <li>Run thermal cycle:
-                <div class="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr><th>Step</th><th>Temp</th><th>Time</th><th>Cycles</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr><td>Initial denaturation</td><td>95 °C</td><td>3 min</td><td>1×</td></tr>
-                      <tr><td>Denaturation</td><td>98 °C</td><td>20 s</td><td>12×</td></tr>
-                      <tr><td>Annealing</td><td>62 °C</td><td>15 s</td><td>12×</td></tr>
-                      <tr><td>Extension</td><td>72 °C</td><td>15 s</td><td>12×</td></tr>
-                      <tr><td>Final extension</td><td>72 °C</td><td>1 min</td><td>1×</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </li>
-              <li>Verify product by gel electrophoresis.</li>
-              <li>Purify using DNA Clean &amp; Concentrator.</li>
-            </ol>
+          <div class="protocol-step has-tables">
+            <div class="protocol-step-content">
+              <h4>Convert ssDNA Pool to dsDNA</h4>
+              <ol>
+                <li>Resuspend oligo pool to 20 ng/µL in DI water.</li>
+                <li>Set up 25 µL PCR reaction.</li>
+                <li>Run thermal cycle.</li>
+                <li>Verify product by gel electrophoresis.</li>
+                <li>Purify using DNA Clean &amp; Concentrator.</li>
+              </ol>
+            </div>
+            <div class="protocol-step-tables">
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr><th>Component</th><th>Volume</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>KAPA HiFi HotStart ReadyMix (2×)</td><td>12.5 µL</td></tr>
+                    <tr><td>Oligo pool (20 ng/µL)</td><td>0.5 µL</td></tr>
+                    <tr><td>Forward primer (10 µM)</td><td>0.5 µL</td></tr>
+                    <tr><td>Reverse primer (10 µM)</td><td>0.5 µL</td></tr>
+                    <tr><td>H₂O</td><td>11.0 µL</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr><th>Step</th><th>Temp</th><th>Time</th><th>Cycles</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Initial denaturation</td><td>95 °C</td><td>3 min</td><td>1×</td></tr>
+                    <tr><td>Denaturation</td><td>98 °C</td><td>20 s</td><td>12×</td></tr>
+                    <tr><td>Annealing</td><td>62 °C</td><td>15 s</td><td>12×</td></tr>
+                    <tr><td>Extension</td><td>72 °C</td><td>15 s</td><td>12×</td></tr>
+                    <tr><td>Final extension</td><td>72 °C</td><td>1 min</td><td>1×</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
-          <div class="protocol-step">
-            <h4>Golden Gate Assembly</h4>
-            <ol>
-              <li>Set up 100 µL Golden Gate reaction:
-                <div class="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr><th>Component</th><th>Volume</th></tr>
-                    </thead>
-                    <tbody>
-                      <tr><td>NEBridge BsaI-HFv2 Master Mix (2×)</td><td>50 µL</td></tr>
-                      <tr><td>Purified insert (50–100 ng)</td><td>X µL</td></tr>
-                      <tr><td>Destination vector (50–100 ng)</td><td>X µL</td></tr>
-                      <tr><td>H₂O</td><td>to 100 µL</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </li>
-              <li>Run recommended Golden Gate program (see NEB protocol).</li>
-            </ol>
+          <div class="protocol-step has-tables">
+            <div class="protocol-step-content">
+              <h4>Golden Gate Assembly</h4>
+              <ol>
+                <li>Set up 100 µL Golden Gate reaction.</li>
+                <li>Run recommended Golden Gate program (see NEB protocol).</li>
+              </ol>
+            </div>
+            <div class="protocol-step-tables">
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr><th>Component</th><th>Volume</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>NEBridge BsaI-HFv2 Master Mix (2×)</td><td>50 µL</td></tr>
+                    <tr><td>Purified insert (50–100 ng)</td><td>X µL</td></tr>
+                    <tr><td>Destination vector (50–100 ng)</td><td>X µL</td></tr>
+                    <tr><td>H₂O</td><td>to 100 µL</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
           <div class="protocol-step">
