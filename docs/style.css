@@ -905,6 +905,70 @@ pre:hover .code-copy-btn {
   font-size: 0.875em;
 }
 
+/* Protocol step cards with auto-numbered badges */
+.protocol-steps {
+  margin: 1.5rem 0;
+  counter-reset: protocol-step;
+}
+
+.protocol-step {
+  counter-increment: protocol-step;
+  position: relative;
+  padding: 1.25rem 1.25rem 1.25rem 3.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  background: var(--color-card-bg);
+}
+
+.protocol-step::before {
+  content: counter(protocol-step);
+  position: absolute;
+  left: 1rem;
+  top: 1.25rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  background: var(--color-accent);
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  text-align: center;
+  line-height: 1.75rem;
+}
+
+.protocol-step h4 {
+  margin-top: 0;
+  margin-bottom: 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.protocol-step > ol,
+.protocol-step > ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.protocol-step li {
+  margin-bottom: 0.35rem;
+}
+
+.protocol-step .table-wrapper {
+  margin-top: 0.6rem;
+  margin-bottom: 0.25rem;
+  text-align: left;
+}
+
+.protocol-step table {
+  font-size: 0.875rem;
+}
+
+.protocol-step .callout {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
 /* Inline info tooltip — small warning badge with hover-revealed popover.
    Use inside a cell that lives in a .table-wrapper--overflow so the tip
    isn't clipped by the wrapper's overflow. */
