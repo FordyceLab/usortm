@@ -63,9 +63,9 @@ def _compute_fold_sampling(skew, ref_lib_size=500):
 
 
 def calculate_usortm_cost(lib_size, seq_length, fold_sampling):
-    """Calculate total uSort-M cost using the given fold-sampling.
+    """Calculate total uSort-M cost for full-gene synthesis.
 
-    Uses Twist Oligo Pools synthesis for <=350 bp and Twist Gene Pools for longer sequences.
+    Uses Twist Oligo Pools for <=350 bp and Twist Gene Pools for longer sequences.
     """
     wells = lib_size * fold_sampling
 
@@ -77,6 +77,23 @@ def calculate_usortm_cost(lib_size, seq_length, fold_sampling):
     cost = synthesis
     cost += usortm_cloning_cost(lib_size)
     cost += usortm_sorting_cost(lib_size, fold_sampling=fold_sampling)
+    cost += usortm_barcoding_cost(n_wells=wells)
+    cost += usortm_sequencing_cost(n_wells=wells, seq_length=seq_length)
+    cost += usortm_hitpicking_cost(lib_size, seq_length)
+    return cost
+
+
+def calculate_usortm_substitution_cost(lib_size, seq_length, fold_substitution):
+    """Calculate total uSort-M cost for a substitution library.
+
+    Synthesis is always 30 bp oligo tiles (Twist Oligo Pools) regardless of gene length.
+    Sorting/sequencing/hitpicking costs still depend on the full seq_length.
+    """
+    wells = lib_size * fold_substitution
+    synthesis = usortm_synthesis_cost(lib_size, 30)  # always 30 bp tiles
+    cost = synthesis
+    cost += usortm_cloning_cost(lib_size)
+    cost += usortm_sorting_cost(lib_size, fold_sampling=fold_substitution)
     cost += usortm_barcoding_cost(n_wells=wells)
     cost += usortm_sequencing_cost(n_wells=wells, seq_length=seq_length)
     cost += usortm_hitpicking_cost(lib_size, seq_length)
@@ -109,12 +126,13 @@ def calculate_traditional_range(lib_size, seq_length):
     return min_cost + common, max_cost + common
 
 
-def generate_cost_curves(seq_length, fold_sampling, skew, max_lib_size=5000, step=25):
+def generate_cost_curves(seq_length, fold_sampling, skew, fold_substitution, skew_substitution, max_lib_size=5000, step=25):
     """Generate cost curves for plotting."""
     data = []
 
     for lib_size in range(50, max_lib_size + 1, step):
         usortm_cost = calculate_usortm_cost(lib_size, seq_length, fold_sampling)
+        substitution_cost = calculate_usortm_substitution_cost(lib_size, seq_length, fold_substitution)
         trad_cost = calculate_traditional_cost(lib_size, seq_length)
         trad_min, trad_max = calculate_traditional_range(lib_size, seq_length)
 
@@ -124,6 +142,7 @@ def generate_cost_curves(seq_length, fold_sampling, skew, max_lib_size=5000, ste
         data.append({
             'library_size': lib_size,
             'usortm_cost': round(usortm_cost, 2),
+            'substitution_cost': round(substitution_cost, 2),
             'traditional_cost': round(trad_cost, 2),
             'traditional_min': round(trad_min, 2),
             'traditional_max': round(trad_max, 2),
@@ -131,6 +150,8 @@ def generate_cost_curves(seq_length, fold_sampling, skew, max_lib_size=5000, ste
             'sdm_cost_max': round(sdm_cost_max, 2),
             'fold_sampling': round(fold_sampling, 1),
             'skew': skew,
+            'substitution_fold_sampling': round(fold_substitution, 1),
+            'substitution_skew': skew_substitution,
         })
 
     return data
@@ -222,7 +243,8 @@ def main():
     for seq_len in seq_lengths:
         fold = fold_short if seq_len <= 350 else fold_long
         skew = skew_short if seq_len <= 350 else skew_long
-        curve_data = generate_cost_curves(seq_len, fold, skew)
+        # Substitution always uses oligo pool fold/skew regardless of gene length
+        curve_data = generate_cost_curves(seq_len, fold, skew, fold_short, skew_short)
         filename = f'cost_curve_{seq_len}bp.json'
 
         with open(os.path.join(output_dir, filename), 'w') as f:

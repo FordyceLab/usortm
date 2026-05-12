@@ -761,15 +761,17 @@ function interpolateCost(data, libSize) {
 
   // Linear interpolation
   const ratio = (libSize - before.library_size) / (after.library_size - before.library_size);
+  const lerp = (a, b) => a + ratio * (b - a);
 
   return {
     library_size: libSize,
-    usortm_cost: before.usortm_cost + ratio * (after.usortm_cost - before.usortm_cost),
-    traditional_cost: before.traditional_cost + ratio * (after.traditional_cost - before.traditional_cost),
-    traditional_min: before.traditional_min + ratio * (after.traditional_min - before.traditional_min),
-    traditional_max: before.traditional_max + ratio * (after.traditional_max - before.traditional_max),
-    sdm_cost: before.sdm_cost + ratio * (after.sdm_cost - before.sdm_cost),
-    sdm_cost_max: before.sdm_cost_max + ratio * (after.sdm_cost_max - before.sdm_cost_max),
+    usortm_cost: lerp(before.usortm_cost, after.usortm_cost),
+    substitution_cost: lerp(before.substitution_cost, after.substitution_cost),
+    traditional_cost: lerp(before.traditional_cost, after.traditional_cost),
+    traditional_min: lerp(before.traditional_min, after.traditional_min),
+    traditional_max: lerp(before.traditional_max, after.traditional_max),
+    sdm_cost: lerp(before.sdm_cost, after.sdm_cost),
+    sdm_cost_max: lerp(before.sdm_cost_max, after.sdm_cost_max),
   };
 }
 
@@ -787,10 +789,10 @@ async function updatePlot(seqLen, currentLib) {
   const plotWidth = Math.min(450, Math.max(300, containerWidth));
   const plotHeight = Math.min(400, plotWidth);
 
-  // Build plot data — SDM line only in substitution mode
+  // Build plot data — substitution mode uses substitution_cost for uSort-M; SDM line only in substitution mode
   const plotData = [];
   costData.forEach(d => {
-    plotData.push({library: d.library_size, cost: d.usortm_cost, method: "uSort-M"});
+    plotData.push({library: d.library_size, cost: isSubstitution ? d.substitution_cost : d.usortm_cost, method: "uSort-M"});
     plotData.push({library: d.library_size, cost: d.traditional_cost, method: "Direct Synthesis"});
     plotData.push({library: d.library_size, costMin: d.traditional_min, costMax: d.traditional_max, method: "TradRange"});
     if (isSubstitution) {
@@ -799,7 +801,8 @@ async function updatePlot(seqLen, currentLib) {
     }
   });
 
-  // In substitution mode, connector/primary comparison is vs SDM
+  // In substitution mode, uSort-M dot uses substitution_cost; connector/primary comparison is vs SDM
+  const usortmCost = isSubstitution ? currentCosts.substitution_cost : currentCosts.usortm_cost;
   const compCost = isSubstitution ? currentCosts.sdm_cost : currentCosts.traditional_cost;
   const compLabel = isSubstitution ? "SDM" : "Direct Synthesis";
 
@@ -857,7 +860,7 @@ async function updatePlot(seqLen, currentLib) {
       Plot.ruleX([currentLib], { stroke: "#d1d5db", strokeDasharray: "4,4" }),
       // Connector to primary comparison
       Plot.link([{
-        x1: currentLib, y1: currentCosts.usortm_cost,
+        x1: currentLib, y1: usortmCost,
         x2: currentLib, y2: compCost
       }], {
         x1: "x1", y1: "y1", x2: "x2", y2: "y2",
@@ -867,12 +870,12 @@ async function updatePlot(seqLen, currentLib) {
       Plot.dot(
         isSubstitution
           ? [
-              {library: currentLib, cost: currentCosts.usortm_cost, label: "uSort-M"},
+              {library: currentLib, cost: usortmCost, label: "uSort-M"},
               {library: currentLib, cost: currentCosts.traditional_cost, label: "Direct Synthesis"},
               {library: currentLib, cost: currentCosts.sdm_cost, label: "SDM"},
             ]
           : [
-              {library: currentLib, cost: currentCosts.usortm_cost, label: "uSort-M"},
+              {library: currentLib, cost: usortmCost, label: "uSort-M"},
               {library: currentLib, cost: currentCosts.traditional_cost, label: "Direct Synthesis"},
             ],
         {
@@ -889,11 +892,15 @@ async function updatePlot(seqLen, currentLib) {
   container.innerHTML = "";
   container.appendChild(plot);
 
-  // Read simulation parameters from the first data point (constant per seq_length)
-  const foldSampling = costData[0]?.fold_sampling ?? 4;
-  const skew = costData[0]?.skew ?? 4;
+  // Simulation parameters — use substitution fold/skew in substitution mode
+  const foldSampling = isSubstitution
+    ? (costData[0]?.substitution_fold_sampling ?? 8.5)
+    : (costData[0]?.fold_sampling ?? 4);
+  const skew = isSubstitution
+    ? (costData[0]?.substitution_skew ?? 4)
+    : (costData[0]?.skew ?? 4);
 
-  return { ...currentCosts, fold_sampling: foldSampling, skew };
+  return { ...currentCosts, fold_sampling: foldSampling, skew, usortm_display_cost: usortmCost };
 }
 
 function getLibraryType() {
@@ -912,13 +919,16 @@ async function updateUI() {
 
   const formatCost = (cost) => cost >= 1000 ? `$${(cost / 1000).toFixed(1)}k` : `$${Math.round(cost).toLocaleString()}`;
 
+  // Use the mode-appropriate uSort-M cost (substitution_cost in substitution mode)
+  const usortmDisplayCost = costs.usortm_display_cost ?? costs.usortm_cost;
+
   // In substitution mode, primary comparison is vs SDM; secondary shows Direct Synthesis
   const primaryCost = isSubstitution ? costs.sdm_cost : costs.traditional_cost;
   const primaryLabel = isSubstitution ? "SDM" : "Direct Synthesis";
-  const savings = primaryCost / costs.usortm_cost;
+  const savings = primaryCost / usortmDisplayCost;
 
   // Update primary cost comparison chip
-  document.getElementById("total-cost-usortm-large").textContent = formatCost(costs.usortm_cost);
+  document.getElementById("total-cost-usortm-large").textContent = formatCost(usortmDisplayCost);
   document.getElementById("total-cost-trad-large").textContent = formatCost(primaryCost);
   document.getElementById("cost-label-comparison").textContent = primaryLabel;
   document.getElementById("savings-badge").textContent = `${savings.toFixed(1)}× savings vs ${primaryLabel}`;
@@ -933,7 +943,7 @@ async function updateUI() {
   }
 
   // Update cost per variant
-  const cpvUsortm = costs.usortm_cost / libSize;
+  const cpvUsortm = usortmDisplayCost / libSize;
   const cpvPrimary = primaryCost / libSize;
   const cpvTrad = costs.traditional_cost / libSize;
   document.getElementById("cost-per-variant-usortm").textContent = `$${cpvUsortm.toFixed(2)}`;
