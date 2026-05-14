@@ -174,7 +174,7 @@ Full documentation available at [fordycelab.github.io/usortm](https://fordycelab
 If you use uSort-M in your research, please cite:
 
 ```
-Olivas MB, Almhjell PJ, Shanahan JD, Fordyce PM. uSort-M: Scalable isolation 
+Olivas MB, Almhjell PJ, Brixi LK, Shanahan JD, Fordyce PM. uSort-M: Scalable isolation 
 of user-defined sequences from diverse pooled libraries. bioRxiv (2026). DOI: 10.64898/2026.01.12.699065
 ```
 
