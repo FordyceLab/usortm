@@ -194,7 +194,7 @@
             <tr>
               <td>BioRad Hardshell 384-well PCR plates</td>
               <td>Bio-Rad</td>
-              <td>HSR4801</td>
+              <td>HSP3801</td>
             </tr>
             <tr>
               <td>Foil plate seals<span class="info-tip" tabindex="0" aria-label="Seal choice matters for outgrowth">!<span class="info-tip-popover" role="tooltip"><strong>Required for outgrowth.</strong> Only <strong>Thermo AB0626</strong> seals have held up in our hands — other foil or film seals leave <strong>sticky adhesive deposits</strong> and <strong>lift during 37&nbsp;°C outgrowth</strong>, causing failed growth.</span></span></td>
@@ -474,7 +474,7 @@
 
         <p class="ext-calc-note">
           <strong>Note:</strong> Adjust extension time based on expected amplicon length.
-          Highlighted cells (<span class="ext-highlight-inline">20 sec/kb</span>) update automatically when a length is entered above.
+          Highlighted cells (<span class="ext-highlight-inline">30 sec/kb</span>) update automatically when a length is entered above.
         </p>
 
         <div class="table-wrapper">
@@ -505,7 +505,7 @@
           </tr>
           <tr>
             <td>72</td>
-            <td class="ext-cell" id="extCell1">20 sec/kb</td>
+            <td class="ext-cell" id="extCell1">30 sec/kb</td>
           </tr>
 
           <tr>
@@ -515,11 +515,11 @@
           </tr>
           <tr>
             <td>66</td>
-            <td>20 sec</td>
+            <td>30 sec</td>
           </tr>
           <tr>
             <td>72</td>
-            <td class="ext-cell" id="extCell2">20 sec/kb</td>
+            <td class="ext-cell" id="extCell2">30 sec/kb</td>
           </tr>
 
           <tr>
@@ -626,7 +626,7 @@
             ];
 
             function formatExtTime(bp) {
-              const secs = Math.ceil(bp / 1000 * 20);
+              const secs = Math.ceil(bp / 1000 * 30);
               if (secs >= 60) {
                 const m = Math.floor(secs / 60);
                 const s = secs % 60;
@@ -641,7 +641,7 @@
 
               if (!raw || isNaN(bp) || bp <= 0) {
                 cells.forEach(c => {
-                  c.textContent = '20 sec/kb';
+                  c.textContent = '30 sec/kb';
                   c.classList.remove('updated');
                 });
                 hint.textContent = 'Enter length to calculate extension times';
@@ -654,7 +654,7 @@
                 c.textContent = label;
                 c.classList.add('updated');
               });
-              hint.textContent = `${bp.toLocaleString()} bp → ${Math.ceil(bp / 1000 * 20)} sec (20 sec/kb)`;
+              hint.textContent = `${bp.toLocaleString()} bp → ${Math.ceil(bp / 1000 * 30)} sec (30 sec/kb)`;
               hint.style.color = '#f97316';
             }
 
