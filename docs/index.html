@@ -73,13 +73,20 @@
   <!-- Code copy button functionality -->
   <script src="code-copy.js"></script>
   <style>
-    /* Cost section layout */
+    /* Cost section layout: plot left, hero/stats right, timeline below full-width */
     .cost-section {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2rem;
+      grid-template-areas:
+        "plot stack"
+        "timeline timeline";
+      gap: 1.5rem 2rem;
       margin: 2rem 0;
+      align-items: start;
     }
+    .cost-chart-container { grid-area: plot; }
+    .effort-stack { grid-area: stack; }
+    .cost-section > .dynamic-timeline { grid-area: timeline; }
     
     .cost-chart-container {
       background: var(--color-card-bg);
@@ -97,7 +104,7 @@
       padding: 1rem;
     }
     
-    .effort-timeline-container {
+    .effort-stack {
       display: flex;
       flex-direction: column;
       gap: 1rem;
@@ -194,6 +201,111 @@
       color: var(--color-text-muted);
     }
 
+    /* Hero uSort-M value — the answer to "what will it cost?" */
+    .cost-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+
+    /* Branch chart connecting uSort-M hero to its cost comparisons
+       Layout: trunk (vertical) → optional beam (substitution) → leaves (cost labels) */
+    .cost-tree {
+      position: relative;
+      margin-top: -0.25rem;
+      margin-bottom: 1rem;
+      padding-top: 18px;
+    }
+
+    .cost-tree-trunk {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 1.5px;
+      background: var(--color-text-muted);
+      opacity: 0.55;
+    }
+
+    /* Substitution mode: short trunk + horizontal beam with two drops */
+    .cost-tree.show-sdm .cost-tree-trunk { height: 9px; }
+    .cost-tree.show-sdm .cost-tree-beam {
+      display: block;
+      position: absolute;
+      top: 9px;
+      left: 25%;
+      right: 25%;
+      height: 8px;
+      border-top: 1.5px solid var(--color-text-muted);
+      border-left: 1.5px solid var(--color-text-muted);
+      border-right: 1.5px solid var(--color-text-muted);
+      opacity: 0.55;
+    }
+
+    /* Full-gene mode: single trunk reaches all the way to the leaf */
+    .cost-tree:not(.show-sdm) .cost-tree-trunk { height: 18px; }
+    .cost-tree-beam { display: none; }
+
+    /* Leaves grid: one column (full-gene) or two columns (substitution) */
+    .cost-tree-leaves {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.6rem;
+      justify-items: center;
+    }
+    .cost-tree.show-sdm .cost-tree-leaves {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    /* Each leaf is a pill anchored to its branch endpoint via the colored dot */
+    .cost-leaf {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.55rem 0.9rem 0.6rem;
+      background: var(--color-sidebar);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      line-height: 1.15;
+      min-width: 110px;
+    }
+
+    .cost-leaf::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-top: -0.5rem;
+      margin-bottom: 0.2rem;
+      box-shadow: 0 0 0 3px var(--color-sidebar);
+    }
+
+    .cost-leaf--sdm::before { background: #f59e0b; }
+    .cost-leaf--direct::before { background: #6b7280; }
+    [data-theme="dark"] .cost-leaf--direct::before { background: #9ca3af; }
+
+    .cost-leaf-name {
+      font-size: 0.66rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    .cost-leaf-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--color-text);
+    }
+
+    /* Hide SDM leaf in full-gene mode */
+    .cost-tree:not(.show-sdm) .sdm-only {
+      display: none;
+    }
+
     .cost-label-large {
       font-size: 0.9rem;
       color: var(--color-text-muted);
@@ -217,6 +329,13 @@
       padding: 0 0.5rem;
     }
 
+    .savings-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
     .savings-badge {
       display: inline-block;
       background: var(--color-success);
@@ -227,6 +346,15 @@
       font-weight: 800;
       box-shadow: 0 2px 4px rgba(5, 150, 105, 0.3);
       border: 2px solid var(--color-success-dark);
+    }
+
+    /* Compact secondary savings badge — used when both SDM and Direct comparisons are shown */
+    .savings-badge--sm {
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 0.35rem 0.85rem;
+      box-shadow: 0 1px 2px rgba(5, 150, 105, 0.2);
+      border-width: 1.5px;
     }
 
     [data-theme="dark"] .savings-badge {
@@ -364,30 +492,41 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
 
-    /* Parameters display below plot */
+    /* Plot simulation parameters — small chips matching the design language */
     .plot-parameters {
-      margin-top: 0.75rem;
-      padding: 0.75rem;
-      background: var(--color-card-bg);
-      border: 1px solid var(--color-border);
-      border-radius: 6px;
-      font-size: 0.75rem;
-      color: var(--color-text-muted);
+      margin-top: 0.85rem;
       display: flex;
       flex-wrap: wrap;
-      gap: 1rem;
+      justify-content: center;
+      gap: 0.4rem;
+      padding: 0;
+      background: transparent;
+      border: none;
     }
 
     .plot-parameters .param {
-      display: inline;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      padding: 0.3rem 0.65rem;
+      background: var(--color-sidebar);
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      line-height: 1.1;
     }
 
     .plot-parameters .param-label {
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
       color: var(--color-text-muted);
     }
 
     .plot-parameters .param-value {
+      font-size: 0.78rem;
       font-weight: 700;
+      font-variant-numeric: tabular-nums;
       color: var(--color-text);
     }
 
@@ -479,6 +618,65 @@
     .timeline-step .step-detail a {
       color: var(--color-link);
     }
+
+    /* Contingency chips (e.g., sequencing in-house vs. service) — same DNA as cost pills, smaller */
+    .contingency-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-top: 0.35rem;
+    }
+
+    .contingency-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.18rem 0.55rem 0.18rem 0.45rem;
+      background: var(--color-sidebar);
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      line-height: 1;
+      color: var(--color-text);
+    }
+
+    .contingency-chip::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .contingency-chip--inhouse::before { background: var(--color-accent); }
+    .contingency-chip--service::before { background: #6b7280; }
+    [data-theme="dark"] .contingency-chip--service::before { background: #9ca3af; }
+
+    .contingency-chip-name {
+      font-weight: 600;
+    }
+
+    .contingency-chip-name a {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px dotted var(--color-text-light);
+    }
+
+    .contingency-chip-name a:hover {
+      color: var(--color-link);
+      border-bottom-color: var(--color-link);
+    }
+
+    .contingency-chip-time {
+      color: var(--color-text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .contingency-chip-time::before {
+      content: '·';
+      margin: 0 0.25rem;
+      color: var(--color-text-light);
+    }
     
     /* "What will it cost?" heading — generous vertical rhythm on desktop,
        tight on mobile so users don't face a wall of whitespace. */
@@ -487,9 +685,17 @@
       margin-top: 6rem;
     }
 
-    @media (max-width: 900px) {
+    /* Stack single-column once two columns would crowd the plot/hero
+       (substitution mode adds an extra leaf + savings row, so we lift the threshold) */
+    @media (max-width: 1240px) {
       .cost-section {
         grid-template-columns: 1fr;
+        grid-template-areas:
+          "plot"
+          "stack"
+          "timeline";
+        gap: 1.25rem;
+        margin: 1.25rem 0;
       }
       .quick-stats {
         grid-template-columns: 1fr 1fr;
@@ -497,6 +703,56 @@
       .cost-title {
         margin-top: 2.5rem;
       }
+      .cost-chart-container { min-height: 0; }
+    }
+
+    @media (max-width: 640px) {
+      /* Touch-friendly toggle buttons (~44pt min target) */
+      .library-type-toggle { padding: 0.35rem; }
+      .toggle-btn {
+        padding: 0.65rem 1.1rem;
+        font-size: 0.95rem;
+        min-height: 44px;
+      }
+
+      /* Synthesis footnote: readable on mobile (was 0.75rem, too small) */
+      .synthesis-footnote {
+        font-size: 0.85rem !important;
+        line-height: 1.55 !important;
+      }
+
+      /* Tighten the hero box: smaller padding, smaller hero number */
+      .cost-comparison-primary { padding: 1rem; }
+      .cost-comparison-primary .label { margin-bottom: 0.6rem; }
+      .cost-value-large { font-size: 1.85rem; }
+      .cost-label-large { font-size: 0.78rem; }
+      .cost-hero { margin-bottom: 0.55rem; gap: 0.25rem; }
+      .cost-tree { margin-bottom: 0.75rem; padding-top: 14px; }
+      .cost-leaf-value { font-size: 0.9rem; }
+      .cost-leaf-name { font-size: 0.6rem; }
+
+      /* Savings badges shrink so two fit on one mobile line */
+      .savings-badge { font-size: 0.9rem; padding: 0.4rem 1rem; }
+      .savings-badge--sm { font-size: 0.7rem; padding: 0.3rem 0.7rem; border-width: 1px; }
+
+      /* Compact quick stats */
+      .stat-box { padding: 0.75rem; }
+      .stat-box.primary .value { font-size: 1.5rem; }
+      .stat-box .value { font-size: 1.1rem; }
+
+      /* Compact timeline */
+      .dynamic-timeline { padding: 0.75rem; }
+      .timeline-header { font-size: 0.85rem; margin-bottom: 0.5rem; }
+      .timeline-step { padding: 0.35rem 0; }
+      .timeline-step .step-day { min-width: 64px; font-size: 0.7rem; }
+      .timeline-step .step-task { font-size: 0.78rem; }
+      .timeline-step .step-detail { font-size: 0.66rem; }
+
+      .contingency-chips { gap: 0.25rem; margin-top: 0.3rem; }
+      .contingency-chip { font-size: 0.62rem; padding: 0.15rem 0.45rem 0.15rem 0.4rem; gap: 0.3rem; }
+
+      /* Plot container: lighter padding so it fits below the answer */
+      .cost-chart-container { padding: 1rem; }
     }
   </style>
 </head>
@@ -596,17 +852,7 @@
         <section>
           <h2 class="cost-title">What will it cost?</h2>
 
-          <p class="input-sentence" style="text-align: center; line-height: 1.4; margin-bottom: 0.25rem;">
-            My gene is
-            <span class="inline-input">
-              <input type="number" id="seq-length" value="300" min="100" max="1500" step="50">
-            </span>
-            bp in length and I want to parse
-            <span class="inline-input">
-              <input type="number" id="library-size" value="500" min="50" max="5000" step="50">
-            </span>
-            variants.
-          </p>
+          <p class="input-sentence input-sentence--cost">My gene is&nbsp;<input type="number" id="seq-length" value="300" min="100" max="1500" step="50">&nbsp;bp in length and I want to&nbsp;parse&nbsp;<input type="number" id="library-size" value="500" min="50" max="5000" step="50">&nbsp;variants.</p>
 
           <!-- Library Type Toggle -->
           <div class="library-type-toggle">
@@ -637,25 +883,31 @@
 
             </div>
             
-            <!-- Right: Stats + Timeline -->
-            <div class="effort-timeline-container">
+            <!-- Right: Hero comparison + quick stats -->
+            <div class="effort-stack">
               <!-- Direct cost comparison at top -->
               <div class="stat-box cost-comparison-primary">
                 <div class="label">Total Cost Comparison</div>
-                <div class="cost-comparison-large">
-                  <div class="cost-item-large">
-                    <span class="cost-value-large usortm" id="total-cost-usortm-large">$3,090</span>
-                    <span class="cost-label-large">uSort-M</span>
-                  </div>
-                  <div class="cost-divider">vs</div>
-                  <div class="cost-item-large">
-                    <span class="cost-value-large traditional" id="total-cost-trad-large">$24,050</span>
-                    <span class="cost-label-large" id="cost-label-comparison">Direct Synthesis</span>
+                <div class="cost-hero">
+                  <span class="cost-value-large usortm" id="total-cost-usortm-large">$3,090</span>
+                  <span class="cost-label-large">uSort-M</span>
+                </div>
+                <div class="cost-tree" id="cost-tree">
+                  <span class="cost-tree-trunk"></span>
+                  <span class="cost-tree-beam"></span>
+                  <div class="cost-tree-leaves">
+                    <div class="cost-leaf cost-leaf--sdm sdm-only">
+                      <span class="cost-leaf-name">SDM</span>
+                      <span class="cost-leaf-value" id="total-cost-sdm-large">$0</span>
+                    </div>
+                    <div class="cost-leaf cost-leaf--direct">
+                      <span class="cost-leaf-name">Direct Synthesis</span>
+                      <span class="cost-leaf-value" id="total-cost-trad-large">$24,050</span>
+                    </div>
                   </div>
                 </div>
-                <div class="savings-badge" id="savings-badge">7.8× savings</div>
-                <div id="secondary-comparison" style="display:none; margin-top: 0.4rem; font-size: 0.75rem; color: var(--color-text-muted);">
-                  also vs <strong id="secondary-comparison-cost">$24.1k</strong> Direct Synthesis
+                <div class="savings-row" id="savings-row">
+                  <div class="savings-badge" id="savings-badge">7.8× savings</div>
                 </div>
               </div>
 
@@ -671,13 +923,13 @@
                   <div class="subvalue" id="cost-per-variant-comparison">vs $48.10 direct</div>
                 </div>
               </div>
-              
-              <!-- Dynamic Timeline -->
-              <div class="dynamic-timeline">
-                <div class="timeline-header">Estimated Timeline</div>
-                <div id="timeline-steps">
-                  <!-- Filled dynamically -->
-                </div>
+            </div>
+
+            <!-- Dynamic Timeline spans full width below the plot + hero row -->
+            <div class="dynamic-timeline">
+              <div class="timeline-header">Estimated Timeline</div>
+              <div id="timeline-steps">
+                <!-- Filled dynamically -->
               </div>
             </div>
           </div>
@@ -733,6 +985,13 @@ import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm"
 // Cache for loaded cost curves
 const costDataCache = {};
 
+// Compact cost formatter for inline plot annotations
+function formatPlotCost(v) {
+  if (v >= 100000) return `${(v / 1000).toFixed(0)}k`;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return Math.round(v).toLocaleString();
+}
+
 // Load cost data from Python-generated JSON files
 async function loadCostData(seqLength) {
   // Find nearest available sequence length (100-1500 bp in 50 bp steps)
@@ -781,13 +1040,39 @@ async function updatePlot(seqLen, currentLib) {
   const libraryType = getLibraryType();
   const isSubstitution = libraryType === 'substitution';
 
+  // Theme-aware colors so the plot tracks light/dark mode tokens
+  const rootStyles = getComputedStyle(document.documentElement);
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const usortmColor = rootStyles.getPropertyValue('--color-accent').trim() || '#2563eb';
+  const cardBg = rootStyles.getPropertyValue('--color-card-bg').trim() || '#ffffff';
+  const borderColor = rootStyles.getPropertyValue('--color-border').trim() || '#e5e5e5';
+  const textColor = rootStyles.getPropertyValue('--color-text').trim() || '#333';
+  const sdmColor = '#f59e0b';
+  const directColor = isDark ? '#9ca3af' : '#6b7280';
+
+  // Shared tooltip styling — opaque card-bg with theme-aware text/stroke
+  const tipStyle = {
+    fill: cardBg,
+    fillOpacity: 0.97,
+    stroke: borderColor,
+    strokeWidth: 1,
+    textPadding: 7,
+    fontSize: 13,
+    textAnchor: "start"
+  };
+
   // Extend data range if needed
   const maxLib = Math.max(Math.max(...costData.map(d => d.library_size)), currentLib * 1.2);
 
   const container = document.getElementById("cost-plot");
-  const containerWidth = container.parentElement.clientWidth - 48;
-  const plotWidth = Math.min(450, Math.max(300, containerWidth));
-  const plotHeight = Math.min(400, plotWidth);
+  // Available width: parent column minus card padding (2× 1.5rem = 48px)
+  // and our own plot padding (2× 1rem = 32px), clamped down so we never overflow.
+  const containerWidth = Math.max(220, container.parentElement.clientWidth - 48);
+  // Grow with available space up to 540px (more usable on wide screens than 450px),
+  // shrink down to fit narrow phones without horizontal overflow.
+  const plotWidth = Math.min(540, containerWidth);
+  // Slightly shorter than wide for a comfortable aspect ratio; cap at 420 on big screens
+  const plotHeight = Math.min(420, Math.round(plotWidth * 0.85));
 
   // Build plot data — substitution mode uses substitution_cost for uSort-M; SDM line only in substitution mode
   const plotData = [];
@@ -811,62 +1096,75 @@ async function updatePlot(seqLen, currentLib) {
     height: plotHeight,
     marginLeft: 70,
     marginBottom: 55,
-    marginRight: 25,
-    marginTop: 20,
+    marginRight: 50,
+    marginTop: 38,
     style: {
       background: "transparent",
-      fontSize: "15px"
+      color: textColor,
+      fontSize: "17px"
     },
     x: {
       label: "Library Size (variants)",
-      labelOffset: 50,
-      labelFontSize: 18,
+      labelOffset: 52,
+      labelFontSize: 22,
       tickFormat: d => d >= 1000 ? `${d/1000}k` : d,
+      // Scale tick count with plot width to avoid clutter on narrow viewports
+      ticks: plotWidth < 360 ? 4 : plotWidth < 500 ? 5 : 6,
       domain: [0, maxLib]
     },
     y: {
-      label: "Total Cost (USD)",
-      labelOffset: 65,
+      label: "Cost (USD)",
+      labelOffset: 55,
+      labelAnchor: "top",
+      labelArrow: "up",
       labelFontSize: 18,
       tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
-      grid: true
+      ticks: plotWidth < 360 ? 4 : plotWidth < 500 ? 6 : 8,
+      grid: true,
+      nice: true
     },
     marks: [
-      // Direct Synthesis range + line (grey) — secondary in substitution mode
+      // Direct Synthesis range + line — secondary in substitution mode
       Plot.areaY(plotData.filter(d => d.method === "TradRange"), {
         x: "library", y1: "costMin", y2: "costMax",
-        fill: "#6b7280", fillOpacity: isSubstitution ? 0.08 : 0.18
+        fill: directColor, fillOpacity: isSubstitution ? 0.08 : 0.18
       }),
       Plot.line(plotData.filter(d => d.method === "Direct Synthesis"), {
         x: "library", y: "cost",
-        stroke: "#6b7280", strokeWidth: isSubstitution ? 1.5 : 2.5,
-        strokeOpacity: isSubstitution ? 0.4 : 1.0
+        stroke: directColor, strokeWidth: isSubstitution ? 1.5 : 2.5,
+        strokeOpacity: isSubstitution ? 0.4 : 1.0,
+        tip: tipStyle,
+        title: d => `Direct Synthesis\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
       }),
-      // SDM range + line (amber) — only in substitution mode
+      // SDM range + line — only in substitution mode
       ...(isSubstitution ? [
         Plot.areaY(plotData.filter(d => d.method === "SDMRange"), {
           x: "library", y1: "costMin", y2: "costMax",
-          fill: "#f59e0b", fillOpacity: 0.18
+          fill: sdmColor, fillOpacity: 0.18
         }),
         Plot.line(plotData.filter(d => d.method === "SDM"), {
-          x: "library", y: "cost", stroke: "#f59e0b", strokeWidth: 2.5
+          x: "library", y: "cost", stroke: sdmColor, strokeWidth: 2.5,
+          tip: tipStyle,
+          title: d => `SDM\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
         }),
       ] : []),
-      // uSort-M line (blue)
+      // uSort-M line (theme accent)
       Plot.line(plotData.filter(d => d.method === "uSort-M"), {
-        x: "library", y: "cost", stroke: "#2563eb", strokeWidth: 2.5
+        x: "library", y: "cost", stroke: usortmColor, strokeWidth: 2.5,
+        tip: tipStyle,
+        title: d => `uSort-M\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
       }),
       // Vertical dashed line at current position
-      Plot.ruleX([currentLib], { stroke: "#d1d5db", strokeDasharray: "4,4" }),
+      Plot.ruleX([currentLib], { stroke: "currentColor", strokeOpacity: 0.25, strokeDasharray: "4,4" }),
       // Connector to primary comparison
       Plot.link([{
         x1: currentLib, y1: usortmCost,
         x2: currentLib, y2: compCost
       }], {
         x1: "x1", y1: "y1", x2: "x2", y2: "y2",
-        stroke: "#374151", strokeDasharray: "3,3", strokeWidth: 1.5
+        stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "3,3", strokeWidth: 1.5
       }),
-      // Dots: uSort-M + primary comparison (+ secondary dimmed in substitution mode)
+      // Dots at current position
       Plot.dot(
         isSubstitution
           ? [
@@ -880,11 +1178,33 @@ async function updatePlot(seqLen, currentLib) {
             ],
         {
           x: "library", y: "cost", r: 6,
-          fill: d => d.label === "uSort-M" ? "#2563eb" : d.label === "SDM" ? "#f59e0b" : "#6b7280",
-          stroke: "white", strokeWidth: 2,
+          fill: d => d.label === "uSort-M" ? usortmColor : d.label === "SDM" ? sdmColor : directColor,
+          stroke: cardBg, strokeWidth: 2,
           fillOpacity: d => d.label === compLabel || d.label === "uSort-M" ? 1 : 0.35,
           strokeOpacity: d => d.label === compLabel || d.label === "uSort-M" ? 1 : 0.35,
         }
+      ),
+      // Inline cost labels next to each current-position dot, staggered vertically
+      // so they never collide when values bunch up at small library sizes.
+      Plot.text(
+        [{library: currentLib, cost: usortmCost, label: `$${formatPlotCost(usortmCost)}`}],
+        {x: "library", y: "cost", text: "label", dx: 12, dy: 14, textAnchor: "start",
+         fontSize: 13, fontWeight: 700, fill: usortmColor,
+         stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
+      ),
+      ...(isSubstitution ? [
+        Plot.text(
+          [{library: currentLib, cost: currentCosts.sdm_cost, label: `$${formatPlotCost(currentCosts.sdm_cost)}`}],
+          {x: "library", y: "cost", text: "label", dx: 12, dy: 0, textAnchor: "start",
+           fontSize: 13, fontWeight: 700, fill: sdmColor,
+           stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
+        )
+      ] : []),
+      Plot.text(
+        [{library: currentLib, cost: currentCosts.traditional_cost, label: `$${formatPlotCost(currentCosts.traditional_cost)}`}],
+        {x: "library", y: "cost", text: "label", dx: 12, dy: -14, textAnchor: "start",
+         fontSize: 13, fontWeight: 700, fill: directColor,
+         stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
       )
     ]
   });
@@ -922,34 +1242,38 @@ async function updateUI() {
   // Use the mode-appropriate uSort-M cost (substitution_cost in substitution mode)
   const usortmDisplayCost = costs.usortm_display_cost ?? costs.usortm_cost;
 
-  // In substitution mode, primary comparison is vs SDM; secondary shows Direct Synthesis
-  const primaryCost = isSubstitution ? costs.sdm_cost : costs.traditional_cost;
-  const primaryLabel = isSubstitution ? "SDM" : "Direct Synthesis";
-  const savings = primaryCost / usortmDisplayCost;
-
-  // Update primary cost comparison chip
+  // Always populate uSort-M and Direct Synthesis. SDM only meaningful in substitution mode.
   document.getElementById("total-cost-usortm-large").textContent = formatCost(usortmDisplayCost);
-  document.getElementById("total-cost-trad-large").textContent = formatCost(primaryCost);
-  document.getElementById("cost-label-comparison").textContent = primaryLabel;
-  document.getElementById("savings-badge").textContent = `${savings.toFixed(1)}× savings vs ${primaryLabel}`;
+  document.getElementById("total-cost-trad-large").textContent = formatCost(costs.traditional_cost);
 
-  // Secondary comparison chip (Direct Synthesis, only in substitution mode)
-  const secondaryEl = document.getElementById("secondary-comparison");
+  const treeEl = document.getElementById("cost-tree");
+  const savingsRow = document.getElementById("savings-row");
   if (isSubstitution) {
-    document.getElementById("secondary-comparison-cost").textContent = formatCost(costs.traditional_cost);
-    secondaryEl.style.display = "block";
+    document.getElementById("total-cost-sdm-large").textContent = formatCost(costs.sdm_cost);
+    treeEl.classList.add("show-sdm");
+    const savingsVsSdm = costs.sdm_cost / usortmDisplayCost;
+    const savingsVsDirect = costs.traditional_cost / usortmDisplayCost;
+    savingsRow.innerHTML = `
+      <div class="savings-badge savings-badge--sm">${savingsVsSdm.toFixed(1)}× cheaper than SDM</div>
+      <div class="savings-badge savings-badge--sm">${savingsVsDirect.toFixed(1)}× cheaper than Direct Synthesis</div>
+    `;
   } else {
-    secondaryEl.style.display = "none";
+    treeEl.classList.remove("show-sdm");
+    const savings = costs.traditional_cost / usortmDisplayCost;
+    savingsRow.innerHTML = `<div class="savings-badge">${savings.toFixed(1)}× savings</div>`;
   }
 
   // Update cost per variant
   const cpvUsortm = usortmDisplayCost / libSize;
-  const cpvPrimary = primaryCost / libSize;
   const cpvTrad = costs.traditional_cost / libSize;
   document.getElementById("cost-per-variant-usortm").textContent = `$${cpvUsortm.toFixed(2)}`;
-  document.getElementById("cost-per-variant-comparison").textContent = isSubstitution
-    ? `vs $${cpvPrimary.toFixed(2)} SDM · $${cpvTrad.toFixed(2)} direct`
-    : `vs $${cpvPrimary.toFixed(2)} direct`;
+  if (isSubstitution) {
+    const cpvSdm = costs.sdm_cost / libSize;
+    document.getElementById("cost-per-variant-comparison").textContent =
+      `vs $${cpvSdm.toFixed(2)} SDM · $${cpvTrad.toFixed(2)} direct`;
+  } else {
+    document.getElementById("cost-per-variant-comparison").textContent = `vs $${cpvTrad.toFixed(2)} direct`;
+  }
 
   // Update simulation parameter display
   document.getElementById("param-fold-sampling").textContent = `${costs.fold_sampling}×`;
@@ -1006,9 +1330,14 @@ function updateTimeline(plates, libSize, seqLen, foldSampling) {
   const barcodeDays = Math.max(1, Math.ceil(barcodeHours / 8));
   const barcodeStart = 2 + sortDays;
   const seqStart = barcodeStart + barcodeDays;
-  const seqDays = 3;
+  // Sequencing duration ranges by contingency: in-house ONP ~1 day, Plasmidsaurus 3-4 days
+  const seqDaysMin = 1;
+  const seqDaysMax = 4;
+  const seqDays = seqDaysMax; // Use conservative for per-row labels
   const hitpickStart = seqStart + seqDays;
-  const totalDays = hitpickStart; // Total days including hit-picking
+  const totalDaysMin = seqStart + seqDaysMin;
+  const totalDaysMax = hitpickStart;
+  const totalDaysRange = totalDaysMin === totalDaysMax ? `${totalDaysMin}` : `${totalDaysMin}–${totalDaysMax}`;
 
   const formatTime = (hours) => {
     if (hours < 1) return `${Math.round(hours * 60)} min`;
@@ -1035,7 +1364,17 @@ function updateTimeline(plates, libSize, seqLen, foldSampling) {
     {
       day: `Days ${seqStart}-${seqStart + seqDays - 1}`,
       task: "Sequencing",
-      detail: `~${seqGb} Gb via <a href="https://www.plasmidsaurus.com/custom" target="_blank">Plasmidsaurus Custom</a> (3-4 days)`
+      detail: `~${seqGb} Gb required
+        <div class="contingency-chips">
+          <span class="contingency-chip contingency-chip--inhouse">
+            <span class="contingency-chip-name">In-house ONP</span>
+            <span class="contingency-chip-time">~1 day (MinION)</span>
+          </span>
+          <span class="contingency-chip contingency-chip--service">
+            <span class="contingency-chip-name"><a href="https://www.plasmidsaurus.com/custom" target="_blank">Plasmidsaurus</a></span>
+            <span class="contingency-chip-time">3-4 days</span>
+          </span>
+        </div>`
     },
     {
       day: `Day ${hitpickStart}`,
@@ -1043,7 +1382,7 @@ function updateTimeline(plates, libSize, seqLen, foldSampling) {
       detail: `Cherry-pick ${libSize.toLocaleString()} clones (${formatTime(libSize * 0.75 / 60)})`
     },
     {
-      day: `Day ${totalDays}`,
+      day: `Day ${hitpickStart}`,
       task: "Completed",
       detail: "Arrayed library ready for screening"
     }
@@ -1063,25 +1402,15 @@ function updateTimeline(plates, libSize, seqLen, foldSampling) {
     `;
   }).join("");
 
-  return totalDays;
+  return totalDaysRange;
 }
 
 function resizeInputs() {
+  // Width is now controlled entirely by CSS (per-breakpoint values).
+  // Clear any previously-set inline width so the CSS rule wins everywhere.
   ["library-size", "seq-length"].forEach(id => {
     const input = document.getElementById(id);
-    const span = document.createElement('span');
-    span.style.visibility = 'hidden';
-    span.style.position = 'absolute';
-    span.style.fontSize = '2rem';
-    span.style.fontWeight = '600';
-    span.style.fontFamily = getComputedStyle(input).fontFamily;
-    span.textContent = input.value || input.placeholder;
-    document.body.appendChild(span);
-
-    const width = Math.max(70, span.offsetWidth + 35);
-    input.style.width = `${width}px`;
-
-    document.body.removeChild(span);
+    if (input) input.style.width = '';
   });
 }
 
