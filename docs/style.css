@@ -503,22 +503,37 @@ a:hover {
   margin: 2rem 0;
 }
 
+/* "What will it cost?" sentence — uses &nbsp; to bind each input
+   to its surrounding word so values never orphan, while letting the rest wrap
+   at natural word boundaries. */
+.input-sentence--cost {
+  text-align: center;
+  line-height: 1.9;
+  margin: 1rem 0 0.25rem;
+}
+
 .input-sentence .inline-input {
   display: inline-block;
   vertical-align: baseline;
 }
 
 .input-sentence input[type="number"] {
-  width: 90px;
-  padding: 0.375rem 0.5rem;
-  font-size: 1.375rem;
+  width: 88px;
+  padding: 0.4rem 0.5rem;
+  font-size: 1.35rem;
   font-weight: 600;
   text-align: center;
   border: 2px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-card-bg);
   color: var(--color-accent);
-  transition: width 0.2s ease, border-color 0.15s, background 0.3s;
+  transition: border-color 0.15s, background 0.3s;
+  /* Hide spinner on Firefox; let Chrome/Safari show them subtly */
+  -moz-appearance: textfield;
+}
+.input-sentence input[type="number"]::-webkit-outer-spin-button,
+.input-sentence input[type="number"]::-webkit-inner-spin-button {
+  opacity: 0.6;
 }
 
 .input-sentence input[type="number"]:focus {
@@ -1183,7 +1198,7 @@ pre:hover .code-copy-btn {
   .main {
     margin-left: 0;
     margin-top: 112px;
-    padding: 1.5rem 1rem;
+    padding: 1.5rem 1.5rem;
     /* Flex items default to min-width: auto, which prevents them from
        shrinking below their intrinsic content width. On mobile that
        produces ~25px of horizontal overflow — force the item to respect
@@ -1205,13 +1220,16 @@ pre:hover .code-copy-btn {
   }
 
   .input-sentence {
-    font-size: 1.125rem;
-    line-height: 2;
+    font-size: 1rem;
+    line-height: 2.1;
   }
 
+  /* Mobile-friendly touch target: ≥44px tall, but kept tight on width
+     so the sentence flows naturally on narrow viewports without stacking. */
   .input-sentence input[type="number"] {
-    font-size: 1.125rem;
-    width: 80px;
+    font-size: 1.05rem;
+    padding: 0.5rem 0.35rem;
+    min-height: 44px;
   }
 
   .cost-section {
@@ -1232,7 +1250,22 @@ pre:hover .code-copy-btn {
 
 @media (max-width: 480px) {
   .main {
-    padding: 1rem 0.75rem;
+    padding: 1.25rem 1.25rem;
+  }
+
+  /* Phone: tighter sentence so both phrases fit cleanly without orphaning.
+     Font drops to 0.9rem and inputs to ~54px so the longer second phrase fits in a 320-375 viewport. */
+  .input-sentence {
+    font-size: 0.9rem !important;
+    line-height: 2 !important;
+  }
+
+  .input-sentence input[type="number"] {
+    font-size: 0.95rem !important;
+    width: 54px !important;
+    min-width: 0;
+    padding: 0.4rem 0.25rem !important;
+    min-height: 40px !important;
   }
 
   pre {
