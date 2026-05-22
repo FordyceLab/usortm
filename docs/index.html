@@ -91,18 +91,17 @@
     .cost-chart-container {
       background: var(--color-card-bg);
       border: 1px solid var(--color-border);
-      border-radius: 8px;
-      padding: 1.5rem;
+      border-radius: 16px;
+      padding: 1rem;
       min-height: 420px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      align-self: start;
     }
 
-    /* Plot background for visibility */
-    #cost-plot {
-      background: var(--color-sidebar);
-      border-radius: 6px;
-      padding: 1rem;
-    }
+    /* Strip Plot's tick marks; dash the horizontal grid */
+    #cost-plot svg g[aria-label$="-axis tick"] line { display: none; }
+    #cost-plot svg g[aria-label$="-grid"] line { stroke-dasharray: 3 3; }
+    #cost-plot svg { font-variant-numeric: tabular-nums; }
     
     .effort-stack {
       display: flex;
@@ -135,6 +134,11 @@
     .stat-box .value {
       font-size: 1.25rem;
       font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-box .subvalue {
+      font-variant-numeric: tabular-nums;
     }
 
     /* Make primary metrics (savings and plates) bigger */
@@ -191,6 +195,7 @@
       font-weight: 800;
       line-height: 1;
       white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
 
     .cost-value-large.usortm {
@@ -528,6 +533,7 @@
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       color: var(--color-text);
+      font-variant-numeric: tabular-nums;
     }
 
     .cost-comparison {
@@ -982,15 +988,38 @@ usortm plan variants.csv --output my_project/</code></pre>
 
 import * as Plot from "https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm";
 
+// Single source of truth for chart series colors + labels.
+// Per-series colors stay constant across themes; chrome (axes/grid/pill bg) adapts.
+const SERIES_META = {
+  usortm:      { color: "#2563eb", darkColor: "#60a5fa", label: "uSort-M",          shortLabel: "uSort-M" },
+  traditional: { color: "#6b7280", darkColor: "#9ca3af", label: "Direct Synthesis", shortLabel: "Direct"  },
+  sdm:         { color: "#f59e0b", darkColor: "#fbbf24", label: "SDM",              shortLabel: "SDM"     },
+};
+
+function getChartTheme() {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  return {
+    dark,
+    grid:    dark ? "#1f1f1f" : "#ececec",
+    axis:    dark ? "#a3a3a3" : "#737373",
+    rule:    dark ? "#3f3f46" : "#d1d5db",
+    pillBg:  dark ? "#171717" : "#ffffff",
+    pillText:dark ? "#f5f5f5" : "#111111",
+    usortm:      dark ? SERIES_META.usortm.darkColor      : SERIES_META.usortm.color,
+    traditional: dark ? SERIES_META.traditional.darkColor : SERIES_META.traditional.color,
+    sdm:         dark ? SERIES_META.sdm.darkColor         : SERIES_META.sdm.color,
+  };
+}
+
+// Compact currency formatter for the small endpoint pills.
+function formatPillCost(cost) {
+  if (cost >= 10000) return `$${(cost / 1000).toFixed(0)}k`;
+  if (cost >= 1000)  return `$${(cost / 1000).toFixed(1)}k`;
+  return `$${Math.round(cost)}`;
+}
+
 // Cache for loaded cost curves
 const costDataCache = {};
-
-// Compact cost formatter for inline plot annotations
-function formatPlotCost(v) {
-  if (v >= 100000) return `${(v / 1000).toFixed(0)}k`;
-  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
-  return Math.round(v).toLocaleString();
-}
 
 // Load cost data from Python-generated JSON files
 async function loadCostData(seqLength) {
@@ -1039,40 +1068,16 @@ async function updatePlot(seqLen, currentLib) {
   const currentCosts = interpolateCost(costData, currentLib);
   const libraryType = getLibraryType();
   const isSubstitution = libraryType === 'substitution';
-
-  // Theme-aware colors so the plot tracks light/dark mode tokens
-  const rootStyles = getComputedStyle(document.documentElement);
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const usortmColor = rootStyles.getPropertyValue('--color-accent').trim() || '#2563eb';
-  const cardBg = rootStyles.getPropertyValue('--color-card-bg').trim() || '#ffffff';
-  const borderColor = rootStyles.getPropertyValue('--color-border').trim() || '#e5e5e5';
-  const textColor = rootStyles.getPropertyValue('--color-text').trim() || '#333';
-  const sdmColor = '#f59e0b';
-  const directColor = isDark ? '#9ca3af' : '#6b7280';
-
-  // Shared tooltip styling — opaque card-bg with theme-aware text/stroke
-  const tipStyle = {
-    fill: cardBg,
-    fillOpacity: 0.97,
-    stroke: borderColor,
-    strokeWidth: 1,
-    textPadding: 7,
-    fontSize: 13,
-    textAnchor: "start"
-  };
+  const theme = getChartTheme();
 
   // Extend data range if needed
   const maxLib = Math.max(Math.max(...costData.map(d => d.library_size)), currentLib * 1.2);
 
   const container = document.getElementById("cost-plot");
-  // Available width: parent column minus card padding (2× 1.5rem = 48px)
-  // and our own plot padding (2× 1rem = 32px), clamped down so we never overflow.
-  const containerWidth = Math.max(220, container.parentElement.clientWidth - 48);
-  // Grow with available space up to 540px (more usable on wide screens than 450px),
-  // shrink down to fit narrow phones without horizontal overflow.
-  const plotWidth = Math.min(540, containerWidth);
-  // Slightly shorter than wide for a comfortable aspect ratio; cap at 420 on big screens
-  const plotHeight = Math.min(420, Math.round(plotWidth * 0.85));
+  const containerWidth = container.parentElement.clientWidth - 40;
+  const plotWidth = Math.max(300, containerWidth);
+  // Taller aspect ratio so the chart fills more of the chip vertically
+  const plotHeight = Math.max(320, Math.min(500, plotWidth * 0.85));
 
   // Build plot data — substitution mode uses substitution_cost for uSort-M; SDM line only in substitution mode
   const plotData = [];
@@ -1086,128 +1091,175 @@ async function updatePlot(seqLen, currentLib) {
     }
   });
 
-  // In substitution mode, uSort-M dot uses substitution_cost; connector/primary comparison is vs SDM
+  // In substitution mode, uSort-M uses substitution_cost; primary comparison is SDM, secondary is Direct
   const usortmCost = isSubstitution ? currentCosts.substitution_cost : currentCosts.usortm_cost;
-  const compCost = isSubstitution ? currentCosts.sdm_cost : currentCosts.traditional_cost;
-  const compLabel = isSubstitution ? "SDM" : "Direct Synthesis";
+
+  // Y-domain: floor at 0 (cost can't be negative), 12% headroom over the highest LINE value (ignore
+  // range-band ceilings — they'd waste ~30% of the plot's vertical space below the actual data).
+  const maxLineCost = Math.max(
+    ...costData.flatMap(d => [
+      d.usortm_cost ?? 0, d.substitution_cost ?? 0,
+      d.traditional_cost ?? 0, d.sdm_cost ?? 0,
+    ])
+  );
+  const yDomain = [0, maxLineCost * 1.12];
 
   const plot = Plot.plot({
     width: plotWidth,
     height: plotHeight,
-    marginLeft: 70,
-    marginBottom: 55,
-    marginRight: 50,
-    marginTop: 38,
+    marginLeft: 52,
+    marginBottom: 32,
+    marginRight: 82,
+    marginTop: 16,
     style: {
       background: "transparent",
-      color: textColor,
-      fontSize: "17px"
+      color: theme.axis,
+      fontSize: "13px",
     },
     x: {
-      label: "Library Size (variants)",
-      labelOffset: 52,
-      labelFontSize: 22,
+      label: null,
+      line: false,
       tickFormat: d => d >= 1000 ? `${d/1000}k` : d,
-      // Scale tick count with plot width to avoid clutter on narrow viewports
+      // Scale tick count with plot width so labels don't crowd on narrow viewports
       ticks: plotWidth < 360 ? 4 : plotWidth < 500 ? 5 : 6,
-      domain: [0, maxLib]
+      domain: [0, maxLib],
     },
     y: {
-      label: "Cost (USD)",
-      labelOffset: 55,
-      labelAnchor: "top",
-      labelArrow: "up",
-      labelFontSize: 18,
-      tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
-      ticks: plotWidth < 360 ? 4 : plotWidth < 500 ? 6 : 8,
+      label: null,
+      line: false,
       grid: true,
-      nice: true
+      nice: true,
+      domain: yDomain,
+      ticks: 6,
+      tickFormat: d => d >= 1000 ? `$${(d/1000).toFixed(0)}k` : `$${d}`,
     },
     marks: [
       // Direct Synthesis range + line — secondary in substitution mode
       Plot.areaY(plotData.filter(d => d.method === "TradRange"), {
         x: "library", y1: "costMin", y2: "costMax",
-        fill: directColor, fillOpacity: isSubstitution ? 0.08 : 0.18
+        fill: theme.traditional, fillOpacity: isSubstitution ? 0.08 : 0.18,
       }),
       Plot.line(plotData.filter(d => d.method === "Direct Synthesis"), {
-        x: "library", y: "cost",
-        stroke: directColor, strokeWidth: isSubstitution ? 1.5 : 2.5,
+        x: "library", y: "cost", curve: "monotone-x",
+        stroke: theme.traditional,
+        strokeWidth: isSubstitution ? 1.5 : 2.5,
         strokeOpacity: isSubstitution ? 0.4 : 1.0,
-        tip: tipStyle,
-        title: d => `Direct Synthesis\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
       }),
       // SDM range + line — only in substitution mode
       ...(isSubstitution ? [
         Plot.areaY(plotData.filter(d => d.method === "SDMRange"), {
           x: "library", y1: "costMin", y2: "costMax",
-          fill: sdmColor, fillOpacity: 0.18
+          fill: theme.sdm, fillOpacity: 0.18,
         }),
         Plot.line(plotData.filter(d => d.method === "SDM"), {
-          x: "library", y: "cost", stroke: sdmColor, strokeWidth: 2.5,
-          tip: tipStyle,
-          title: d => `SDM\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
+          x: "library", y: "cost", curve: "monotone-x",
+          stroke: theme.sdm, strokeWidth: 2.5,
         }),
       ] : []),
-      // uSort-M line (theme accent)
+      // uSort-M line
       Plot.line(plotData.filter(d => d.method === "uSort-M"), {
-        x: "library", y: "cost", stroke: usortmColor, strokeWidth: 2.5,
-        tip: tipStyle,
-        title: d => `uSort-M\n${d.library.toLocaleString()} variants\n$${Math.round(d.cost).toLocaleString()}`
+        x: "library", y: "cost", curve: "monotone-x",
+        stroke: theme.usortm, strokeWidth: 2.5,
       }),
-      // Vertical dashed line at current position
-      Plot.ruleX([currentLib], { stroke: "currentColor", strokeOpacity: 0.25, strokeDasharray: "4,4" }),
-      // Connector to primary comparison
-      Plot.link([{
-        x1: currentLib, y1: usortmCost,
-        x2: currentLib, y2: compCost
-      }], {
-        x1: "x1", y1: "y1", x2: "x2", y2: "y2",
-        stroke: "currentColor", strokeOpacity: 0.4, strokeDasharray: "3,3", strokeWidth: 1.5
-      }),
-      // Dots at current position
-      Plot.dot(
-        isSubstitution
-          ? [
-              {library: currentLib, cost: usortmCost, label: "uSort-M"},
-              {library: currentLib, cost: currentCosts.traditional_cost, label: "Direct Synthesis"},
-              {library: currentLib, cost: currentCosts.sdm_cost, label: "SDM"},
-            ]
-          : [
-              {library: currentLib, cost: usortmCost, label: "uSort-M"},
-              {library: currentLib, cost: currentCosts.traditional_cost, label: "Direct Synthesis"},
-            ],
-        {
-          x: "library", y: "cost", r: 6,
-          fill: d => d.label === "uSort-M" ? usortmColor : d.label === "SDM" ? sdmColor : directColor,
-          stroke: cardBg, strokeWidth: 2,
-          fillOpacity: d => d.label === compLabel || d.label === "uSort-M" ? 1 : 0.35,
-          strokeOpacity: d => d.label === compLabel || d.label === "uSort-M" ? 1 : 0.35,
-        }
-      ),
-      // Inline cost labels next to each current-position dot, staggered vertically
-      // so they never collide when values bunch up at small library sizes.
-      Plot.text(
-        [{library: currentLib, cost: usortmCost, label: `$${formatPlotCost(usortmCost)}`}],
-        {x: "library", y: "cost", text: "label", dx: 12, dy: 14, textAnchor: "start",
-         fontSize: 13, fontWeight: 700, fill: usortmColor,
-         stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
-      ),
-      ...(isSubstitution ? [
-        Plot.text(
-          [{library: currentLib, cost: currentCosts.sdm_cost, label: `$${formatPlotCost(currentCosts.sdm_cost)}`}],
-          {x: "library", y: "cost", text: "label", dx: 12, dy: 0, textAnchor: "start",
-           fontSize: 13, fontWeight: 700, fill: sdmColor,
-           stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
-        )
-      ] : []),
-      Plot.text(
-        [{library: currentLib, cost: currentCosts.traditional_cost, label: `$${formatPlotCost(currentCosts.traditional_cost)}`}],
-        {x: "library", y: "cost", text: "label", dx: 12, dy: -14, textAnchor: "start",
-         fontSize: 13, fontWeight: 700, fill: directColor,
-         stroke: cardBg, strokeWidth: 4, paintOrder: "stroke"}
-      )
-    ]
+      // "You are here" vertical at the slider position
+      Plot.ruleX([currentLib], { stroke: theme.rule, strokeDasharray: "4,4" }),
+    ],
   });
+
+  // Tint horizontal grid lines per theme (CSS attr selector handles the dashing)
+  plot.querySelectorAll('g[aria-label$="-grid"] line').forEach(line => {
+    line.setAttribute("stroke", theme.grid);
+  });
+
+  // ─── Endpoint pills at the slider position ───────────────────────────────
+  // Build endpoints list with the value each visible line carries at currentLib.
+  const endpoints = [
+    { key: "usortm",      value: usortmCost,                       color: theme.usortm,      dim: false },
+    { key: "traditional", value: currentCosts.traditional_cost,    color: theme.traditional, dim: isSubstitution },
+  ];
+  if (isSubstitution) {
+    endpoints.push({ key: "sdm", value: currentCosts.sdm_cost, color: theme.sdm, dim: false });
+  }
+
+  const xScale = plot.scale("x");
+  const yScale = plot.scale("y");
+  const applyX = v => xScale.apply ? xScale.apply(v) : xScale.range[0] + (v - xScale.domain[0]) / (xScale.domain[1] - xScale.domain[0]) * (xScale.range[1] - xScale.range[0]);
+  const applyY = v => yScale.apply ? yScale.apply(v) : yScale.range[0] + (v - yScale.domain[0]) / (yScale.domain[1] - yScale.domain[0]) * (yScale.range[1] - yScale.range[0]);
+
+  const LABEL_W = 62, LABEL_H = 24, LABEL_GAP = 4;
+  const cx = applyX(currentLib);
+
+  // Resolve pixel positions, sort ascending by y, then push each pill down until clear of the previous.
+  const positioned = endpoints
+    .map(ep => ({ ...ep, x: cx, y: applyY(ep.value) }))
+    .sort((a, b) => a.y - b.y);
+
+  let prev = -Infinity;
+  for (const ep of positioned) {
+    ep.labelY = Math.max(ep.y, prev + LABEL_H + LABEL_GAP);
+    ep.shifted = Math.abs(ep.labelY - ep.y) > 0.5;
+    prev = ep.labelY;
+  }
+
+  const ns = "http://www.w3.org/2000/svg";
+  const labelLeft = cx + 10; // pill sits just right of the slider rule
+
+  for (const ep of positioned) {
+    const g = document.createElementNS(ns, "g");
+    if (ep.dim) g.setAttribute("opacity", "0.45");
+
+    // Leader line only when the pill had to shift to avoid collision
+    if (ep.shifted) {
+      const leader = document.createElementNS(ns, "line");
+      leader.setAttribute("x1", ep.x + 5);
+      leader.setAttribute("y1", ep.y);
+      leader.setAttribute("x2", labelLeft);
+      leader.setAttribute("y2", ep.labelY);
+      leader.setAttribute("stroke", ep.color);
+      leader.setAttribute("stroke-width", "1.25");
+      leader.setAttribute("opacity", "0.55");
+      g.appendChild(leader);
+    }
+
+    // Donut dot: fill = series color, stroke = pill bg (punches a hole through line crossings)
+    const dot = document.createElementNS(ns, "circle");
+    dot.setAttribute("cx", ep.x);
+    dot.setAttribute("cy", ep.y);
+    dot.setAttribute("r", "5");
+    dot.setAttribute("fill", ep.color);
+    dot.setAttribute("stroke", theme.pillBg);
+    dot.setAttribute("stroke-width", "2");
+    g.appendChild(dot);
+
+    // Pill: bg fill, series-colored border
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", labelLeft);
+    rect.setAttribute("y", ep.labelY - LABEL_H / 2);
+    rect.setAttribute("width", LABEL_W);
+    rect.setAttribute("height", LABEL_H);
+    rect.setAttribute("rx", "11");
+    rect.setAttribute("ry", "11");
+    rect.setAttribute("fill", theme.pillBg);
+    rect.setAttribute("stroke", ep.color);
+    rect.setAttribute("stroke-width", "1.25");
+    g.appendChild(rect);
+
+    // Value text
+    const text = document.createElementNS(ns, "text");
+    text.setAttribute("x", labelLeft + LABEL_W / 2);
+    text.setAttribute("y", ep.labelY);
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "central");
+    text.setAttribute("fill", theme.pillText);
+    text.setAttribute("font-size", "13");
+    text.setAttribute("font-weight", "600");
+    text.style.fontVariantNumeric = "tabular-nums";
+    text.textContent = formatPillCost(ep.value);
+    g.appendChild(text);
+
+    plot.appendChild(g);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   container.innerHTML = "";
   container.appendChild(plot);
@@ -1417,7 +1469,25 @@ function resizeInputs() {
 // Event listeners
 document.getElementById("library-size").addEventListener("input", updateUI);
 document.getElementById("seq-length").addEventListener("input", updateUI);
-window.addEventListener("resize", updateUI);
+
+// Re-render on theme toggle (toggleTheme dispatches this from the non-module script)
+document.addEventListener("themechange", updateUI);
+
+// Re-render on container resize (debounced) — avoids running updateUI on every pixel of a window drag
+{
+  const target = document.getElementById("cost-plot")?.parentElement;
+  if (target && typeof ResizeObserver !== "undefined") {
+    let timer = null;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(updateUI, 100);
+    });
+    ro.observe(target);
+  } else {
+    // Fallback for older browsers
+    window.addEventListener("resize", updateUI);
+  }
+}
 
 // Library type toggle
 document.querySelectorAll('.toggle-btn').forEach(btn => {
@@ -1445,8 +1515,9 @@ hljs.highlightAll();
       
       html.setAttribute('data-theme', newTheme);
       localStorage.setItem('theme', newTheme);
-      
+
       updateThemeUI(newTheme);
+      document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: newTheme } }));
     }
     
     function updateThemeUI(theme) {
