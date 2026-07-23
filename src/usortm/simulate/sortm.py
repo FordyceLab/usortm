@@ -1,7 +1,5 @@
 import numpy as np
 import pandas as pd
-from pysam import samples
-from tqdm import tqdm
 
 from .sample import (
     generate_pool,
@@ -349,6 +347,8 @@ def simulate_coverage_curve(
     df : pd.DataFrame
         A DataFrame containing all sampling information.
     """
+    from tqdm import tqdm  # lazy: only the coverage-curve helpers need it
+
     # Instantiate dictionary
     all_samples = {}
 
@@ -420,6 +420,8 @@ def simulate_coverage_curve_with_resampling(
     Simulate coverage curves with and without resampling from the remaining library.
     Adds a 'Resampled' column for comparison.
     """
+    from tqdm import tqdm  # lazy: only the coverage-curve helpers need it
+
     rng = np.random.default_rng(seed)
     starting_lib_size = lib_size
     base_args = dict(

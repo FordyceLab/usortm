@@ -414,11 +414,14 @@ def usortm_synthesis_cost(n_seqs,
                           methods_dir=None,
                           ):
     """
-    Compute synthesis cost (USD) for a pooled oligo library sequences.
+    Compute synthesis cost (USD) for a uSort-M oligo/gene library.
 
     For sequences <=350 bp, uses Twist Oligo Pool lookup pricing.
-    For sequences >350 bp, assumes a substitution library model where
-    30 bp inserts are synthesized and assembled into the full-length gene.
+    For sequences >350 bp, uses Twist Gene Pools pricing. Substitution and
+    tiled-assembly libraries synthesize short (~30 bp) inserts rather than the
+    full-length construct, so they are priced by passing the insert length
+    (see estimate.TILED_ASSEMBLY_INSERT_LENGTH and docs/generate_cost_data.py),
+    which routes through the oligo-pool branch above.
     """
     methods = _get_methods(methods_dir)
 
@@ -433,7 +436,9 @@ def usortm_synthesis_cost(n_seqs,
                 return cost / m.pricing.get("commercial_discount", 1.0)
             return cost
     else:
-        m = methods.get("usortm_substitution")
+        # No single oligo pool covers >350 bp, so use Twist Gene Pools
+        # (consistent with the published docs cost model).
+        m = methods.get("twist_gene_pools")
         if m is None:
             return 0
         cost = compute_cost(m, n_seqs, seq_length)
@@ -482,8 +487,8 @@ def usortm_sorting_cost(library_size, fold_sampling=8, machine_rate=70, operator
     # Calculate total wells to sort
     total_wells = library_size * fold_sampling
 
-    # Get number of 384-well plates
-    n_plates = int(total_wells / 384)
+    # Get number of 384-well plates (round up: a partial plate is still a plate)
+    n_plates = math.ceil(total_wells / 384)
 
     # Get total sort time in minutes, assuming 6 minutes per plate
     sort_minutes = n_plates * 6
@@ -502,8 +507,8 @@ def usortm_barcoding_cost(n_wells):
     # Assume 8x sorting
     # total_wells = library_size*8
     total_wells = n_wells
-    n_plates = int(n_wells/384) # Get number of 
-                                # 384-well plates
+    # Round up: a partial plate still consumes a full plate's barcoding reagents.
+    n_plates = math.ceil(n_wells / 384)
     return n_plates*97.73 # From cost sheet
 
 def usortm_sequencing_cost(n_wells, seq_length):
