@@ -26,7 +26,12 @@ dependencies = [
     "questionary>=2.0",
     "openpyxl>=3.0",
     "numba",
-    "tomli>=1.0; python_version < '3.11'",
+    # Shared synthesis-method registry (model, TOML loader, method definitions).
+    # Private repo, not yet published: for local dev install it editable first
+    # (`pip install -e ../synthesis-methods`) so pip sees this requirement satisfied.
+    # Switch to a git/index source once the package is public.
+    "synthesis-methods",
+    "tomli>=1.0; python_version < '3.11'",  # <3.11 TOML backend for demux/preset/remote config loaders
 ]
 
 [project.optional-dependencies]
