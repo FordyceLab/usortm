@@ -69,6 +69,13 @@ def plan(
              "Copies the preset into the project as mask_config.toml. "
              "Run 'usortm config list' to see available presets.",
     ),
+    design_specs: Optional[Path] = typer.Option(
+        None,
+        "--design-specs",
+        help="Path to a library-designer design-specs JSON (<name>_design_specs.json). "
+             "If omitted, plan auto-detects one next to the variants file. Pre-fills the "
+             "synthesis method (skew) and records how the library was designed in the project.",
+    ),
 ):
     """
     Plan a [#4096E3]uSort-M[/#4096E3] experiment from a variant list.
@@ -125,26 +132,47 @@ def plan(
         )
         return
 
+    # Carry over library-designer metadata if present. This pre-fills the
+    # synthesis method (and thus skew) and records how the library was designed,
+    # so the upstream design and the downstream sort share one provenance trail.
+    design = _load_design_specs(design_specs, variants_file, library_size)
+    if design is not None:
+        _print_design_summary(design)
+
     # Select synthesis method (determines skew for simulation)
     synthesis_method_slug = None
     if skew is None:
-        selected_method = _prompt_synthesis_method(seq_length, library_size)
-        if selected_method is not None:
-            synthesis_method_slug = selected_method.slug
-            if selected_method.skew_q90_q10 is not None:
-                skew = selected_method.skew_q90_q10
+        # First try the platform recorded by library-designer, so we can skip the prompt.
+        selected_method_name = None
+        if design is not None:
+            skew, synthesis_method_slug, selected_method_name = _skew_from_platform(
+                design["spec"].get("platform")
+            )
+            if skew is not None:
                 console.print(
-                    f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
-                    f"(skew {skew:.1f}× Q90/Q10)"
+                    f"[green]✓[/green] Synthesis method from design specs: "
+                    f"[cyan]{selected_method_name}[/cyan] (skew {skew:.1f}×)"
                 )
+
+        if skew is None:
+            # No usable platform in the design specs — fall back to the prompt.
+            selected_method = _prompt_synthesis_method(seq_length, library_size)
+            if selected_method is not None:
+                synthesis_method_slug = selected_method.slug
+                if selected_method.skew_q90_q10 is not None:
+                    skew = selected_method.skew_q90_q10
+                    console.print(
+                        f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
+                        f"(skew {skew:.1f}× Q90/Q10)"
+                    )
+                else:
+                    skew = 1.0  # arrayed synthesis: uniform
+                    console.print(
+                        f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
+                        f"(arrayed synthesis, skew ~1×)"
+                    )
             else:
-                skew = 1.0  # arrayed synthesis: uniform
-                console.print(
-                    f"[green]✓[/green] Using [cyan]{selected_method.name}[/cyan] "
-                    f"(arrayed synthesis, skew ~1×)"
-                )
-        else:
-            skew = 4.0  # default fallback
+                skew = 4.0  # default fallback
 
     # Calculate sorting requirements
     total_wells = int(library_size * fold_sampling)
@@ -259,6 +287,7 @@ def plan(
         "fold_sampling": fold_sampling,
         "skew": skew,
         "synthesis_method": synthesis_method_slug,
+        "library_design": _design_record(design) if design is not None else None,
         "target_coverage": target_coverage,
         "expected_coverage": round(expected_coverage, 4),
         "coverage_std": round(coverage_std, 4),
@@ -365,6 +394,142 @@ def _infer_seq_length(variants: list[dict]) -> int:
         return 300
 
     return int(statistics.median(lengths))
+
+
+# --- library-designer metadata carry-over ------------------------------------
+#
+# library-designer writes a design-specs JSON next to variants.csv describing how
+# the library was built (spec, seed, tool versions). Reading it lets `plan` skip
+# the synthesis-method prompt and record the design provenance in the project.
+# Current name: "<name>_design_specs.json"; "*_provenance.json" is accepted as a
+# transitional fallback for libraries written before that rename.
+_DESIGN_SPECS_GLOBS = ("*_design_specs.json", "design_specs.json", "*_provenance.json")
+
+
+def _load_design_specs(
+    explicit: Optional[Path], variants_file: Path, library_size: int
+) -> Optional[dict]:
+    """Locate and parse a library-designer design-specs JSON.
+
+    Returns ``{"path", "data", "spec"}`` or ``None``. A missing or malformed file
+    is a soft failure (warn, return ``None``) — design specs are an optional
+    convenience and must never abort a plan.
+    """
+    path = explicit
+    if path is not None:
+        if not path.exists():
+            console.print(
+                f"[yellow]⚠[/yellow] --design-specs file not found: {path}. Continuing without it."
+            )
+            return None
+    else:
+        parent = variants_file.parent
+        found: list[Path] = []
+        for pattern in _DESIGN_SPECS_GLOBS:
+            found = sorted(parent.glob(pattern))
+            if found:
+                break
+        if not found:
+            return None
+        if len(found) > 1:
+            console.print(
+                f"[yellow]⚠[/yellow] Multiple design-specs files next to "
+                f"{variants_file.name}; pass [cyan]--design-specs[/cyan] to pick one. "
+                f"Continuing without metadata carry-over."
+            )
+            return None
+        path = found[0]
+
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        console.print(
+            f"[yellow]⚠[/yellow] Could not read design specs ({path.name}): {exc}. "
+            f"Continuing without it."
+        )
+        return None
+
+    spec = data.get("spec")
+    if not isinstance(spec, dict):
+        console.print(
+            f"[yellow]⚠[/yellow] {path.name} has no 'spec' block; not a library-designer "
+            f"file. Ignoring."
+        )
+        return None
+
+    n_designed = data.get("n_variants")
+    if isinstance(n_designed, int) and n_designed != library_size:
+        console.print(
+            f"[yellow]⚠[/yellow] Design specs describe {n_designed} variants but "
+            f"{variants_file.name} has {library_size}. Using the CSV."
+        )
+    return {"path": path, "data": data, "spec": spec}
+
+
+def _print_design_summary(design: dict) -> None:
+    """Print what was pulled from the design specs."""
+    spec, data = design["spec"], design["data"]
+    console.print(
+        f"[green]✓[/green] Using library-designer design specs: "
+        f"[cyan]{design['path'].name}[/cyan]"
+    )
+    a5, a3 = spec.get("adaptor_5", ""), spec.get("adaptor_3", "")
+    if a5 or a3:
+        console.print(f"  Adaptors: 5' [cyan]{a5 or '—'}[/cyan]  |  3' [cyan]{a3 or '—'}[/cyan]")
+    opt = spec.get("optimization") or {}
+    if opt.get("species") or opt.get("method"):
+        console.print(
+            f"  Codon optimization: {opt.get('species', '?')} / {opt.get('method', '?')}"
+        )
+    versions = data.get("versions") or {}
+    ld_ver = versions.get("library_designer") or versions.get("library-designer")
+    if ld_ver:
+        console.print(f"  Designed with library-designer {ld_ver}")
+
+
+def _skew_from_platform(platform):
+    """Resolve a library-designer ``platform`` to ``(skew, method_slug, label)``.
+
+    ``platform`` is a uSort-M method slug (e.g. ``twist_oligo_pools``) or the bare
+    type ``pooled`` / ``arrayed``. Returns ``(None, None, None)`` when it can't be
+    mapped to a specific skew (generic ``pooled``, unknown slug, or missing), so the
+    caller falls back to the interactive prompt.
+    """
+    if not platform:
+        return None, None, None
+    if platform == "arrayed":
+        return 1.0, None, "arrayed synthesis"
+    if platform == "pooled":
+        return None, None, None
+    try:
+        from usortm.costs.method_loader import load_all_methods
+        method = load_all_methods().get(platform)
+    except Exception:
+        method = None
+    if method is None:
+        return None, None, None
+    if method.skew_q90_q10 is not None:
+        return method.skew_q90_q10, method.slug, method.name
+    return 1.0, method.slug, method.name   # arrayed method: uniform
+
+
+def _design_record(design: dict) -> dict:
+    """The subset of the design specs recorded in ``usortm_project.json`` so the
+    experiment is traceable back to how its library was designed."""
+    spec, data = design["spec"], design["data"]
+    return {
+        "source": "library-designer",
+        "specs_file": str(design["path"].resolve()),
+        "library_name": spec.get("name"),
+        "platform": spec.get("platform"),
+        "adaptor_5": spec.get("adaptor_5", ""),
+        "adaptor_3": spec.get("adaptor_3", ""),
+        "optimization": spec.get("optimization"),
+        "avoid_enzymes": spec.get("avoid_enzymes"),
+        "seed": data.get("seed", spec.get("seed")),
+        "tool_versions": data.get("versions"),
+        "n_variants": data.get("n_variants"),
+    }
 
 
 def _validate_variant_names(variants: list[dict]) -> None:
