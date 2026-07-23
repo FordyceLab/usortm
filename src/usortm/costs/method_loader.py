@@ -1,79 +1,36 @@
-"""Load synthesis method pricing from TOML config files."""
+"""Synthesis-method access for uSort-M cost models.
 
-import sys
-from pathlib import Path
+Method definitions — capabilities, sequence-length and library-size limits,
+error/skew estimates, and pricing tables — come from the shared
+``synthesis_methods`` registry, so uSort-M and library_designer read the same
+numbers instead of each carrying a copy of the TOMLs.
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
+This module re-exports that data layer and adds the uSort-M-specific
+``compute_cost``, which the shared package intentionally does not provide (it
+holds the data; the caller does the cost math off ``method.pricing``).
+"""
+from __future__ import annotations
 
-METHODS_DIR = Path(__file__).parent / "methods"
+from synthesis_methods import (
+    METHODS_DIR,
+    SynthesisMethod,
+    find_methods,
+    get_method,
+    load_all_methods,
+    load_method,
+    platform_type,
+)
 
-
-class SynthesisMethod:
-    """A synthesis method loaded from a TOML config file."""
-
-    __slots__ = (
-        "name", "vendor", "type", "date_collected", "notes",
-        "seq_length_min", "seq_length_max",
-        "library_size_min", "library_size_max",
-        "error_rate", "skew_q90_q10",
-        "pricing", "slug",
-    )
-
-    def __init__(self, slug, data):
-        meta = data["meta"]
-        caps = data["capabilities"]
-        sim = data["simulation"]
-
-        self.slug = slug
-        self.name = meta["name"]
-        self.vendor = meta["vendor"]
-        self.type = meta["type"]
-        self.date_collected = meta["date_collected"]
-        self.notes = meta.get("notes", "")
-
-        self.seq_length_min = caps["seq_length_min"]
-        self.seq_length_max = caps["seq_length_max"]
-        self.library_size_min = caps.get("library_size_min")
-        self.library_size_max = caps.get("library_size_max")
-
-        er = sim.get("error_rate", [1e-4, 5e-4])
-        if len(er) == 1:
-            er = [er[0], er[0]]
-        self.error_rate = tuple(er)
-
-        # skew_q90_q10: Q90/Q10 abundance ratio; only meaningful for pooled synthesis
-        if meta["type"] == "pooled":
-            self.skew_q90_q10 = float(sim["skew_q90_q10"])
-        else:
-            self.skew_q90_q10 = None
-
-        self.pricing = data["pricing"]
-
-    def __repr__(self):
-        return f"SynthesisMethod({self.slug!r}, {self.name!r})"
-
-
-def load_method(path):
-    """Load a single SynthesisMethod from a TOML file."""
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-    return SynthesisMethod(path.stem, data)
-
-
-def load_all_methods(methods_dir=None):
-    """Load all methods from a directory, returning a dict keyed by slug."""
-    d = Path(methods_dir) if methods_dir else METHODS_DIR
-    methods = {}
-    for p in sorted(d.glob("*.toml")):
-        m = load_method(p)
-        methods[m.slug] = m
-    return methods
+__all__ = [
+    "SynthesisMethod",
+    "load_method",
+    "load_all_methods",
+    "get_method",
+    "find_methods",
+    "platform_type",
+    "METHODS_DIR",
+    "compute_cost",
+]
 
 
 def compute_cost(method, n_seqs, seq_length):
@@ -149,35 +106,3 @@ def _compute_tiered(method, n_seqs, seq_length):
                 return tier["per_fragment"] * n_seqs
 
     return None  # outside defined tiers
-
-
-def find_methods(seq_length, library_size=None, method_type=None, methods_dir=None):
-    """Return all methods whose capabilities overlap the given parameters.
-
-    Args:
-        seq_length: Length of sequence in bp.
-        library_size: Number of sequences (used for pooled method filtering).
-        method_type: Filter by "pooled" or "arrayed". None returns both.
-        methods_dir: Optional custom methods directory.
-
-    Returns:
-        List of matching SynthesisMethod objects.
-    """
-    all_methods = load_all_methods(methods_dir)
-    results = []
-
-    for method in all_methods.values():
-        if method_type and method.type != method_type:
-            continue
-        if not (method.seq_length_min <= seq_length <= method.seq_length_max):
-            continue
-        if (
-            library_size is not None
-            and method.library_size_min is not None
-            and method.library_size_max is not None
-        ):
-            if not (method.library_size_min <= library_size <= method.library_size_max):
-                continue
-        results.append(method)
-
-    return results
