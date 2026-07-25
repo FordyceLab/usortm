@@ -47,6 +47,25 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Pileup row encoding
+# ---------------------------------------------------------------------------
+# A pileup row holds one (symbol, is_match) tuple per reference position.
+# Deletions and uncovered positions must stay distinct: a deletion is positive
+# evidence that the read disagrees with the reference, while an uncovered
+# position is merely absent data.  Collapsing the two makes a read with a large
+# deletion score 100% identical to the reference.
+PILEUP_NOCOV = "-"   # read does not span this reference position
+PILEUP_DEL = "*"     # position deleted within the read's aligned span
+
+# Minimum read depth before a column may be flagged as a problem position.
+# Without this, a single read covering a single position flags it at 100%.
+PILEUP_MIN_FLAG_DEPTH = 3
+
+# Fraction of covering reads that must disagree with the reference to flag.
+PILEUP_MISMATCH_THRESHOLD = 0.10
+
+
+# ---------------------------------------------------------------------------
 # CIGAR classification (mirrors utils.extract_matches logic)
 # ---------------------------------------------------------------------------
 
@@ -818,45 +837,13 @@ def _build_pileup_from_bam(
     """
     if min_overlap_pos < 0:
         min_overlap_pos = ref_len // 2
-    rows = []
-    try:
-        with pysam.AlignmentFile(bam_path, "rb", check_sq=False) as bf:
-            for read in bf.fetch(until_eof=True):
-                if read.query_name not in read_names:
-                    continue
-                if read.is_unmapped or read.is_secondary or read.is_supplementary:
-                    continue
-                if min_overlap_pos and (
-                    read.reference_end is None
-                    or read.reference_start is None
-                    or read.reference_end <= min_overlap_pos
-                    or read.reference_start >= min_overlap_pos
-                ):
-                    continue
-                row = [("-", True)] * ref_len
-                # Use get_aligned_pairs() without with_seq=True to avoid
-                # requiring the MD tag, then look up the reference base from
-                # ref_seq directly.
-                pairs = read.get_aligned_pairs()
-                for qpos, rpos in pairs:
-                    if rpos is None or rpos >= ref_len:
-                        continue
-                    if qpos is None:
-                        row[rpos] = ("-", True)
-                    else:
-                        qbase = read.query_sequence[qpos]
-                        is_match = qbase.upper() == ref_seq[rpos].upper()
-                        row[rpos] = (qbase, is_match)
-                rows.append(row)
-    except Exception as exc:
-        logger.warning("BAM pileup extraction failed: %s", exc)
-
-    # Cluster reads by mismatch pattern (see _build_pileup_grid).
-    if rows:
-        rows.sort(key=lambda row: "".join(
-            "." if m or b == "-" else b.upper() for b, m in row
-        ))
-
+    # with_seq=False avoids requiring an MD tag; the reference base is looked
+    # up from ref_seq instead.
+    rows = _rows_from_aligned_bam(
+        bam_path, ref_seq, ref_len, min_overlap_pos,
+        read_names=read_names, with_seq=False, check_sq=False,
+    )
+    _sort_rows_by_mismatch(rows)
     return rows
 
 
@@ -927,7 +914,9 @@ def generate_well_pileup_html(
         )
         return {
             "ref_id": ref_id,
-            "n_reads": len(pileup_rows),
+            # n_reads is the group size; n_aligned is how many produced a row.
+            "n_reads": len(grp),
+            "n_aligned": len(pileup_rows),
             "frac": frac,
             "status": status,
             "is_recoverable": is_recoverable,
@@ -951,19 +940,26 @@ def generate_well_pileup_html(
             status = "Clean" if _cigar_is_clean(ginfo.get("cigar")) else "Mutation"
 
             variant_fasta = os.path.join(single_ref_dir, f"{ginfo['variant']}.fasta")
-            if os.path.exists(variant_fasta) and minimap2_path and samtools_path:
-                pileup_rows = _build_pileup_from_bam_realign(
-                    bam_path, read_names, variant_fasta,
-                    minimap2_path, samtools_path,
+            if not (os.path.exists(variant_fasta) and minimap2_path and samtools_path):
+                # No reference to display against: skip the group, matching
+                # _make_section rather than emitting an empty section.
+                logger.warning(
+                    "Pileup: skipping group %s (missing FASTA or aligner)",
+                    ginfo.get("variant"),
                 )
-                ref_seq = str(next(SeqIO.parse(variant_fasta, "fasta")).seq)
-            else:
-                pileup_rows = []
-                ref_seq = ""
+                continue
+
+            pileup_rows = _build_pileup_from_bam_realign(
+                bam_path, read_names, variant_fasta,
+                minimap2_path, samtools_path,
+            )
+            ref_seq = str(next(SeqIO.parse(variant_fasta, "fasta")).seq)
 
             group_sections.append({
                 "ref_id": ginfo["variant"],
-                "n_reads": len(pileup_rows),
+                # n_reads is the group size; n_aligned is how many produced a row.
+                "n_reads": len(read_names),
+                "n_aligned": len(pileup_rows),
                 "frac": frac,
                 "status": status,
                 "is_recoverable": is_recoverable,
@@ -1000,6 +996,157 @@ def generate_well_pileup_html(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
         f.write(html)
+
+
+def _run_pileup_alignment(
+    fq_path: str,
+    ref_target: str,
+    out_bam: str,
+    minimap2_path: str,
+    samtools_path: str,
+) -> bool:
+    """Align *fq_path* to *ref_target*, writing a sorted, indexed BAM.
+
+    Returns True on success.  The parent's copy of minimap2's stdout is closed
+    once samtools owns it, so minimap2 gets EPIPE if samtools exits early
+    instead of leaving ``wait()`` blocked forever.  Both exit codes are
+    checked: a silently failed pipeline used to look like an empty pileup.
+    """
+    try:
+        mm2 = subprocess.Popen(
+            [minimap2_path, "-a", "--MD", "--secondary=no", ref_target, fq_path],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        logger.warning("Pileup alignment could not start minimap2: %s", exc)
+        return False
+
+    try:
+        sort_proc = subprocess.run(
+            [samtools_path, "sort", "-o", out_bam],
+            stdin=mm2.stdout, stderr=subprocess.DEVNULL, check=False,
+        )
+    except Exception as exc:
+        logger.warning("Pileup alignment failed during samtools sort: %s", exc)
+        mm2.kill()
+        mm2.wait()
+        return False
+    finally:
+        if mm2.stdout is not None:
+            mm2.stdout.close()
+
+    mm2_rc = mm2.wait()
+    if mm2_rc != 0:
+        logger.warning("minimap2 exited %s during pileup alignment", mm2_rc)
+        return False
+    if sort_proc.returncode != 0:
+        logger.warning(
+            "samtools sort exited %s during pileup alignment", sort_proc.returncode
+        )
+        return False
+
+    index_proc = subprocess.run(
+        [samtools_path, "index", out_bam],
+        stderr=subprocess.DEVNULL, check=False,
+    )
+    if index_proc.returncode != 0:
+        # Only sequential reads follow, which do not need the index.
+        logger.debug("samtools index exited %s; continuing", index_proc.returncode)
+    return True
+
+
+def _rows_from_aligned_bam(
+    bam_path: str,
+    ref_seq: str,
+    ref_len: int,
+    min_overlap_pos: int,
+    read_names: set = None,
+    with_seq: bool = True,
+    check_sq: bool = True,
+) -> list:
+    """Parse an aligned BAM into pileup rows, one row per aligned read.
+
+    Each row is a list of ``(symbol, is_match)`` tuples indexed by reference
+    position.  *symbol* is a base character, :data:`PILEUP_DEL` for a deletion
+    inside the read's aligned span, or :data:`PILEUP_NOCOV` where the read does
+    not reach.
+
+    Insertions relative to the reference cannot be represented in this
+    column-per-reference-position layout and are dropped.  The rendered page
+    says so, so that a clean-looking pileup is not misread as "no insertions".
+
+    This is the single place the symbol encoding is applied; every pileup
+    builder routes through it so the encoding cannot drift between them.
+
+    Args:
+        read_names: When given, only reads with these names are included, and
+            secondary/supplementary alignments are skipped.
+        with_seq: Pass ``with_seq=True`` to ``get_aligned_pairs``, which needs
+            an MD tag.  Set False to look the reference base up from *ref_seq*
+            instead, for BAMs written without MD.
+        check_sq: Passed to :class:`pysam.AlignmentFile`; False tolerates a
+            missing ``@SQ`` header.
+    """
+    rows = []
+    try:
+        with pysam.AlignmentFile(bam_path, "rb", check_sq=check_sq) as bf:
+            # until_eof=True does not require an index, so a failed
+            # `samtools index` still yields a readable pileup.
+            for read in bf.fetch(until_eof=True):
+                if read_names is not None:
+                    if read.query_name not in read_names:
+                        continue
+                    if read.is_secondary or read.is_supplementary:
+                        continue
+                if read.is_unmapped:
+                    continue
+                # Skip reads that don't span the midpoint of the reference.
+                # 5' concatemers end before the midpoint; 3' concatemers
+                # start after it.  Only full-length reads cross it from
+                # both sides and cover the variable region.
+                if min_overlap_pos and (
+                    read.reference_end is None
+                    or read.reference_start is None
+                    or read.reference_end <= min_overlap_pos
+                    or read.reference_start >= min_overlap_pos
+                ):
+                    continue
+                row = [(PILEUP_NOCOV, False)] * ref_len
+                pairs = (
+                    read.get_aligned_pairs(with_seq=True) if with_seq
+                    else read.get_aligned_pairs()
+                )
+                for pair in pairs:
+                    qpos, rpos = pair[0], pair[1]
+                    if rpos is None or rpos >= ref_len:
+                        continue  # insertion, or beyond the reference end
+                    if qpos is None:
+                        row[rpos] = (PILEUP_DEL, False)
+                    else:
+                        qbase = read.query_sequence[qpos]
+                        is_match = qbase.upper() == ref_seq[rpos].upper()
+                        row[rpos] = (qbase, is_match)
+                rows.append(row)
+    except Exception as exc:
+        logger.warning("BAM parsing failed: %s", exc)
+
+    return rows
+
+
+def _sort_rows_by_mismatch(rows: list) -> None:
+    """Sort *rows* in place so reads sharing a mismatch pattern are adjacent.
+
+    Key: "." for a match or for no coverage, the base for a mismatch, ``*`` for
+    a deletion.  Identical patterns sort together and dots sort before letters,
+    so the cleanest reads come first and subpopulations stack visibly.
+    """
+    def _mismatch_key(row):
+        return "".join(
+            "." if (is_match or sym == PILEUP_NOCOV) else sym.upper()
+            for sym, is_match in row
+        )
+
+    rows.sort(key=_mismatch_key)
 
 
 def _build_pileup_from_bam_realign(
@@ -1055,59 +1202,15 @@ def _build_pileup_from_bam_realign(
             return []
 
         # Align to target variant reference
-        try:
-            mm2 = subprocess.Popen(
-                [minimap2_path, "-a", "--MD", "--secondary=no", target_fasta, fq_path],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                [samtools_path, "sort", "-o", out_bam],
-                stdin=mm2.stdout, stderr=subprocess.DEVNULL, check=False,
-            )
-            mm2.wait()
-            subprocess.run(
-                [samtools_path, "index", out_bam],
-                stderr=subprocess.DEVNULL, check=False,
-            )
-        except Exception as exc:
-            logger.warning("Re-alignment for pileup failed: %s", exc)
+        if not _run_pileup_alignment(
+            fq_path, target_fasta, out_bam, minimap2_path, samtools_path
+        ):
             return []
 
-        # Parse aligned BAM into pileup rows
-        rows = []
-        try:
-            with pysam.AlignmentFile(out_bam, "rb") as bf:
-                for read in bf:
-                    if read.is_unmapped:
-                        continue
-                    if min_overlap_pos and (
-                        read.reference_end is None
-                        or read.reference_start is None
-                        or read.reference_end <= min_overlap_pos
-                        or read.reference_start >= min_overlap_pos
-                    ):
-                        continue
-                    row = [("-", True)] * ref_len
-                    pairs = read.get_aligned_pairs(with_seq=True)
-                    for qpos, rpos, rbase in pairs:
-                        if rpos is None or rpos >= ref_len:
-                            continue
-                        if qpos is None:
-                            row[rpos] = ("-", True)
-                        else:
-                            qbase = read.query_sequence[qpos]
-                            is_match = qbase.upper() == ref_seq[rpos].upper()
-                            row[rpos] = (qbase, is_match)
-                    rows.append(row)
-        except Exception as exc:
-            logger.warning("Re-aligned BAM pileup parsing failed: %s", exc)
+        rows = _rows_from_aligned_bam(out_bam, ref_seq, ref_len, min_overlap_pos)
 
-    # Cluster reads by mismatch pattern (see _build_pileup_grid).
-    if rows:
-        rows.sort(key=lambda row: "".join(
-            "." if m or b == "-" else b.upper() for b, m in row
-        ))
-
+    # Cluster reads by mismatch pattern so subpopulations are adjacent.
+    _sort_rows_by_mismatch(rows)
     return rows
 
 
@@ -1129,7 +1232,8 @@ def _build_pileup_grid(
     (typically >1 kb).  Pass 0 to disable the filter entirely.
 
     Returns a list of rows, where each row is a list of
-    (base_char, is_match) tuples indexed by reference position.
+    (symbol, is_match) tuples indexed by reference position.  See
+    :func:`_rows_from_aligned_bam` for the symbol encoding.
     """
     if min_overlap_pos < 0:
         min_overlap_pos = ref_len // 2
@@ -1144,56 +1248,12 @@ def _build_pileup_grid(
 
         # Align (use pre-built .mmi index if available)
         mm2_ref = ref_index if ref_index else ref_fasta
-        try:
-            mm2 = subprocess.Popen(
-                [minimap2_path, "-a", "--MD", "--secondary=no", mm2_ref, fq_path],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                [samtools_path, "sort", "-o", bam_path],
-                stdin=mm2.stdout, stderr=subprocess.DEVNULL, check=False,
-            )
-            mm2.wait()
-            subprocess.run(
-                [samtools_path, "index", bam_path],
-                stderr=subprocess.DEVNULL, check=False,
-            )
-        except Exception as exc:
-            logger.warning("Pileup alignment failed: %s", exc)
+        if not _run_pileup_alignment(
+            fq_path, mm2_ref, bam_path, minimap2_path, samtools_path
+        ):
             return []
 
-        # Parse BAM for pileup
-        rows = []
-        try:
-            with pysam.AlignmentFile(bam_path, "rb") as bf:
-                for read in bf:
-                    if read.is_unmapped:
-                        continue
-                    # Skip reads that don't span the midpoint of the reference.
-                    # 5' concatemers end before the midpoint; 3' concatemers
-                    # start after it.  Only full-length reads cross it from
-                    # both sides and cover the variable region.
-                    if min_overlap_pos and (
-                        read.reference_end is None
-                        or read.reference_start is None
-                        or read.reference_end <= min_overlap_pos
-                        or read.reference_start >= min_overlap_pos
-                    ):
-                        continue
-                    row = [("-", True)] * ref_len  # default: gap
-                    pairs = read.get_aligned_pairs(with_seq=True)
-                    for qpos, rpos, rbase in pairs:
-                        if rpos is None or rpos >= ref_len:
-                            continue
-                        if qpos is None:
-                            row[rpos] = ("-", True)  # deletion
-                        else:
-                            qbase = read.query_sequence[qpos]
-                            is_match = qbase.upper() == ref_seq[rpos].upper()
-                            row[rpos] = (qbase, is_match)
-                    rows.append(row)
-        except Exception as exc:
-            logger.warning("BAM parsing failed: %s", exc)
+        rows = _rows_from_aligned_bam(bam_path, ref_seq, ref_len, min_overlap_pos)
 
         if not rows:
             logger.warning(
@@ -1202,16 +1262,7 @@ def _build_pileup_grid(
             )
 
     # Cluster reads by mismatch pattern so subpopulations are adjacent.
-    # Key: "." for match/gap, actual base for mismatch → identical patterns
-    # sort together.  Fewest mismatches first (dots sort before letters).
-    if rows:
-        def _mismatch_key(row):
-            return "".join(
-                "." if is_match or base == "-" else base.upper()
-                for base, is_match in row
-            )
-        rows.sort(key=_mismatch_key)
-
+    _sort_rows_by_mismatch(rows)
     return rows
 
 
@@ -1221,10 +1272,22 @@ def _render_pileup_html(well_pos: str, candidate: dict,
     """Render the pileup HTML page for one well.
 
     Uses an HTML5 canvas matrix: each read is a row of colored cells.
-    Green = match, per-base color = mismatch, light gray = gap.
+    Match = neutral gray, per-base color = mismatch, dark red = deletion,
+    white = position not covered by the read.
+
+    Insertions relative to the reference are not shown (the matrix has one
+    column per reference position); the page states this in its legend.
     """
     import html as _html
     import json as _json
+
+    def _js(obj) -> str:
+        """JSON for embedding in an inline <script>.
+
+        ``json.dumps`` does not escape ``</``, so a payload containing
+        ``</script>`` would otherwise close the block early.
+        """
+        return _json.dumps(obj).replace("</", "<\\/")
 
     flanks_js = "null"
     if flank_lengths and (flank_lengths[0] or flank_lengths[1]):
@@ -1244,113 +1307,151 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         else:
             status_class = "status-other"
 
-        # Compute per-read identity from pileup data
+        ref_seq = g["ref_seq"]
+        ref_len = len(ref_seq)
+        pileup_rows = g["pileup_rows"]
+
+        # Read counts.  The size of the group and the number of reads that
+        # produced an aligned row are different numbers: the midpoint filter in
+        # the row builder drops concatemers.  Reporting only the latter beside a
+        # fraction derived from the former makes the two contradict each other.
+        n_aligned = g.get("n_aligned", len(pileup_rows))
+        n_group = g.get("n_reads", n_aligned)
+
+        # Identity pooled over reads.  Positions a read does not cover are
+        # excluded, but deletions inside its aligned span count against it —
+        # they are real disagreements with the reference, not missing data.
         identity_str = ""
-        if g["pileup_rows"]:
-            total_bases = 0
-            total_matches = 0
-            for row in g["pileup_rows"]:
-                aligned = [(b, m) for b, m in row if b != "-"]
-                total_bases += len(aligned)
-                total_matches += sum(1 for _, m in aligned if m)
-            if total_bases > 0:
-                identity = total_matches / total_bases
-                identity_str = f" &middot; Read identity: {identity:.1%}"
+        total_bases = 0
+        total_matches = 0
+        for row in pileup_rows:
+            covered = [(s, m) for s, m in row if s != PILEUP_NOCOV]
+            total_bases += len(covered)
+            total_matches += sum(1 for _, m in covered if m)
+        if total_bases > 0:
+            identity = total_matches / total_bases
+            identity_str = f" &middot; Identity (all reads): {identity:.1%}"
 
-        ref_len = len(g["ref_seq"])
-
-        header = (
-            f'<div class="group-header">'
-            f'<span class="ref-name">{_html.escape(g["ref_id"])}{star}</span>'
-            f'<span class="group-meta">'
-            f'{g["n_reads"]} reads ({g["frac"]:.0%}) &middot; '
-            f'{ref_len} bp &middot; '
-            f'Consensus: <span class="{status_class}">'
-            f'{_html.escape(g["status"])}</span>'
-            f'{identity_str}'
-            f'</span></div>'
-        )
-
-        # Encode pileup data compactly for JS:
-        # '.' = match, base letter = mismatch, '-' = gap
-        rows_encoded = []
-        for row in g["pileup_rows"]:
-            chars = []
-            for base_char, is_match in row:
-                if base_char == "-":
-                    chars.append("-")
-                elif is_match:
-                    chars.append(".")
-                else:
-                    chars.append(base_char.upper())
-            rows_encoded.append("".join(chars))
-
-        # Build consensus from pileup: majority base at each position.
-        # Also track positions where >10% of reads disagree with the
-        # reference — these are flagged in the ruler as problem positions.
+        # Consensus per reference position: the majority symbol, where a
+        # deletion competes on equal terms (a column deleted in most reads is
+        # deleted in the consensus).  A column is flagged as a problem position
+        # only when covered deeply enough for the fraction to mean anything.
         from collections import Counter
         consensus_encoded = []
         flagged_cols = []
-        ref_seq = g["ref_seq"]
-        _MISMATCH_THRESHOLD = 0.10
         for col_idx in range(ref_len):
             counts = Counter()
-            for row in g["pileup_rows"]:
-                base, _ = row[col_idx]
-                if base != "-":
-                    counts[base.upper()] += 1
+            for row in pileup_rows:
+                sym, _m = row[col_idx]
+                if sym != PILEUP_NOCOV:
+                    counts[sym.upper()] += 1
             total = sum(counts.values())
-            if counts:
-                cons_base = counts.most_common(1)[0][0]
-                if cons_base == ref_seq[col_idx].upper():
-                    consensus_encoded.append(".")
-                else:
-                    consensus_encoded.append(cons_base)
-                # Flag if >10% of reads differ from reference
-                ref_base = ref_seq[col_idx].upper()
-                ref_count = counts.get(ref_base, 0)
-                if total and (total - ref_count) / total > _MISMATCH_THRESHOLD:
-                    flagged_cols.append(col_idx)
-            else:
-                consensus_encoded.append("-")
+            if not counts:
+                consensus_encoded.append(PILEUP_NOCOV)
+                continue
+            cons_sym = counts.most_common(1)[0][0]
+            ref_base = ref_seq[col_idx].upper()
+            consensus_encoded.append("." if cons_sym == ref_base else cons_sym)
+            # Any non-reference symbol counts as disagreement, deletions included.
+            ref_count = counts.get(ref_base, 0)
+            if (
+                total >= PILEUP_MIN_FLAG_DEPTH
+                and (total - ref_count) / total > PILEUP_MISMATCH_THRESHOLD
+            ):
+                flagged_cols.append(col_idx)
         consensus_str = "".join(consensus_encoded)
 
-        # Reconstruct actual consensus DNA and translate the insert region
-        consensus_dna = "".join(
-            ref_seq[i] if c == "." else (c if c != "-" else "N")
-            for i, c in enumerate(consensus_encoded)
-        )
+        # Reconstruct the consensus insert and translate it.  Slice in
+        # reference coordinates first, then drop deleted positions, so that a
+        # deletion actually shortens the sequence and shifts the reading frame
+        # instead of being padded with N and silently preserving it.
         _ins_start = flank_lengths[0] if flank_lengths else 0
         _ins_end = ref_len - (flank_lengths[1] if flank_lengths else 0)
-        insert_dna = consensus_dna[_ins_start:_ins_end]
+        insert_syms = consensus_encoded[_ins_start:_ins_end]
+        insert_dna = "".join(
+            ref_seq[_ins_start + i] if c == "." else ("N" if c == PILEUP_NOCOV else c)
+            for i, c in enumerate(insert_syms)
+            if c != PILEUP_DEL
+        )
         ref_insert_dna = ref_seq[_ins_start:_ins_end]
+
+        # A net indel that is not a multiple of three shifts the frame, so the
+        # translation below diverges from that point on.  That is the correct
+        # display; label it rather than leaving the user to infer it.
+        _net_indel = len(insert_dna) - len(ref_insert_dna)
+        frameshift = bool(_net_indel % 3)
 
         cons_protein = ""
         ref_protein = ""
         try:
             from Bio.Seq import Seq as _BioSeq
-            _trim = len(insert_dna) - len(insert_dna) % 3
-            if _trim:
-                cons_protein = str(_BioSeq(insert_dna[:_trim]).translate())
-                ref_protein = str(_BioSeq(ref_insert_dna[:_trim]).translate())
+            _cons_trim = len(insert_dna) - len(insert_dna) % 3
+            _ref_trim = len(ref_insert_dna) - len(ref_insert_dna) % 3
+            if _cons_trim:
+                cons_protein = str(_BioSeq(insert_dna[:_cons_trim]).translate())
+            if _ref_trim:
+                ref_protein = str(_BioSeq(ref_insert_dna[:_ref_trim]).translate())
         except Exception:
             pass
 
-        ref_seq_js = _json.dumps(ref_seq)
-        rows_js = _json.dumps(rows_encoded)
-        cons_js = _json.dumps(consensus_str)
-        flagged_js = _json.dumps(flagged_cols)
+        indel_str = ""
+        if _net_indel:
+            _kind = "frameshift" if frameshift else "in-frame indel"
+            indel_str = (
+                f' &middot; <span class="indel-flag">'
+                f'{_net_indel:+d} bp {_kind}</span>'
+            )
+
+        reads_str = (
+            f'{n_group} reads ({g["frac"]:.0%})'
+            if n_aligned == n_group
+            else f'{n_aligned} of {n_group} reads aligned ({g["frac"]:.0%})'
+        )
+
+        header = (
+            f'<div class="group-header">'
+            f'<span class="ref-name">{_html.escape(g["ref_id"])}{star}</span>'
+            f'<span class="group-meta">'
+            f'{reads_str} &middot; '
+            f'{ref_len} bp &middot; '
+            f'Consensus: <span class="{status_class}">'
+            f'{_html.escape(g["status"])}</span>'
+            f'{identity_str}'
+            f'{indel_str}'
+            f'</span></div>'
+        )
+
+        # Encode pileup data compactly for JS: '.' = match, base letter =
+        # mismatch, '*' = deletion, '-' = position not covered by the read.
+        rows_encoded = []
+        for row in pileup_rows:
+            chars = []
+            for sym, is_match in row:
+                if sym in (PILEUP_NOCOV, PILEUP_DEL):
+                    chars.append(sym)
+                elif is_match:
+                    chars.append(".")
+                else:
+                    chars.append(sym.upper())
+            rows_encoded.append("".join(chars))
+
+        ref_seq_js = _js(ref_seq)
+        rows_js = _js(rows_encoded)
+        cons_js = _js(consensus_str)
+        flagged_js = _js(flagged_cols)
         n_rows = len(rows_encoded)
         n_cols = ref_len
 
         # Translation data for canvas rendering
-        ref_protein_js = _json.dumps(ref_protein) if ref_protein else "null"
-        cons_protein_js = _json.dumps(cons_protein) if cons_protein else "null"
+        ref_protein_js = _js(ref_protein) if ref_protein else "null"
+        cons_protein_js = _js(cons_protein) if cons_protein else "null"
 
         if n_rows == 0:
             pileup_block = (
                 f'<div class="pileup-empty">'
-                f'No aligned reads available ({g["n_reads"]} reads unaligned)'
+                f'No aligned reads to display &mdash; none of the '
+                f'{n_group} read(s) in this group aligned across the '
+                f'variable region'
                 f'</div>'
             )
         else:
@@ -1461,6 +1562,15 @@ h1 {{
 }}
 .status-other {{
     color: #ef4444;
+}}
+.indel-flag {{
+    color: #991b1b;
+    font-weight: 600;
+}}
+.legend-note {{
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-style: italic;
 }}
 .protein-seq {{
     margin-top: 0.5rem;
@@ -1604,30 +1714,33 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   var canvasW = Math.max(totalW, aaEndPx);
 
   var pileupH = refH + gap + consH + gap + nRows * cellH + aaGap + (hasAA ? aaH * 2 + 2 : 0);
-  canvas.width = canvasW * dpr;
-  canvas.height = pileupH * dpr;
+  // Browsers cap total canvas area (iOS Safari lowest, ~16.8M device px);
+  // exceeding it yields a silently blank canvas.  Scale the backing store down
+  // instead of losing the whole pileup — CSS size is unchanged either way.
+  var MAX_CANVAS_AREA = 16777216;
+  var effDpr = dpr;
+  if (canvasW * pileupH * effDpr * effDpr > MAX_CANVAS_AREA) {{
+    effDpr = Math.max(1, Math.sqrt(MAX_CANVAS_AREA / (canvasW * pileupH)));
+  }}
+  canvas.width = Math.floor(canvasW * effDpr);
+  canvas.height = Math.floor(pileupH * effDpr);
   canvas.style.width = canvasW + 'px';
   canvas.style.height = pileupH + 'px';
   var ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+  ctx.scale(effDpr, effDpr);
   var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   var matchColor = isDark ? '#4a5568' : '#c8ccd0';
   var vectorMatchColor = isDark ? '#3a4455' : '#dfe2e6';
   var gapColor = isDark ? '#ffffff' : '#ffffff';
+  var delColor = isDark ? '#7f1d1d' : '#991b1b';
   var refColor = isDark ? '#e0e0e0' : '#1e293b';
   var consMatchColor = matchColor;
   var baseColors = isDark
     ? {{'A':'#ff6b6b','T':'#339af0','C':'#ffa94d','G':'#ffd43b'}}
     : {{'A':'#e03131','T':'#1971c2','C':'#e8590c','G':'#e67700'}};
-  // Flagged columns: positions where >10% of reads disagree with reference.
-  // Falls back to consensus-derived mismatches when flaggedCols not provided.
+  // Flagged columns: positions where enough reads disagree with the reference,
+  // subject to a minimum depth.  Always supplied by the caller.
   var mismatchCols = flaggedCols || [];
-  if (!flaggedCols) {{
-    for (var _mi = 0; _mi < cons.length; _mi++) {{
-      var _ch = cons[_mi];
-      if (_ch !== '.' && _ch !== '-') mismatchCols.push(_mi);
-    }}
-  }}
   var triRowH = mismatchCols.length > 0 ? 13 : 0;
   function isVector(col) {{
     return flanks && (col < flanks[0] || col >= nCols - flanks[1]);
@@ -1638,12 +1751,12 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
   // --- Ruler ---
   var rulerH = (flanks ? 24 : 14) + triRowH;
   if (rulerCanvas) {{
-    rulerCanvas.width = canvasW * dpr;
-    rulerCanvas.height = rulerH * dpr;
+    rulerCanvas.width = Math.floor(canvasW * effDpr);
+    rulerCanvas.height = Math.floor(rulerH * effDpr);
     rulerCanvas.style.width = canvasW + 'px';
     rulerCanvas.style.height = rulerH + 'px';
     var rc = rulerCanvas.getContext('2d');
-    rc.scale(dpr, dpr);
+    rc.scale(effDpr, effDpr);
     var tickColor = isDark ? '#64748b' : '#94a3b8';
     var labelColor = isDark ? '#e0e0e0' : '#1e293b';
     var boundaryColor = isDark ? '#f59e0b' : '#d97706';
@@ -1775,6 +1888,8 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       ctx.fillStyle = isVector(i) ? vectorMatchColor : consMatchColor;
     }} else if (ch === '-') {{
       ctx.fillStyle = gapColor;
+    }} else if (ch === '*') {{
+      ctx.fillStyle = delColor;
     }} else {{
       ctx.fillStyle = baseColors[ch] || '#94a3b8';
     }}
@@ -1790,6 +1905,8 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
         ctx.fillStyle = pickMatch(c);
       }} else if (ch === '-') {{
         ctx.fillStyle = gapColor;
+      }} else if (ch === '*') {{
+        ctx.fillStyle = delColor;
       }} else {{
         ctx.fillStyle = baseColors[ch] || '#94a3b8';
       }}
@@ -1818,7 +1935,8 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
     for (var ai = 0; ai < refAA.length; ai++) {{
       var ax = insStart * cellW + ai * aaCodonW;
       var rAA = refAA[ai];
-      var cAA = consAA[ai];
+      // consAA can be shorter than refAA once a deletion shortens the insert.
+      var cAA = ai < consAA.length ? consAA[ai] : '–';
       var match = rAA === cAA;
 
       // Ref AA row
@@ -1927,7 +2045,9 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
     }} else if (yp < consY + consH) {{
       var ch = cons[col];
       var base = ch === '.' ? refSeq[col] : ch;
-      var note = ch === '.' ? ' (match)' : ch === '-' ? '' : ' (mismatch)';
+      var note = ch === '.' ? ' (match)' : ch === '-' ? ' (no coverage)'
+        : ch === '*' ? '' : ' (mismatch)';
+      if (ch === '*') base = 'deletion';
       tooltip.textContent = rl + 'Consensus pos ' + (col + 1) + ': ' + base + note;
     }} else if (hasAA && yp >= aaY && yp < aaY + aaH * 2 + 2) {{
       var insStart = flanks[0];
@@ -1935,8 +2055,9 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       if (aaIdx >= 0 && aaIdx < refAA.length) {{
         var isRefRow = yp < aaY + aaH;
         var which = isRefRow ? 'Ref' : 'Cons';
-        var aa = isRefRow ? refAA[aaIdx] : consAA[aaIdx];
-        var other = isRefRow ? consAA[aaIdx] : refAA[aaIdx];
+        var cAAt = aaIdx < consAA.length ? consAA[aaIdx] : '(past end)';
+        var aa = isRefRow ? refAA[aaIdx] : cAAt;
+        var other = isRefRow ? cAAt : refAA[aaIdx];
         var note = aa === other ? ' (match)' : ' \u2260 ' + (isRefRow ? 'Cons' : 'Ref') + ': ' + other;
         tooltip.textContent = which + ' AA ' + (aaIdx + 1) + ': ' + aa + note;
       }} else {{
@@ -1946,7 +2067,10 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
       var row_idx = Math.floor((yp - readsY) / cellH);
       if (row_idx >= 0 && row_idx < nRows) {{
         var ch = rows[row_idx][col];
-        var label = ch === '.' ? refSeq[col] + ' (match)' : ch === '-' ? 'gap' : ch + ' (mismatch)';
+        var label = ch === '.' ? refSeq[col] + ' (match)'
+          : ch === '-' ? 'not covered by this read'
+          : ch === '*' ? 'deletion'
+          : ch + ' (mismatch)';
         tooltip.textContent = rl + 'Read ' + (row_idx + 1) + ', pos ' + (col + 1) + ': ' + label;
       }} else {{
         tooltip.style.display = 'none'; return;
@@ -1977,9 +2101,10 @@ function drawPileup(canvasId, rulerId, labelsId, refSeq, cons, rows, flanks, scr
     <span class="legend-item"><span class="legend-swatch" style="background:#1971c2;"></span> T</span>
     <span class="legend-item"><span class="legend-swatch" style="background:#e8590c;"></span> C</span>
     <span class="legend-item"><span class="legend-swatch" style="background:#e67700;"></span> G</span>
-    <span class="legend-item"><span class="legend-swatch" style="background:#ffffff;border:1px solid #d1d5db;"></span> Gap</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#991b1b;"></span> Deletion</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:#ffffff;border:1px solid #d1d5db;"></span> Not covered</span>
     <span class="legend-item"><span class="legend-swatch" style="background:#1e293b;"></span> Reference</span>
-
+    <span class="legend-note">Insertions are not shown &mdash; the matrix has one column per reference position.</span>
 </div>
 {body}
 <script id="usortm-theme-sync">
@@ -2038,15 +2163,16 @@ def _generate_one_pick_pileup(
         minimap2_path, samtools_path, ref_index=ref_index,
     )
 
-    # Use the number of reads that actually aligned to the variable region
-    # (after flank filtering) as the displayed count, not the raw read count
-    # which includes concatemer reads that only cover the 5' flank.
+    # Reads that aligned across the variable region, versus every read routed
+    # to this well (which includes concatemers covering only the 5' flank).
+    # Both are reported now, so neither has to stand in for the other.
     n_variable_reads = len(pileup_rows)
+    n_well_reads = len(well_reads) if well_reads is not None else n_variable_reads
 
     candidate_info = {
         "plate": source_plate,
         "well": source_well,
-        "total_reads": n_variable_reads,
+        "total_reads": n_well_reads,
         "top_frac": consensus_fraction,
         "recoverable_variants": [],
         "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
@@ -2056,7 +2182,8 @@ def _generate_one_pick_pileup(
     _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
     group_sections = [{
         "ref_id": variant,
-        "n_reads": n_variable_reads,
+        "n_reads": n_well_reads,
+        "n_aligned": n_variable_reads,
         "frac": consensus_fraction,
         "status": _display_status,
         "is_recoverable": _is_recoverable,
