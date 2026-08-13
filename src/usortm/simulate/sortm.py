@@ -243,6 +243,83 @@ def find_fold_sampling(
     return best_fold, best_cov
 
 
+def expected_coverage(
+    fold_sampling=8,
+    lib_size=1000,
+    skew=4,
+    p_grow=0.67,
+    p_fail=0.03,
+    p_incorrect=0.3,
+    transformation_scale=50,
+    n_sims=100,
+    seed=42,
+):
+    """Predict library coverage at a fixed fold-sampling.
+
+    The forward counterpart of `find_fold_sampling`: rather than solving for
+    the fold-sampling that reaches a target coverage, this runs the simulation
+    at the fold-sampling you plan to sort and reports the coverage those
+    parameters predict.
+
+    Parameters
+    ----------
+    fold_sampling : int or float
+        Wells sorted divided by library size.
+    lib_size : int
+        Number of unique variants in the library.
+    skew : float
+        Library skew (Q90/Q10 abundance ratio).
+    p_grow : float
+        Sorting efficiency (fraction of wells that grow).
+    p_fail : float
+        PCR failure rate.
+    p_incorrect : float
+        Fraction of incorrect variants in the pool.
+    transformation_scale : int or float
+        Transformant oversampling factor.
+    n_sims : int
+        Number of simulations to average over.
+    seed : int or None
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    dict with keys:
+        coverage : float
+            Mean fraction of the library recovered across simulations.
+        coverage_sd : float
+            Standard deviation of coverage across simulations.
+        coverage_p10, coverage_p90 : float
+            10th and 90th percentiles of coverage across simulations.
+        recovered : float
+            Mean number of unique variants recovered.
+        lib_size : int
+        fold_sampling : int or float
+        wells : int
+            Wells sorted, `int(lib_size * fold_sampling)`.
+        n_sims : int
+    """
+    result = sortm(
+        n_sims=n_sims, lib_size=lib_size, fold_sampling=fold_sampling,
+        skew=skew, p_grow=p_grow, p_fail=p_fail,
+        p_incorrect=p_incorrect, transformation_scale=transformation_scale,
+        seed=seed,
+    )
+    coverage = np.asarray(result, dtype=np.float64) / lib_size
+
+    return {
+        "coverage": float(np.mean(coverage)),
+        "coverage_sd": float(np.std(coverage)),
+        "coverage_p10": float(np.percentile(coverage, 10)),
+        "coverage_p90": float(np.percentile(coverage, 90)),
+        "recovered": float(np.mean(result)),
+        "lib_size": lib_size,
+        "fold_sampling": fold_sampling,
+        "wells": int(lib_size * fold_sampling),
+        "n_sims": n_sims,
+    }
+
+
 def simulate_resynthesis_strategy(
     target_coverage=0.90,
     lib_size=1000,

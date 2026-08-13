@@ -143,7 +143,7 @@ def estimate(
     fold_sampling: Optional[float] = typer.Option(
         None,
         "--fold-sampling", "-f",
-        help="Fold oversampling during sorting. If omitted, determined by simulation to hit target coverage.",
+        help="Fold oversampling during sorting. If set, the predicted coverage is simulated from it; if omitted, it is solved for from --target-coverage.",
         min=1.0,
         max=50.0,
     ),
@@ -257,9 +257,12 @@ def estimate(
     
     Calculates projected costs for synthesis, cloning, sorting, barcoding,
     sequencing, and hit-picking based on your library parameters.
-    
+
+    Library size, skew, and fold-sampling set the predicted coverage, which is
+    simulated and reported alongside the costs.
+
     [bold]Example:[/bold]
-    
+
         usortm estimate --library-size 500 --seq-length 300 --fold-sampling 8
     """
     from usortm.costs import cost_functions as cf
@@ -270,26 +273,32 @@ def estimate(
     # Populate cache so cost_functions uses the same methods
     cf._methods_cache = _loaded_methods
 
-    # Auto-determine fold-sampling via simulation if not explicitly set
+    from usortm.simulate.sortm import expected_coverage as _predict_coverage
+
+    # Fold-sampling is either given (-f) or searched for from --target-coverage.
     fold_sampling_auto = fold_sampling is None
-    expected_coverage = None
+
+    status = None
+    if not json_output:
+        console.print()
+        _status_msg = (
+            f"Simulating fold-sampling for {target_coverage:.0%} coverage..."
+            if fold_sampling_auto
+            else f"Simulating coverage at {fold_sampling:g}× fold-sampling..."
+        )
+        status = console.status(f"[muted]{_status_msg}[/muted]")
+        status.start()
+
     if fold_sampling_auto:
         from usortm.simulate.sortm import find_fold_sampling
 
-        if not json_output:
-            console.print()
-            status = console.status(
-                f"[muted]Simulating fold-sampling for {target_coverage:.0%} coverage...[/muted]"
-            )
-            status.start()
-
         def _progress(iteration, fs, cov):
-            if not json_output:
+            if status is not None:
                 status.update(
                     f"[muted]Simulating... {fs:.1f}× → {cov:.1%} coverage[/muted]"
                 )
 
-        fold_sampling, expected_coverage = find_fold_sampling(
+        fold_sampling, _ = find_fold_sampling(
             target_coverage=target_coverage,
             lib_size=library_size,
             skew=skew,
@@ -299,12 +308,33 @@ def estimate(
             progress_callback=_progress,
         )
 
-        if not json_output:
-            status.stop()
-            console.print(
-                f"  [dim]Simulation:[/dim] [cyan]{fold_sampling:.1f}×[/cyan] fold-sampling "
-                f"→ [cyan]{expected_coverage:.1%}[/cyan] expected coverage"
-            )
+    # Predict coverage at the fold-sampling we will use. Library size, skew,
+    # fold-sampling and sorting efficiency fix this, so an explicit -f gets the
+    # same prediction the search reports when it lands on the same value.
+    _prediction = _predict_coverage(
+        fold_sampling=fold_sampling,
+        lib_size=library_size,
+        skew=skew,
+        p_grow=sorting_efficiency,
+        n_sims=100,
+        seed=42,
+    )
+    expected_coverage = _prediction["coverage"]
+    coverage_sd = _prediction["coverage_sd"]
+    coverage_p10 = _prediction["coverage_p10"]
+    coverage_p90 = _prediction["coverage_p90"]
+
+    if status is not None:
+        status.stop()
+        _fold_str = f"{fold_sampling:g}×"
+        if fold_sampling_auto:
+            _fold_str += " [dim](auto)[/dim]"
+        console.print(
+            f"  [dim]Simulation:[/dim] [cyan]{_fold_str}[/cyan] fold-sampling "
+            f"→ [cyan]{expected_coverage:.1%}[/cyan] expected coverage "
+            f"[dim]({coverage_p10:.0%}–{coverage_p90:.0%} across "
+            f"{_prediction['n_sims']} sims)[/dim]"
+        )
 
     # Calculate uSort-M costs
     total_wells = int(library_size * fold_sampling)
@@ -445,7 +475,10 @@ def estimate(
             "seq_length": seq_length,
             "fold_sampling": fold_sampling,
             "fold_sampling_auto": fold_sampling_auto,
-            "expected_coverage": round(expected_coverage, 4) if expected_coverage is not None else None,
+            "expected_coverage": round(expected_coverage, 4),
+            "coverage_sd": round(coverage_sd, 4),
+            "coverage_p10": round(coverage_p10, 4),
+            "coverage_p90": round(coverage_p90, 4),
             "costs": {
                 "synthesis": round(synthesis_cost, 2),
                 "cloning": round(cloning_cost, 2),
@@ -782,6 +815,15 @@ def estimate(
         effort_table.add_column("Metric", style="muted")
         effort_table.add_column("Value", justify="right")
 
+        effort_table.add_row(
+            "Predicted coverage",
+            f"[green]{expected_coverage:.1%}[/green] "
+            f"[dim]({coverage_p10:.0%}–{coverage_p90:.0%})[/dim]",
+        )
+        effort_table.add_row(
+            "Variants recovered",
+            f"{round(expected_coverage * library_size):,} of {library_size:,}",
+        )
         effort_table.add_row("Total wells to sort", f"{total_wells:,}")
         effort_table.add_row("384-well plates", f"{n_plates}")
         effort_table.add_row("Sorting time", _format_time(sort_hours))
