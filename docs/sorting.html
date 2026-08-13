@@ -327,6 +327,7 @@
           <p>The number of wells to sort depends on your library size and the synthesis skew of your oligo pool. More skewed libraries require higher oversampling to ensure full coverage of rare variants.</p>
           <p>Use the interactive chart to estimate how many plates to sort for 90% library coverage. Adjust the library size and pool type to match your experiment, then see the recommended plate count.</p>
           <p>For exact numbers, see <a href="cli.html#estimate"><code>usortm estimate</code></a> in the CLI reference.</p>
+          <p>The chart uses the <em>expected</em> skew for your pool type. Once the library has been amplified, you can measure its actual skew from a shallow sequencing run and size the sort against the real distribution &mdash; see <a href="cli.html#skew"><code>usortm skew</code></a>.</p>
         </div>
         <div class="sort-chip">
         <div class="cov-controls">

@@ -7,6 +7,7 @@ from usortm.cli.theme import get_console
 
 from .estimate import estimate
 from .plan import plan
+from .skew_cmd import skew
 from .demux_cmd import demux
 from .pick import pick
 from .reorder import reorder
@@ -52,6 +53,7 @@ def main(
     [bold]Workflow commands:[/bold]
 
         [cyan]plan[/cyan]      Initialize project from variant list
+        [cyan]skew[/cyan]      Measure library skew and recommend sorting depth
         [cyan]demux[/cyan]     Demultiplex sequencing data
         [cyan]pick[/cyan]      Generate hit-picking list
         [cyan]reorder[/cyan]   Export synthesis order for dropout variants
@@ -70,6 +72,7 @@ def main(
 # Register commands
 app.command(name="estimate")(estimate)
 app.command(name="plan")(plan)
+app.command(name="skew")(skew)
 app.command(name="demux")(demux)
 app.command(name="pick")(pick)
 app.command(name="reorder")(reorder)
@@ -79,4 +82,4 @@ app.command(name="platemap")(platemap)
 app.add_typer(config_app, name="config")
 app.add_typer(remote_app, name="remote")
 
-__all__ = ["app", "estimate", "plan", "demux", "pick", "reorder", "merge", "report", "platemap", "remote_app"]
+__all__ = ["app", "estimate", "plan", "skew", "demux", "pick", "reorder", "merge", "report", "platemap", "remote_app"]
