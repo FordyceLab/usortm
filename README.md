@@ -53,15 +53,21 @@ usortm estimate --library-size 500 --seq-length 300
 # 1. Initialize project from variant list
 usortm plan variants.csv --output my_project/
 
-# 2. [Perform wet lab: assembly, sorting, barcoding, sequencing]
+# 2. [Wet lab: order and amplify the library]
 
-# 3. Process sequencing data (with library CSV for variant calling)
+# 3. Measure the real library skew before committing to a sort
+#    (sequence a little of the amplified library, e.g. Plasmidsaurus premium PCR)
+usortm skew library.fastq --project my_project/
+
+# 4. [Wet lab: sorting, barcoding, sequencing]
+
+# 5. Process sequencing data (with library CSV for variant calling)
 usortm demux my_project/ --fastq sequencing-data.fastq --library-csv variants.csv
 
-# 4. Generate hit-picking list
+# 6. Generate hit-picking list
 usortm pick my_project/
 
-# 5. Create final report
+# 7. Create final report
 #    Generates HTML summary, CSVs, and a shareable zip file
 usortm report my_project/
 ```
@@ -72,11 +78,92 @@ usortm report my_project/
 |---------|-------------|
 | `estimate` | Quick cost and effort estimation |
 | `plan` | Initialize project from variant list |
+| `skew` | Measure library skew from sequencing reads and recommend a sorting depth |
 | `demux` | Demultiplex sequencing data (LevSeq barcodes via dorado, reference alignment, consensus, variant calling) |
 | `pick` | Generate Integra ASSIST hit-picking list (ordered by input library) |
 | `reorder` | Export synthesis order for dropout variants (unrecovered after round 1) |
 | `merge` | Merge hit-picking lists from multiple rounds into a single final pick list |
 | `report` | Generate final plate maps, coverage stats, HTML summary, and shareable zip |
+
+### Measuring library skew before sorting
+
+How deeply you need to sort is set by how unevenly the library is distributed.
+`usortm plan` has to assume that skew from the synthesis method, because the
+library does not exist yet. Once it does, a shallow sequencing run of the
+amplified library — 12–20k reads is plenty — measures it directly.
+
+```bash
+usortm skew library.fastq --project my_project/
+```
+
+The command aligns the reads against the starting variant list, counts reads
+per variant, and recommends a fold-sampling depth. It needs only **minimap2**,
+not the full demux toolchain. The measurement costs one extra sequencing
+turnaround before sorting, which is usually cheaper than sorting the wrong
+number of plates.
+
+**Why the raw ratio is not the answer.** At 12–20k reads over a few hundred to
+a few thousand variants, each variant is seen only ~8–30 times. Poisson
+counting noise alone makes a *perfectly even* library measure as roughly
+1.6× skewed, and a genuinely 4×-skewed library of 2000 variants measures as
+~6.9×. Sorting on the raw number wastes plates. `usortm skew` fits a
+zero-inflated Poisson–log-normal model and reports both:
+
+```
+                Measured Library Skew
+╭──────────────────────────┬────────────────────────────────╮
+│ Depth                    │            7.5 reads/variant   │
+│ Q90/Q10, raw             │                         6.9×   │
+│ Q90/Q10, noise-corrected │      4.0× (95% CI 3.6–4.3)     │
+│ Effective library size   │                        1,204   │
+│ Undetected variants      │                           31   │
+│ Estimated dropout        │                         1.6%   │
+╰──────────────────────────┴────────────────────────────────╯
+```
+
+Dropouts are estimated separately from skew, so variants missing from the tube
+are not mistaken for unevenness. That distinction is actionable: sorting
+recovers rare variants, but nothing recovers a variant that was never
+synthesized, so the report gives a **coverage ceiling** and flags a target
+above it.
+
+The command prints a log-abundance histogram — a uniform library is a tight
+bell, and skew is width. Two curves are drawn over it: the fit *including*
+counting noise, which should track the bars, and the underlying abundance with
+that noise removed. The gap between them is the spread that reading the
+histogram at face value would mistake for skew.
+
+Results are written to `<project>/skew/` (`variant_counts.csv`,
+`skew_report.json`, and an HTML summary with the histogram plus rank-abundance
+and cumulative plots), and recorded in `usortm_project.json` under
+`measured_skew`. The
+planning-time `skew` and `fold_sampling` are left untouched so the assumption
+and the measurement sit side by side.
+
+**Libraries this cannot measure.** If variants differ by a single codon, ONT
+reads cannot be attributed to individual variants and per-variant counts would
+be meaningless. `usortm skew` checks separability first and refuses rather than
+reporting confident nonsense; `--force` overrides.
+
+**Checking it against a known answer.** `scripts/make_synthetic_library.py`
+generates a library CSV and FASTQ whose abundances, dropouts, and per-variant
+read counts are all recorded, so the whole chain can be measured against the
+truth rather than against another estimate:
+
+```bash
+python scripts/make_synthetic_library.py /tmp/lib --library-size 400 --skew 4 --dropout 0.05
+usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tmp/lib/skew
+```
+
+Recover the `realized skew` it prints, not the requested one — a finite draw
+differs from the distribution it came from. `--mode codon_scan` builds the
+single-codon shape instead, which the separability check refuses.
+
+The corrected estimate is unbiased to a few percent up to about 8× Q90/Q10
+across 300–2000 variants and 7–50 reads per variant. Above ~10× it reads low
+(≈0.85× of truth at 16×), because too much of the library falls below one
+expected read; that case is flagged in the output and should be read as a lower
+bound on both skew and sorting depth.
 
 ### Multi-round workflow (recovering dropouts)
 
@@ -162,6 +249,21 @@ results = sortm.sortm(
     lib_size=500,
     skew=4,
     fold_sampling=8,
+)
+
+# Measure skew from a sequenced library and recommend a sorting depth
+from usortm.qc import profile_library
+
+profile = profile_library("library.fastq", "variants.csv", "skew_out/")
+profile.stats.q90_q10_corrected      # noise-corrected Q90/Q10
+profile.stats.coverage_ceiling       # limit imposed by synthesis dropouts
+profile.recommendation.fold_sampling # wells to sort per library member
+
+# Simulate against measured abundances instead of a fitted log-normal
+results = sortm.sortm(
+    n_sims=1000,
+    fold_sampling=8,
+    pool=profile.stats.shrunk_abundance,
 )
 ```
 

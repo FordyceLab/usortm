@@ -65,5 +65,9 @@ Thumbs.db
 # Atomic-write temp files (e.g. sorting.html.tmp.<pid>.<timestamp>)
 *.tmp.*
 
+# Synthetic validation data from scripts/make_synthetic_library.py.
+# Regenerable from its seed, and a 15k-read FASTQ is several MB.
+synthetic_demo/
+
 # Claude
 *CLAUDE*
