@@ -260,18 +260,20 @@
               <th>Component</th>
               <th>Per rxn (µL)</th>
               <th class="mmix-total-col" id="mmixTotalHeader">Total (µL) <span class="mmix-rxn-badge" id="mmixBadge">423 rxns</span></th>
+              <th class="mmix-check-col">Added</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td>Q5 Polymerase</td><td>0.1</td><td class="mmix-total-cell" id="mmix0"></td></tr>
-            <tr><td>Q5 5X Buffer</td><td>2.0</td><td class="mmix-total-cell" id="mmix1"></td></tr>
-            <tr><td>10 mM dNTPs</td><td>0.2</td><td class="mmix-total-cell" id="mmix2"></td></tr>
-            <tr><td>DMSO</td><td>0.4</td><td class="mmix-total-cell" id="mmix3"></td></tr>
-            <tr><td>H₂O</td><td>4.3</td><td class="mmix-total-cell" id="mmix4"></td></tr>
+            <tr><td>Q5 Polymerase</td><td>0.1</td><td class="mmix-total-cell" id="mmix0"></td><td class="mmix-check-cell"><input type="checkbox" class="mmix-check" aria-label="Q5 Polymerase added"></td></tr>
+            <tr><td>Q5 5X Buffer</td><td>2.0</td><td class="mmix-total-cell" id="mmix1"></td><td class="mmix-check-cell"><input type="checkbox" class="mmix-check" aria-label="Q5 5X Buffer added"></td></tr>
+            <tr><td>10 mM dNTPs</td><td>0.2</td><td class="mmix-total-cell" id="mmix2"></td><td class="mmix-check-cell"><input type="checkbox" class="mmix-check" aria-label="10 mM dNTPs added"></td></tr>
+            <tr><td>DMSO</td><td>0.4</td><td class="mmix-total-cell" id="mmix3"></td><td class="mmix-check-cell"><input type="checkbox" class="mmix-check" aria-label="DMSO added"></td></tr>
+            <tr><td>H₂O</td><td>4.3</td><td class="mmix-total-cell" id="mmix4"></td><td class="mmix-check-cell"><input type="checkbox" class="mmix-check" aria-label="H₂O added"></td></tr>
             <tr>
               <td><strong>Total</strong></td>
               <td><strong>7.0</strong></td>
               <td class="mmix-total-cell mmix-total-row" id="mmix5"></td>
+              <td class="mmix-check-cell"></td>
             </tr>
           </tbody>
         </table>
@@ -369,6 +371,25 @@
           .mmix-total-row {
             border-top: 2px solid var(--color-border, #e5e5e5);
           }
+          .mmix-check-col {
+            text-align: center;
+            white-space: nowrap;
+          }
+          .mmix-check-cell {
+            text-align: center;
+          }
+          .mmix-check {
+            width: 17px;
+            height: 17px;
+            cursor: pointer;
+            accent-color: #4096E3;
+          }
+          tr.mmix-row-checked td {
+            color: var(--color-muted, #888);
+          }
+          tr.mmix-row-checked td:not(.mmix-check-cell) {
+            text-decoration: line-through;
+          }
           [data-theme="dark"] .mmix-btn {
             background: #1e293b;
             color: #e2e8f0;
@@ -435,6 +456,12 @@
             });
 
             render(parseFloat(input.value) || 1); // initialise
+
+            document.querySelectorAll('.mmix-check').forEach((box) => {
+              box.addEventListener('change', () => {
+                box.closest('tr').classList.toggle('mmix-row-checked', box.checked);
+              });
+            });
           })();
         </script>
 
