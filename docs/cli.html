@@ -174,6 +174,10 @@
               <td>Initialize project from variant list</td>
             </tr>
             <tr>
+              <td><code>skew</code></td>
+              <td>Measure library skew from sequencing reads and recommend a sorting depth</td>
+            </tr>
+            <tr>
               <td><code>demux</code></td>
               <td>Demultiplex sequencing data (LevSeq barcodes via Dorado, reference alignment, consensus, variant calling)</td>
             </tr>
@@ -385,6 +389,157 @@
           <li><code>path/to/barcodes.csv</code> - Custom barcode mapping</li>
         </ul>
         
+        <h2 id="skew"><code>usortm skew</code></h2>
+        <p>Measure how unevenly the amplified library is distributed, and recommend a sorting depth from that measurement. <code>usortm plan</code> has to assume skew from the synthesis method because the library does not exist yet; once it does, a shallow sequencing run of the library measures it directly. 12&ndash;20k reads (e.g. Plasmidsaurus premium PCR) is ample.</p>
+
+        <pre><code class="language-bash">usortm skew library.fastq --project my_project/
+
+# Or a whole run directory, counted as one library
+usortm skew fastq_pass/ --project my_project/</code></pre>
+
+        <p>Reads are aligned to the starting variant list and counted per variant. Only <strong>minimap2</strong> is required &mdash; not Dorado or samtools &mdash; so this runs on machines that cannot run the full demux pipeline.</p>
+
+        <p>The reads argument takes either a single FASTQ or a directory, which is searched recursively for <code>.fastq</code> and <code>.fq</code> files, gzipped or not. Files are counted together, so a basecaller's output tree needs no concatenation first. Which files were used is recorded in <code>skew_report.json</code> under <code>fastq_files</code>.</p>
+
+        <h3>Reading the output</h3>
+        <p>The headline view is a histogram of log<sub>10</sub> abundance: a uniform library is a tight bell, and skew shows up as width. The fitted width &sigma; (in log<sub>10</sub> units) is the uniformity metric, and it maps directly onto the Q90/Q10 ratio.</p>
+        <p>Two curves are drawn over the bars. The first is the fit <em>including</em> counting noise &mdash; what the model expects to observe at this depth &mdash; and it should track the bars; where it does not, the log-normal is a poor description of the library. The second is the underlying abundance with that noise removed. The gap between them is precisely the spread that reading the histogram at face value would mistake for skew.</p>
+
+        <h3>Why the raw ratio overstates skew</h3>
+        <p>At this depth each variant is seen only ~8&ndash;30 times. Poisson counting noise alone makes a perfectly even library measure as roughly 1.6&times; skewed, and a genuinely 4&times;-skewed library of 2000 variants measures as ~6.9&times;. Sorting on the raw number wastes plates. <code>usortm skew</code> fits a zero-inflated Poisson&ndash;log-normal model and reports the raw ratio alongside a noise-corrected estimate with a confidence interval, driving the recommendation off the corrected value.</p>
+
+        <p>Synthesis dropouts are estimated as a separate parameter, so variants missing from the tube are not mistaken for unevenness. This yields a <strong>coverage ceiling</strong>: sorting recovers rare variants, but nothing recovers a variant that was never synthesized, and a target above the ceiling is flagged rather than chased.</p>
+
+        <h3>Arguments</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Argument</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>fastq</code></td>
+              <td>FASTQ of the amplified library (plain or gzipped), or a directory of FASTQs</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>Options</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--project</code></td>
+              <td><code>-p</code></td>
+              <td>Project directory; uses its <code>variants.csv</code> and records the measurement in its project file</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>--variants</code></td>
+              <td><code>-V</code></td>
+              <td>Variant CSV (Name, Sequence). Required when <code>--project</code> is omitted</td>
+              <td>&mdash;</td>
+            </tr>
+            <tr>
+              <td><code>--output</code></td>
+              <td><code>-o</code></td>
+              <td>Output directory</td>
+              <td><code>&lt;project&gt;/skew/</code></td>
+            </tr>
+            <tr>
+              <td><code>--target-coverage</code></td>
+              <td></td>
+              <td>Fraction of the library to recover by sorting</td>
+              <td>0.90</td>
+            </tr>
+            <tr>
+              <td><code>--sorting-efficiency</code></td>
+              <td></td>
+              <td>Fraction of sorted wells that grow</td>
+              <td>0.67</td>
+            </tr>
+            <tr>
+              <td><code>--basis</code></td>
+              <td></td>
+              <td>Recommend from measured abundances (<code>empirical</code>) or a log-normal refit (<code>lognormal</code>)</td>
+              <td><code>empirical</code></td>
+            </tr>
+            <tr>
+              <td><code>--min-ref-cov</code></td>
+              <td></td>
+              <td>Minimum fraction of a variant an alignment must span to count</td>
+              <td>0.8</td>
+            </tr>
+            <tr>
+              <td><code>--margin</code></td>
+              <td></td>
+              <td>Relative alignment-score lead the best variant must hold over the runner-up</td>
+              <td>0.02</td>
+            </tr>
+            <tr>
+              <td><code>--threads</code></td>
+              <td><code>-t</code></td>
+              <td>minimap2 threads</td>
+              <td>4</td>
+            </tr>
+            <tr>
+              <td><code>--n-sims</code></td>
+              <td></td>
+              <td>Simulations per fold-sampling evaluation</td>
+              <td>100</td>
+            </tr>
+            <tr>
+              <td><code>--force</code></td>
+              <td></td>
+              <td>Measure even when variants are too similar to tell apart</td>
+              <td>off</td>
+            </tr>
+            <tr>
+              <td><code>--no-update-plan</code></td>
+              <td></td>
+              <td>Do not write the measurement into the project file</td>
+              <td>writes by default</td>
+            </tr>
+            <tr>
+              <td><code>--no-html</code></td>
+              <td></td>
+              <td>Skip the HTML summary with plots</td>
+              <td>writes by default</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>Output Files</h3>
+        <ul>
+          <li><code>variant_counts.csv</code> &mdash; reads, observed fraction, denoised fraction and rank per variant</li>
+          <li><code>skew_report.json</code> &mdash; full statistics, recommendation, and read accounting</li>
+          <li><code>skew_report.html</code> &mdash; log-abundance histogram, rank-abundance and cumulative-abundance plots, with a summary table</li>
+        </ul>
+        <p>With <code>--project</code>, a <code>measured_skew</code> block is added to <code>usortm_project.json</code>. This is additive: the planning-time <code>skew</code> and <code>fold_sampling</code> are left untouched so the assumption and the measurement can be compared.</p>
+
+        <h3>Libraries this cannot measure</h3>
+        <p>If variants differ by a single codon, nanopore reads cannot be attributed to individual variants and per-variant counts would be meaningless. <code>usortm skew</code> checks separability before counting and refuses rather than reporting confident nonsense. Pass <code>--force</code> to measure anyway, understanding abundances will be smeared across near-identical variants.</p>
+
+        <h3>Accuracy and validated range</h3>
+        <p>The corrected estimate is unbiased to within a few percent up to about 8&times; Q90/Q10, across libraries of 300&ndash;2000 variants at 7&ndash;50 reads per variant. Above roughly 10&times; it reads <em>low</em> &mdash; about 0.85&times; of truth at 16&times; &mdash; because so much of the library falls below one expected read that the likelihood has little information about how deep the tail goes. That regime is flagged in the output and in <code>skew_report.json</code> as <code>beyond_validated_range</code>, and should be read as a lower bound on both the skew and the recommended sorting depth.</p>
+        <p>To check the measurement against a known answer, <code>scripts/make_synthetic_library.py</code> generates a library CSV and FASTQ with the abundances, dropouts, and per-variant read counts recorded in <code>truth.json</code>:</p>
+        <pre><code class="language-bash">python scripts/make_synthetic_library.py /tmp/lib --library-size 400 --skew 4 --dropout 0.05
+usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tmp/lib/skew</code></pre>
+        <p>Recover the <code>realized skew</code> it reports rather than the requested value, since a finite draw differs from the distribution it came from. Use <code>--mode codon_scan</code> to build the single-codon shape that the separability check refuses.</p>
+
         <h2 id="demux"><code>usortm demux</code></h2>
         <p>Demultiplex sequencing data using the LevSeq barcode pipeline. Runs Dorado for barcode demux, minimap2 for reference alignment, and samtools for per-well consensus generation.</p>
 

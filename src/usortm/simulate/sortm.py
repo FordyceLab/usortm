@@ -9,6 +9,24 @@ from .sample import (
     run_PCR,
 )
 
+def _as_pool(pool):
+    """Validate and normalize a user-supplied abundance vector.
+
+    Returns a float64 array summing to 1, suitable for `assemble`.
+    """
+    pool = np.asarray(pool, dtype=np.float64)
+    if pool.ndim != 1:
+        raise ValueError(f"pool must be 1-D, got shape {pool.shape}")
+    if len(pool) < 2:
+        raise ValueError("pool must contain at least 2 library members")
+    if np.any(pool < 0):
+        raise ValueError("pool contains negative abundances")
+    total = pool.sum()
+    if total <= 0:
+        raise ValueError("pool sums to zero — no abundance to sample from")
+    return pool / total
+
+
 def sortm(
     n_sims=10000,
     lib_size=1000,
@@ -20,6 +38,7 @@ def sortm(
     p_fail=0.03,
     return_correct=True,
     seed=None,
+    pool=None,
 ):
     """Sort them!
 
@@ -32,9 +51,11 @@ def sortm(
         Number of simulations to perform with the selected parameters.
     lib_size : int
         Number of unique items (species, variants, etc.) in the pool.
+        Ignored when `pool` is supplied.
     skew : int or float, [1, inf)
         Fold difference between the 90th and 10th percentiles (Q90/Q10)
-        of most/least abundant library members.
+        of most/least abundant library members. Ignored when `pool` is
+        supplied.
     p_incorrect : float, between [0, 1]
         What fraction of the input library is incorrect variants.
     transformation_scale : int or float
@@ -52,7 +73,15 @@ def sortm(
         Whether to return only the correct samples or also include the
         final index of inccorect variant abundance.
     seed : int or None
-        Random seed for reproducibility. 
+        Random seed for reproducibility.
+    pool : array-like or None
+        Measured per-variant abundances to sample from, in place of a
+        simulated log-normal pool. When supplied, `lib_size` and `skew`
+        are ignored and the library size is taken from `len(pool)`. The
+        vector is normalized internally, so raw read counts are fine.
+        Use this to drive the simulation off a real library measurement
+        (see `usortm.qc`), which captures tails and dropouts that a
+        two-parameter log-normal fit smooths away.
 
     Returns:
     --------
@@ -62,8 +91,15 @@ def sortm(
         abundance of incorrect variants. Each index corresponds to a specific
         library member and the value corresponds to its abundance, or the
         number of sequenced wells containing that variant.
-    
+
     """
+    # A measured pool is a fixed observation, not a per-simulation draw:
+    # normalize it once and let transform/sort/PCR supply the stochasticity.
+    fixed_pool = None
+    if pool is not None:
+        fixed_pool = _as_pool(pool)
+        lib_size = len(fixed_pool)
+
     samples = np.arange(n_sims)
 
     # Initialize list of seeds for all simulations
@@ -74,7 +110,10 @@ def sortm(
         if seed is not None:
             seed = seeds[i]
 
-        pool = generate_pool(lib_size, skew, seed)
+        if fixed_pool is None:
+            pool = generate_pool(lib_size, skew, seed)
+        else:
+            pool = fixed_pool
         assembled_pool = assemble(pool, p_incorrect)
         clones = transform(assembled_pool, transformation_scale, seed)
         wells = sort(clones, fold_sampling, p_grow, seed)
@@ -101,6 +140,7 @@ def find_fold_sampling(
     tol=0.01,
     max_iter=15,
     progress_callback=None,
+    pool=None,
 ):
     """Find the minimum fold-sampling to achieve a target coverage.
 
@@ -112,9 +152,11 @@ def find_fold_sampling(
     target_coverage : float
         Target fraction of library recovered (e.g. 0.90 for 90%).
     lib_size : int
-        Number of unique variants in the library.
+        Number of unique variants in the library. Ignored when `pool`
+        is supplied.
     skew : float
-        Library skew (Q90/Q10 abundance ratio).
+        Library skew (Q90/Q10 abundance ratio). Ignored when `pool` is
+        supplied.
     p_grow : float
         Sorting efficiency (fraction of wells that grow).
     p_fail : float
@@ -133,6 +175,10 @@ def find_fold_sampling(
         Maximum binary search iterations.
     progress_callback : callable or None
         Called with (iteration, fold_sampling, coverage) after each evaluation.
+    pool : array-like or None
+        Measured per-variant abundances to search against, in place of a
+        simulated log-normal pool. When supplied, `lib_size` and `skew`
+        are ignored. See `sortm`.
 
     Returns
     -------
@@ -141,69 +187,58 @@ def find_fold_sampling(
     coverage : float
         Expected coverage at the returned fold-sampling.
     """
+    if pool is not None:
+        pool = _as_pool(pool)
+        lib_size = len(pool)
+
+    iteration = 0
+
+    def _coverage(fold):
+        """Mean fraction of the library recovered at this fold-sampling."""
+        nonlocal iteration
+        result = sortm(
+            n_sims=n_sims, lib_size=lib_size, fold_sampling=fold,
+            skew=skew, p_grow=p_grow, p_fail=p_fail,
+            p_incorrect=p_incorrect, transformation_scale=transformation_scale,
+            seed=seed, pool=pool,
+        )
+        cov = np.mean(result) / lib_size
+        iteration += 1
+        if progress_callback:
+            progress_callback(iteration, fold, cov)
+        return cov
+
     low, high = 1.0, 20.0
 
     # Check if high bound is sufficient
-    result = sortm(
-        n_sims=n_sims, lib_size=lib_size, fold_sampling=high,
-        skew=skew, p_grow=p_grow, p_fail=p_fail,
-        p_incorrect=p_incorrect, transformation_scale=transformation_scale,
-        seed=seed,
-    )
-    high_cov = np.mean(result) / lib_size
-    iteration = 1
-    if progress_callback:
-        progress_callback(iteration, high, high_cov)
+    high_cov = _coverage(high)
     while high_cov < target_coverage and high < 100:
         high *= 2
-        iteration += 1
-        result = sortm(
-            n_sims=n_sims, lib_size=lib_size, fold_sampling=high,
-            skew=skew, p_grow=p_grow, p_fail=p_fail,
-            p_incorrect=p_incorrect, transformation_scale=transformation_scale,
-            seed=seed,
-        )
-        high_cov = np.mean(result) / lib_size
-        if progress_callback:
-            progress_callback(iteration, high, high_cov)
+        high_cov = _coverage(high)
 
     best_fold, best_cov = high, high_cov
 
     for _ in range(max_iter):
         mid = (low + high) / 2
-        iteration += 1
-        result = sortm(
-            n_sims=n_sims, lib_size=lib_size, fold_sampling=mid,
-            skew=skew, p_grow=p_grow, p_fail=p_fail,
-            p_incorrect=p_incorrect, transformation_scale=transformation_scale,
-            seed=seed,
-        )
-        mid_cov = np.mean(result) / lib_size
-
-        if progress_callback:
-            progress_callback(iteration, mid, mid_cov)
+        mid_cov = _coverage(mid)
 
         if mid_cov >= target_coverage:
             best_fold, best_cov = mid, mid_cov
             high = mid
+            # Stop only once the *kept* candidate is close enough. Breaking
+            # on a rejected midpoint that happens to sit just below target
+            # would return the untightened upper bound instead of the answer.
+            if mid_cov - target_coverage < tol:
+                break
         else:
             low = mid
-
-        if abs(mid_cov - target_coverage) < tol:
-            break
 
     # Round up to nearest 0.5 for practical use
     import math
     best_fold = math.ceil(best_fold * 2) / 2
 
     # Re-evaluate at the rounded value
-    result = sortm(
-        n_sims=n_sims, lib_size=lib_size, fold_sampling=best_fold,
-        skew=skew, p_grow=p_grow, p_fail=p_fail,
-        p_incorrect=p_incorrect, transformation_scale=transformation_scale,
-        seed=seed,
-    )
-    best_cov = np.mean(result) / lib_size
+    best_cov = _coverage(best_fold)
 
     return best_fold, best_cov
 
