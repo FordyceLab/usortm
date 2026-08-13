@@ -5,6 +5,7 @@ when those tools are not available. Mock-based tests verify CLI wiring
 without external dependencies.
 """
 
+import re
 import shutil
 from unittest.mock import patch
 import csv
@@ -16,6 +17,18 @@ from usortm.cli import app
 from usortm.demux.deps import DependencyError
 
 runner = CliRunner()
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _load_json_output(result):
+    """Parse a command's --json output, dropping any styling Rich applied.
+
+    Rich colors its output when FORCE_COLOR is set in the environment, which
+    happens on some terminals, so strip escape codes before parsing.
+    """
+    return json.loads(_ANSI.sub("", result.stdout))
 
 
 def _tool_available(name: str) -> bool:
@@ -260,6 +273,59 @@ def test_estimate_command():
     ])
     assert result.exit_code == 0
     assert "$" in result.stdout or "cost" in result.stdout.lower()
+
+
+def test_estimate_predicts_coverage_from_size_skew_and_fold():
+    """Library size, skew and fold-sampling should yield a predicted coverage."""
+    result = runner.invoke(app, [
+        "estimate",
+        "--library-size", "376",
+        "--skew", "2",
+        "--fold-sampling", "3.72",
+        "--no-compare",
+        "--json",
+    ])
+    assert result.exit_code == 0, result.output
+
+    payload = _load_json_output(result)
+    assert payload["fold_sampling"] == 3.72
+    assert payload["fold_sampling_auto"] is False
+
+    coverage = payload["expected_coverage"]
+    assert 0 < coverage <= 1
+    assert payload["coverage_p10"] <= coverage <= payload["coverage_p90"]
+
+
+def test_estimate_coverage_rises_with_fold_sampling():
+    """The same library sampled more deeply should predict higher coverage."""
+    def _coverage(fold):
+        result = runner.invoke(app, [
+            "estimate",
+            "--library-size", "150",
+            "--skew", "4",
+            "--fold-sampling", str(fold),
+            "--no-compare",
+            "--json",
+        ])
+        assert result.exit_code == 0, result.output
+        return _load_json_output(result)["expected_coverage"]
+
+    assert _coverage(8) > _coverage(2)
+
+
+def test_estimate_coverage_is_reproducible():
+    """Identical parameters should predict identical coverage."""
+    args = [
+        "estimate",
+        "--library-size", "150",
+        "--skew", "3",
+        "--fold-sampling", "5",
+        "--no-compare",
+        "--json",
+    ]
+    first = _load_json_output(runner.invoke(app, args))
+    second = _load_json_output(runner.invoke(app, args))
+    assert first["expected_coverage"] == second["expected_coverage"]
 
 
 def test_plan_command_with_round_option(tmp_path, library_csv):

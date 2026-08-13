@@ -132,6 +132,15 @@ usortm estimate -n 500 -l 300
 #   7.8-fold savings with uSort-M
 ```
 
+Coverage is simulated from the library size, skew, and fold-sampling, and reported with the costs:
+
+```bash
+usortm estimate -n 376 -s 2 -f 3.72
+#   Simulation: 3.72× fold-sampling → 79.3% expected coverage (77%–81% across 100 sims)
+```
+
+Omit `-f` and the fold-sampling is searched for instead, returning the shallowest sort that reaches `--target-coverage` (90% by default).
+
 ## Workflow Timeline
 
 | Day | Step | Duration |
@@ -163,6 +172,14 @@ results = sortm.sortm(
     skew=4,
     fold_sampling=8,
 )
+
+# Or predict coverage for a planned sort
+prediction = sortm.expected_coverage(
+    lib_size=376,
+    skew=2,
+    fold_sampling=3.72,
+)
+prediction["coverage"]  # mean fraction of the library recovered
 ```
 
 ## Documentation

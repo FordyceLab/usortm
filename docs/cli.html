@@ -215,9 +215,16 @@
         
         <h2 id="estimate"><code>usortm estimate</code></h2>
         <p>Quick cost and effort estimation without creating a project.</p>
-        
+
         <pre><code class="language-bash">usortm estimate --library-size 500 --seq-length 300</code></pre>
-        
+
+        <h3>Coverage</h3>
+        <p>Library size, skew, fold-sampling, and sorting efficiency determine how much of the library a sort recovers, so <code>estimate</code> simulates coverage from them and reports it with the costs. Give the fold-sampling you plan to sort and the predicted coverage follows from it:</p>
+
+        <pre><code class="language-bash">usortm estimate -n 376 -s 2 -f 3.72</code></pre>
+
+        <p>Leave <code>--fold-sampling</code> off instead and the fold-sampling is searched for, returning the shallowest sort that reaches <code>--target-coverage</code>. Either way the reported figure is the mean over 100 simulations, with the 10th&ndash;90th percentile range alongside it.</p>
+
         <h3>Options</h3>
         <div class="table-wrapper">
           <table>
@@ -245,8 +252,14 @@
             <tr>
               <td><code>--fold-sampling</code></td>
               <td><code>-f</code></td>
-              <td>Fold oversampling</td>
-              <td>4.0</td>
+              <td>Fold oversampling; predicted coverage is simulated from it</td>
+              <td>searched for from <code>--target-coverage</code></td>
+            </tr>
+            <tr>
+              <td><code>--target-coverage</code></td>
+              <td></td>
+              <td>Coverage to solve fold-sampling for when <code>-f</code> is omitted</td>
+              <td>0.90</td>
             </tr>
             <tr>
               <td><code>--skew</code></td>
