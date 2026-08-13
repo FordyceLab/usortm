@@ -392,9 +392,14 @@
         <h2 id="skew"><code>usortm skew</code></h2>
         <p>Measure how unevenly the amplified library is distributed, and recommend a sorting depth from that measurement. <code>usortm plan</code> has to assume skew from the synthesis method because the library does not exist yet; once it does, a shallow sequencing run of the library measures it directly. 12&ndash;20k reads (e.g. Plasmidsaurus premium PCR) is ample.</p>
 
-        <pre><code class="language-bash">usortm skew library.fastq --project my_project/</code></pre>
+        <pre><code class="language-bash">usortm skew library.fastq --project my_project/
+
+# Or a whole run directory, counted as one library
+usortm skew fastq_pass/ --project my_project/</code></pre>
 
         <p>Reads are aligned to the starting variant list and counted per variant. Only <strong>minimap2</strong> is required &mdash; not Dorado or samtools &mdash; so this runs on machines that cannot run the full demux pipeline.</p>
+
+        <p>The reads argument takes either a single FASTQ or a directory, which is searched recursively for <code>.fastq</code> and <code>.fq</code> files, gzipped or not. Files are counted together, so a basecaller's output tree needs no concatenation first. Which files were used is recorded in <code>skew_report.json</code> under <code>fastq_files</code>.</p>
 
         <h3>Reading the output</h3>
         <p>The headline view is a histogram of log<sub>10</sub> abundance: a uniform library is a tight bell, and skew shows up as width. The fitted width &sigma; (in log<sub>10</sub> units) is the uniformity metric, and it maps directly onto the Q90/Q10 ratio.</p>
@@ -417,7 +422,7 @@
           <tbody>
             <tr>
               <td><code>fastq</code></td>
-              <td>FASTQ of the amplified library (plain or gzipped)</td>
+              <td>FASTQ of the amplified library (plain or gzipped), or a directory of FASTQs</td>
             </tr>
           </tbody>
         </table>

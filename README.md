@@ -98,7 +98,10 @@ usortm skew library.fastq --project my_project/
 
 The command aligns the reads against the starting variant list, counts reads
 per variant, and recommends a fold-sampling depth. It needs only **minimap2**,
-not the full demux toolchain. The measurement costs one extra sequencing
+not the full demux toolchain. The argument can also be a directory, which is
+searched recursively for `.fastq`/`.fq` files, gzipped or not, and every read
+found is counted as part of the same library — a basecaller's `fastq_pass/`
+can be passed as-is. The measurement costs one extra sequencing
 turnaround before sorting, which is usually cheaper than sorting the wrong
 number of plates.
 

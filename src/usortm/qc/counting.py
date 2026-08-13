@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 from collections import OrderedDict
+from pathlib import Path
 
 from usortm.demux.deps import find_minimap2
 from usortm.qc.resolve import read_variant_sequences
@@ -41,11 +42,53 @@ _CIGAR_RE = re.compile(r"(\d+)([MIDNSHP=X])")
 # CIGAR operations that advance along the reference.
 _REF_CONSUMING = frozenset("MDN=X")
 
-__all__ = ["count_variant_reads", "count_fastq_reads", "write_reference_fasta"]
+__all__ = [
+    "count_variant_reads",
+    "count_fastq_reads",
+    "collect_fastqs",
+    "write_reference_fasta",
+]
+
+FASTQ_PATTERNS = ("*.fastq", "*.fastq.gz", "*.fq", "*.fq.gz")
+
+
+def collect_fastqs(fastq) -> list:
+    """Resolve FASTQ input to a sorted list of files.
+
+    Accepts a single file, a directory, or an iterable mixing the two, so a
+    basecaller's ``fastq_pass/`` tree can be passed as-is. Directories are
+    searched recursively for ``.fastq``/``.fq``, gzipped or not; a file path
+    is taken as given, whatever its extension.
+
+    Raises:
+        FileNotFoundError: If a directory contains no FASTQ files.
+    """
+    if isinstance(fastq, (str, os.PathLike)):
+        fastq = [fastq]
+
+    files = []
+    for entry in fastq:
+        path = Path(entry)
+        if path.is_dir():
+            found = sorted({f for p in FASTQ_PATTERNS for f in path.rglob(p)})
+            if not found:
+                raise FileNotFoundError(f"no FASTQ files under {path}")
+            files.extend(found)
+        else:
+            files.append(path)
+    return files
 
 
 def count_fastq_reads(fastq) -> int:
-    """Count reads in a FASTQ, gzipped or plain.
+    """Count reads across FASTQ input, gzipped or plain.
+
+    Takes anything :func:`collect_fastqs` accepts, and sums over the files.
+    """
+    return sum(_count_one_fastq(path) for path in collect_fastqs(fastq))
+
+
+def _count_one_fastq(fastq) -> int:
+    """Count reads in one FASTQ file.
 
     Detects gzip by magic bytes rather than extension, matching
     :func:`usortm.demux.utils._open_fastq`.
@@ -150,7 +193,9 @@ def count_variant_reads(
     """Align library reads to the variant list and count per-variant hits.
 
     Args:
-        fastq: Library sequencing reads (plain or gzipped).
+        fastq: Library sequencing reads (plain or gzipped) — a FASTQ file, a
+            directory searched recursively for FASTQs, or a list of either.
+            Multiple files are counted together as one library.
         variants_csv: CSV with Name and Sequence columns.
         work_dir: Directory for the reference FASTA and minimap2 log.
         min_ref_cov: Minimum fraction of a reference an alignment must
@@ -171,6 +216,7 @@ def count_variant_reads(
     if minimap2_path is None:
         minimap2_path = find_minimap2()
 
+    fastqs = collect_fastqs(fastq)
     work_dir = str(work_dir)
     os.makedirs(work_dir, exist_ok=True)
     ref_fasta = os.path.join(work_dir, "library_reference.fasta")
@@ -181,14 +227,19 @@ def count_variant_reads(
     counts = OrderedDict((name, 0) for name in sequences)
     ref_lengths = {name: len(seq) for name, seq in sequences.items()}
 
+    # minimap2 takes any number of query files and emits their alignments in
+    # input order, so several FASTQs need no concatenation step.
     cmd = [
         minimap2_path, "-ax", "map-ont",
         "--secondary=yes", "-N", "5", "-p", "0.6",
         "-t", str(threads),
-        ref_fasta, str(fastq),
+        ref_fasta, *[str(path) for path in fastqs],
     ]
     log_path = os.path.join(work_dir, "minimap2.log")
-    logger.info("Counting reads per variant; minimap2 stderr -> %s", log_path)
+    logger.info(
+        "Counting reads per variant across %d FASTQ file(s); "
+        "minimap2 stderr -> %s", len(fastqs), log_path,
+    )
 
     tallies = {"ambiguous": 0, "unmapped": 0, "low_cov": 0}
     n_reads = 0

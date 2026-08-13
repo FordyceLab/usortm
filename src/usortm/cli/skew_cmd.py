@@ -35,7 +35,8 @@ PROJECT_STATE_FILE = "usortm_project.json"
 def skew(
     fastq: Path = typer.Argument(
         ...,
-        help="FASTQ of the amplified library (e.g. Plasmidsaurus premium PCR).",
+        help="FASTQ of the amplified library (e.g. Plasmidsaurus premium PCR), "
+             "or a directory of FASTQs to count together.",
         exists=True,
     ),
     project_dir: Optional[Path] = typer.Option(
@@ -114,9 +115,15 @@ def skew(
     than it is, so the raw Q90/Q10 ratio is reported alongside a
     noise-corrected estimate, and the recommendation follows the corrected one.
 
+    Point it at one FASTQ, or at a directory (searched recursively) whose
+    FASTQs are all reads of the same library — a basecaller's
+    [cyan]fastq_pass/[/cyan] can be passed as-is.
+
     [bold]Example:[/bold]
 
         usortm skew library.fastq --project my_project/
+
+        usortm skew fastq_pass/ --project my_project/
     """
     if basis not in ("empirical", "lognormal"):
         console.print(
@@ -125,6 +132,7 @@ def skew(
         raise typer.Exit(1)
 
     variants_csv = _resolve_variants(project_dir, variants_file)
+    fastq_files = _resolve_fastqs(fastq)
     out_dir = _resolve_output(output, project_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,7 +143,15 @@ def skew(
     ))
     console.print()
     console.print(f"[green]✓[/green] Variants: [cyan]{variants_csv}[/cyan]")
-    console.print(f"[green]✓[/green] Reads:    [cyan]{fastq}[/cyan]")
+    if len(fastq_files) == 1:
+        console.print(f"[green]✓[/green] Reads:    [cyan]{fastq_files[0]}[/cyan]")
+    else:
+        console.print(f"[green]✓[/green] Reads:    [cyan]{fastq}[/cyan]")
+        console.print(
+            f"[muted]            {len(fastq_files)} FASTQ files, "
+            f"counted together as one library[/muted]",
+            highlight=False,
+        )
     console.print()
 
     from usortm.demux.deps import DependencyError
@@ -160,7 +176,7 @@ def skew(
 
     # --- Count reads per variant ---
     try:
-        total_reads = count_fastq_reads(fastq)
+        total_reads = count_fastq_reads(fastq_files)
     except OSError:
         total_reads = None
 
@@ -178,7 +194,7 @@ def skew(
 
         try:
             counts = count_variant_reads(
-                fastq, variants_csv, out_dir / "work",
+                fastq_files, variants_csv, out_dir / "work",
                 min_ref_cov=min_ref_cov, margin=margin, threads=threads,
                 progress_callback=on_progress, total_reads=total_reads,
             )
@@ -191,7 +207,7 @@ def skew(
         console.print()
         console.print(
             "[red]Error:[/red] no reads could be assigned to any variant.\n"
-            "  Check that the FASTQ and the variant list describe the same library, "
+            "  Check that the reads and the variant list describe the same library, "
             "and that reads span the variable region."
         )
         raise typer.Exit(1)
@@ -226,14 +242,16 @@ def skew(
     _print_recommendation(recommendation, stats, project_dir)
 
     # --- Write outputs ---
-    written = _write_outputs(profile, out_dir, fastq, variants_csv, html)
+    written = _write_outputs(
+        profile, out_dir, fastq, fastq_files, variants_csv, html
+    )
     console.print("[green]✓[/green] Wrote:")
     for path in written:
         console.print(f"  • {path}")
     console.print()
 
     if project_dir is not None and update_plan:
-        _update_project_state(project_dir, profile, fastq)
+        _update_project_state(project_dir, profile, fastq, fastq_files)
         console.print(
             f"[green]✓[/green] Recorded in "
             f"[cyan]{project_dir / PROJECT_STATE_FILE}[/cyan] "
@@ -266,6 +284,20 @@ def _resolve_variants(project_dir, variants_file) -> Path:
         )
         raise typer.Exit(1)
     return candidate
+
+
+def _resolve_fastqs(fastq: Path) -> list:
+    """Expand the reads argument to the FASTQ files to count."""
+    from usortm.qc.counting import collect_fastqs
+
+    try:
+        return collect_fastqs(fastq)
+    except FileNotFoundError:
+        console.print(
+            f"[red]Error:[/red] no FASTQ files under {fastq}. "
+            "Expected .fastq, .fq, or their .gz forms."
+        )
+        raise typer.Exit(1)
 
 
 def _resolve_output(output, project_dir) -> Path:
@@ -573,7 +605,9 @@ def _print_next_steps(rec, project_dir):
 # Output files
 # ---------------------------------------------------------------------------
 
-def _write_outputs(profile, out_dir: Path, fastq, variants_csv, html: bool) -> list:
+def _write_outputs(
+    profile, out_dir: Path, fastq, fastq_files, variants_csv, html: bool
+) -> list:
     """Write counts, report JSON and optional HTML. Returns paths written."""
     written = []
 
@@ -584,6 +618,7 @@ def _write_outputs(profile, out_dir: Path, fastq, variants_csv, html: bool) -> l
     report = profile.to_dict()
     report["measured"] = datetime.now().isoformat()
     report["fastq"] = str(Path(fastq).resolve())
+    report["fastq_files"] = [str(Path(p).resolve()) for p in fastq_files]
     report["variants_file"] = str(Path(variants_csv).resolve())
     report["undetected_variants"] = profile.stats.undetected_names
 
@@ -634,7 +669,7 @@ def _write_variant_counts(profile, path: Path):
             ])
 
 
-def _update_project_state(project_dir: Path, profile, fastq):
+def _update_project_state(project_dir: Path, profile, fastq, fastq_files):
     """Add a measured_skew block to the project file.
 
     Additive on purpose: the planning-time `skew` and `fold_sampling` stay
@@ -657,6 +692,7 @@ def _update_project_state(project_dir: Path, profile, fastq):
     state["measured_skew"] = {
         "measured": datetime.now().isoformat(),
         "fastq": str(Path(fastq).resolve()),
+        "fastq_files": [str(Path(p).resolve()) for p in fastq_files],
         "total_reads": counts.total_reads,
         "assigned_reads": counts.assigned_reads,
         "ambiguous_reads": counts.ambiguous,

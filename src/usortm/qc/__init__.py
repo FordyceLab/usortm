@@ -26,7 +26,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from usortm.qc.counting import count_variant_reads, write_reference_fasta
+from usortm.qc.counting import (
+    collect_fastqs,
+    count_variant_reads,
+    write_reference_fasta,
+)
 from usortm.qc.resolve import (
     ResolvabilitySummary,
     check_resolvability,
@@ -50,6 +54,7 @@ __all__ = [
     "SkewStats",
     "SamplingRecommendation",
     "ResolvabilitySummary",
+    "collect_fastqs",
     "count_variant_reads",
     "write_reference_fasta",
     "check_resolvability",
@@ -113,7 +118,8 @@ def profile_library(
     """Measure library skew from reads and recommend a sorting depth.
 
     Args:
-        fastq: Library sequencing reads (plain or gzipped).
+        fastq: Library sequencing reads (plain or gzipped) — a FASTQ file, a
+            directory searched recursively for FASTQs, or a list of either.
         variants_csv: CSV of the starting variants (Name, Sequence).
         work_dir: Directory for intermediate files.
         target_coverage: Fraction of the library to recover by sorting.

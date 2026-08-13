@@ -9,8 +9,10 @@ Tests needing minimap2 are skipped when it is not installed.
 """
 
 import csv
+import gzip
 import json
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -27,7 +29,7 @@ from usortm.qc import (
     read_variant_sequences,
     recommend_sampling,
 )
-from usortm.qc.counting import count_fastq_reads
+from usortm.qc.counting import collect_fastqs, count_fastq_reads
 from usortm.qc.resolve import _find_duplicate_groups
 from usortm.qc.synthetic import make_synthetic_library
 from usortm.qc.skew import (
@@ -111,6 +113,31 @@ def write_fastq(path, reads):
         for name, seq in reads:
             fh.write(f"@{name}\n{seq}\n+\n{'I' * len(seq)}\n")
     return path
+
+
+def write_fastq_gz(path, reads):
+    """Write (name, sequence) pairs as a gzipped FASTQ."""
+    with gzip.open(path, "wt") as fh:
+        for name, seq in reads:
+            fh.write(f"@{name}\n{seq}\n+\n{'I' * len(seq)}\n")
+    return path
+
+
+def split_fastq_into_dir(fastq, directory):
+    """Split a FASTQ into a plain half and a gzipped half under *directory*.
+
+    The gzipped half goes in a subdirectory, so a caller that walks the
+    directory has to recurse and to handle both forms.
+    """
+    lines = Path(fastq).read_text().splitlines(keepends=True)
+    records = [lines[i:i + 4] for i in range(0, len(lines), 4)]
+    half = len(records) // 2
+    (directory / "sub").mkdir(parents=True, exist_ok=True)
+    with open(directory / "part1.fastq", "w") as fh:
+        fh.writelines(line for rec in records[:half] for line in rec)
+    with gzip.open(directory / "sub" / "part2.fastq.gz", "wt") as fh:
+        fh.writelines(line for rec in records[half:] for line in rec)
+    return directory
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +457,61 @@ def test_count_fastq_reads(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# FASTQ input resolution
+# ---------------------------------------------------------------------------
+
+def test_collect_fastqs_passes_a_file_through(tmp_path):
+    path = write_fastq(tmp_path / "r.fastq", [("r0", "ACGT")])
+    assert collect_fastqs(path) == [path]
+
+
+def test_collect_fastqs_searches_a_directory_recursively(tmp_path):
+    """Every FASTQ form is picked up; anything else in the tree is ignored."""
+    reads = [("r0", "ACGT")]
+    (tmp_path / "sub").mkdir()
+    write_fastq(tmp_path / "a.fastq", reads)
+    write_fastq(tmp_path / "b.fq", reads)
+    write_fastq_gz(tmp_path / "sub" / "c.fastq.gz", reads)
+    write_fastq_gz(tmp_path / "sub" / "d.fq.gz", reads)
+    (tmp_path / "notes.txt").write_text("not reads")
+    (tmp_path / "sub" / "summary.csv").write_text("also not reads\n")
+
+    found = collect_fastqs(tmp_path)
+
+    assert [p.name for p in found] == ["a.fastq", "b.fq", "c.fastq.gz", "d.fq.gz"]
+
+
+def test_collect_fastqs_flattens_files_and_directories(tmp_path):
+    reads = [("r0", "ACGT")]
+    single = write_fastq(tmp_path / "single.fastq", reads)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    write_fastq(run_dir / "a.fastq", reads)
+    write_fastq(run_dir / "b.fastq", reads)
+
+    found = collect_fastqs([single, run_dir])
+
+    assert [p.name for p in found] == ["single.fastq", "a.fastq", "b.fastq"]
+
+
+def test_collect_fastqs_rejects_a_directory_with_no_reads(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    (empty / "notes.txt").write_text("nothing here")
+
+    with pytest.raises(FileNotFoundError, match="no FASTQ files"):
+        collect_fastqs(empty)
+
+
+def test_count_fastq_reads_sums_over_a_directory(tmp_path):
+    (tmp_path / "sub").mkdir()
+    write_fastq(tmp_path / "a.fastq", [(f"a{i}", "ACGT") for i in range(4)])
+    write_fastq_gz(tmp_path / "sub" / "b.fastq.gz", [(f"b{i}", "ACGT") for i in range(3)])
+
+    assert count_fastq_reads(tmp_path) == 7
+
+
+# ---------------------------------------------------------------------------
 # Alignment-backed counting
 # ---------------------------------------------------------------------------
 
@@ -455,6 +537,30 @@ def test_counting_recovers_exact_abundances(tmp_path, distinct_library):
     fastq = write_fastq(tmp_path / "lib.fastq", reads)
 
     counts = count_variant_reads(fastq, csv_path, tmp_path / "work")
+
+    assert counts.counts == truth
+    assert counts.total_reads == sum(truth.values())
+    assert counts.ambiguous == 0
+    assert counts.unmapped == 0
+
+
+@requires_minimap2
+def test_counting_pools_a_directory_into_one_library(tmp_path, distinct_library):
+    """Reads split across files must total the same as reads in one file."""
+    csv_path, sequences, flank5, flank3 = distinct_library
+    truth = {"var0": 40, "var1": 25, "var2": 15, "var3": 10, "var4": 5, "var5": 0}
+
+    reads = []
+    for name, n in truth.items():
+        for j in range(n):
+            reads.append((f"{name}_{j}", flank5 + sequences[name] + flank3))
+    single = write_fastq(tmp_path / "lib.fastq", reads)
+
+    read_dir = tmp_path / "fastq_pass"
+    read_dir.mkdir()
+    split_fastq_into_dir(single, read_dir)
+
+    counts = count_variant_reads(read_dir, csv_path, tmp_path / "work")
 
     assert counts.counts == truth
     assert counts.total_reads == sum(truth.values())
@@ -628,6 +734,42 @@ def test_cli_writes_outputs_and_updates_project(skew_project):
     # The planning assumption is preserved rather than overwritten.
     assert state["skew"] == 4.0
     assert state["fold_sampling"] == 8.0
+
+
+@requires_minimap2
+def test_cli_accepts_a_directory_of_fastqs(tmp_path, skew_project):
+    project, fastq = skew_project
+    read_dir = split_fastq_into_dir(fastq, tmp_path / "fastq_pass")
+
+    result = runner.invoke(app, [
+        "skew", str(read_dir), "--project", str(project),
+        "--n-sims", "20", "--no-html",
+    ])
+
+    assert result.exit_code == 0, result.output
+    # Long tmp paths wrap the banner, so compare on collapsed whitespace.
+    assert "2 FASTQ files" in " ".join(result.output.split())
+
+    report = json.loads((project / "skew" / "skew_report.json").read_text())
+    assert [Path(p).name for p in report["fastq_files"]] == [
+        "part1.fastq", "part2.fastq.gz",
+    ]
+    # Every read is accounted for, wherever it was stored.
+    assert report["reads"]["total"] == count_fastq_reads(fastq)
+
+    state = json.loads((project / "usortm_project.json").read_text())
+    assert len(state["measured_skew"]["fastq_files"]) == 2
+
+
+def test_cli_rejects_a_directory_with_no_fastqs(tmp_path, skew_project):
+    project, _ = skew_project
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    result = runner.invoke(app, ["skew", str(empty), "--project", str(project)])
+
+    assert result.exit_code == 1
+    assert "no FASTQ files" in result.output
 
 
 @requires_minimap2
