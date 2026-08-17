@@ -139,6 +139,32 @@ def _rebuild_ref_map_from_fastq(path):
     return ref_map, stats
 
 
+def _input_fingerprint(fastq_path):
+    """Identify an input FASTQ cheaply, for cache invalidation.
+
+    Hashing the reads themselves is not affordable — a production input runs
+    to several gigabytes — so the input is identified by absolute path, byte
+    size and modification time instead.  The bias is deliberate: a false
+    mismatch costs a re-alignment, while a false match would silently process
+    the wrong reads.
+
+    Args:
+        fastq_path: Path to the input FASTQ.
+
+    Returns:
+        Dict describing the file, or ``None`` if it cannot be stat'ed.
+    """
+    try:
+        st = os.stat(fastq_path)
+    except OSError:
+        return None
+    return {
+        "path": os.path.abspath(fastq_path),
+        "size": st.st_size,
+        "mtime_ns": st.st_mtime_ns,
+    }
+
+
 def align_and_split_by_strand(
     multi_ref_fasta,
     fastq,
@@ -188,18 +214,32 @@ def align_and_split_by_strand(
     oriented_fq = os.path.join(output_dir, "oriented_reads.fastq")
     stats_path = os.path.join(output_dir, "align_stats.json")
 
-    # --- Cache invalidation: hash the reference FASTA so we detect changes ---
+    # --- Cache invalidation ---
+    # The cache is keyed on BOTH the reference and the input FASTQ.  Keying on
+    # the reference alone silently reuses a previous run's reads whenever the
+    # input changes but the reference does not — e.g. a --subsample pass
+    # followed by the full run in the same project directory, which would
+    # process only the subsampled reads while reporting success.
     ref_hash = hashlib.md5(open(multi_ref_fasta, "rb").read()).hexdigest()
+    input_fp = _input_fingerprint(fastq)
 
     # --- Cache check: if oriented FASTQ already exists, rebuild from it ---
     if os.path.exists(oriented_fq):
-        cache_valid = False
+        stale_reason = "no saved alignment stats"
+        saved = None
         if os.path.exists(stats_path):
             with open(stats_path) as fh:
                 saved = json.load(fh)
-            if saved.get("ref_hash") == ref_hash:
-                cache_valid = True
-        if cache_valid:
+            if saved.get("ref_hash") != ref_hash:
+                stale_reason = "reference changed"
+            elif saved.get("input") != input_fp:
+                stale_reason = "input FASTQ changed"
+            elif input_fp is None:
+                stale_reason = "input FASTQ could not be identified"
+            else:
+                stale_reason = None
+
+        if stale_reason is None:
             logger.info("Using cached oriented FASTQ: %s", oriented_fq)
             if progress_callback is not None:
                 progress_callback(None, None)  # signal: cached
@@ -208,7 +248,7 @@ def align_and_split_by_strand(
             return oriented_fq, ref_map, align_stats
         else:
             logger.info(
-                "Alignment reference changed — regenerating oriented FASTQ"
+                "Regenerating oriented FASTQ (%s): %s", stale_reason, oriented_fq
             )
             os.remove(oriented_fq)
 
@@ -297,9 +337,10 @@ def align_and_split_by_strand(
         "unmapped": n_unmapped,
     }
 
-    # Write sidecar for unmapped count + ref hash (for cache invalidation)
+    # Write sidecar for unmapped count + cache key (reference and input FASTQ)
     sidecar = dict(align_stats)
     sidecar["ref_hash"] = ref_hash
+    sidecar["input"] = _input_fingerprint(fastq)
     with open(stats_path, "w") as fh:
         json.dump(sidecar, fh)
 

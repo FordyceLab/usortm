@@ -4,6 +4,7 @@ Unit tests use synthetic FASTQ/FASTA fixtures and mock external tools.
 Integration tests (marked with requires_*) need dorado, minimap2, samtools.
 """
 
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -617,6 +618,123 @@ class TestAlignAndSplit:
 
         assert (align_dir / "oriented_reads.fastq").exists()
         assert (align_dir / "minimap2.log").exists()
+
+
+@requires_minimap2
+@requires_samtools
+class TestAlignmentCache:
+    """The oriented-FASTQ cache must key on the input reads as well as the
+    reference.
+
+    Keying on the reference alone made a re-run silently reuse the previous
+    run's reads whenever the input changed but the reference did not — most
+    damagingly a ``--subsample`` pass followed by the full run in the same
+    project directory, which processed only the subsampled reads while
+    reporting success.
+    """
+
+    @staticmethod
+    def _first_n_reads(src, dest, n):
+        """Write the first *n* FASTQ records of *src* to *dest*."""
+        with open(src) as fh_in, open(dest, "w") as fh_out:
+            for _ in range(n):
+                block = [fh_in.readline() for _ in range(4)]
+                if not block[0]:
+                    break
+                fh_out.writelines(block)
+        return dest
+
+    @staticmethod
+    def _align(ref, fastq, align_dir, seen=None):
+        from usortm.demux.utils import align_and_split_by_strand
+
+        def _cb(n_done, total):
+            if seen is not None and n_done is None:
+                seen.append("cached")
+
+        return align_and_split_by_strand(
+            multi_ref_fasta=str(ref), fastq=str(fastq),
+            output_dir=str(align_dir), threads=1, progress_callback=_cb,
+        )
+
+    def test_cache_reused_when_nothing_changed(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        align_dir = tmp_path / "alignment"
+        _, _, first = self._align(fake_reference_fasta, fake_fastq, align_dir)
+
+        seen = []
+        _, _, second = self._align(
+            fake_reference_fasta, fake_fastq, align_dir, seen=seen
+        )
+
+        assert seen == ["cached"], "expected the cache to be reused"
+        assert second["mapped"] == first["mapped"]
+
+    def test_cache_invalidated_when_input_fastq_changes(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        """The regression: a different input must not reuse cached reads."""
+        align_dir = tmp_path / "alignment"
+        subset = self._first_n_reads(
+            str(fake_fastq), str(tmp_path / "subset.fastq"), 20
+        )
+
+        _, _, small = self._align(fake_reference_fasta, subset, align_dir)
+        seen = []
+        _, ref_map, full = self._align(
+            fake_reference_fasta, fake_fastq, align_dir, seen=seen
+        )
+
+        assert seen == [], "cache must not be reused for a different input"
+        assert full["mapped"] > small["mapped"], (
+            f"full run reused the {small['mapped']}-read cache"
+        )
+        assert len(ref_map) == full["mapped"]
+
+    def test_cache_invalidated_when_reference_changes(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        """Pre-existing invalidation behaviour must be preserved."""
+        align_dir = tmp_path / "alignment"
+        self._align(fake_reference_fasta, fake_fastq, align_dir)
+
+        edited = tmp_path / "reference_edited.fasta"
+        original = fake_reference_fasta.read_text().splitlines()
+        edited.write_text(f"{original[0]}\n{original[1][::-1]}\n")
+
+        seen = []
+        self._align(edited, fake_fastq, align_dir, seen=seen)
+        assert seen == [], "cache must not be reused for a different reference"
+
+    def test_subsample_pass_then_full_run(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        """Workflow-level guard: the documented 'subsample first, then the
+        full run in the same project directory' sequence must see every read.
+        """
+        align_dir = tmp_path / "demux_output" / "alignment"
+        subsampled = self._first_n_reads(
+            str(fake_fastq), str(tmp_path / "subsampled.fastq"), 10
+        )
+
+        self._align(fake_reference_fasta, subsampled, align_dir)
+        _, ref_map, full = self._align(fake_reference_fasta, fake_fastq, align_dir)
+
+        assert full["mapped"] > 10
+        assert len(ref_map) > 10
+
+    def test_fingerprint_recorded_in_sidecar(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        """Without the fingerprint on disk the cache could never validate."""
+        align_dir = tmp_path / "alignment"
+        self._align(fake_reference_fasta, fake_fastq, align_dir)
+
+        saved = json.loads((align_dir / "align_stats.json").read_text())
+        assert "ref_hash" in saved
+        assert saved["input"]["path"] == str(Path(fake_fastq).resolve())
+        assert saved["input"]["size"] == Path(fake_fastq).stat().st_size
 
 
 # ===================================================================
