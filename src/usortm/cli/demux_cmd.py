@@ -361,12 +361,11 @@ def demux(
 
     # Generate interactive plate map (Bokeh is an optional dependency)
     try:
-        import pandas as pd
-        from usortm.demux.viz import save_plate_map_html
+        from usortm.demux.viz import load_plate_map_reads, save_plate_map_html
 
         read_df_path = demux_output / "read_df.csv"
         if read_df_path.exists():
-            read_df = pd.read_csv(read_df_path)
+            read_df = load_plate_map_reads(read_df_path)
             if read_df.empty:
                 console.print(
                     "[yellow]⚠[/yellow] Plate map skipped: no reads were assigned to wells "

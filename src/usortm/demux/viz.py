@@ -403,6 +403,36 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     return layout
 
 
+PLATE_MAP_COLUMNS = ["well_pos", "ref_name"]
+
+
+def load_plate_map_reads(read_df_path):
+    """Load only the columns a plate map needs from ``read_df.csv``.
+
+    ``read_df.csv`` carries the full sequence and quality string for every
+    read, which on a large run is several gigabytes.  The plate map derives
+    everything it draws from ``well_pos`` and ``ref_name`` alone, so the rest
+    is never worth materialising.
+
+    Falls back to a full read if those columns are absent, which happens only
+    for a degenerate (empty) table.
+
+    Args:
+        read_df_path: Path to ``read_df.csv``.
+
+    Returns:
+        DataFrame with ``well_pos`` and ``ref_name``.
+    """
+    import pandas as pd
+
+    try:
+        return pd.read_csv(read_df_path, usecols=PLATE_MAP_COLUMNS)
+    except ValueError:
+        # Column missing — an empty or older read_df.csv.  Read it whole so
+        # callers still get their usual "no reads assigned" message.
+        return pd.read_csv(read_df_path)
+
+
 def save_plate_map_html(df, output_path, title="Plate Map",
                         streakout_wells=None, mutation_wells=None,
                         silent_mutation_wells=None, **kwargs):
