@@ -290,6 +290,46 @@ class TestBarcodeGeneration:
             assert well.startswith(str(run2.plates[bc_plate]))
 
 
+class TestInteractivePairParsing:
+    """The prompt collects pairs as free text, so parsing carries the risk."""
+
+    def _parse(self, text):
+        from usortm.cli.demux_cmd import _parse_plate_pairs
+        return _parse_plate_pairs(text)
+
+    def test_parses_the_ten_plate_second_fastq(self):
+        assert self._parse("7:7, 8:8, 1:9, 2:10") == {7: 7, 8: 8, 1: 9, 2: 10}
+
+    def test_tolerates_spacing_and_separators(self):
+        assert self._parse(" 1 : 9 ;2:10 ") == {1: 9, 2: 10}
+
+    def test_accepts_equals_as_separator(self):
+        assert self._parse("1=9, 2=10") == {1: 9, 2: 10}
+
+    def test_single_pair(self):
+        assert self._parse("3:4") == {3: 4}
+
+    def test_rejects_text_without_a_separator(self):
+        with pytest.raises(PlateMapError, match="not a barcode:sort pair"):
+            self._parse("1 9")
+
+    def test_rejects_barcode_plate_beyond_the_kit(self):
+        with pytest.raises(PlateMapError, match="out of range"):
+            self._parse("9:9")
+
+    def test_rejects_duplicate_sort_plate(self):
+        with pytest.raises(PlateMapError, match="more than one"):
+            self._parse("1:5, 2:5")
+
+    def test_shares_validation_with_the_config_file(self):
+        """Typed pairs and file entries must be judged by the same rules."""
+        typed = self._parse("7:7, 8:8, 1:9, 2:10")
+        from_file = parse_plate_map({"fastq": [{
+            "path": "x", "plates": {"7": 7, "8": 8, "1": 9, "2": 10},
+        }]})[0].plates
+        assert typed == from_file
+
+
 class TestFormatDf:
 
     def _reads(self, rbc_names):
