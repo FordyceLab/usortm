@@ -7,6 +7,7 @@ without external dependencies.
 
 import re
 import shutil
+from pathlib import Path
 from unittest.mock import patch
 import csv
 import json
@@ -192,6 +193,237 @@ def test_demux_with_mock_pipeline(tmp_path, mock_fastq):
     assert "Demultiplexing" in result.stdout
     assert (project_dir / "demux_output").exists()
     assert (project_dir / "demux_output" / "well_assignments.csv").exists()
+
+
+def _plate_map_project(tmp_path, n_plates=10):
+    """A project plus two FASTQs that reuse barcode plates 1 and 2."""
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump({
+            "library_size": 100,
+            "barcode_kit": "levseq",
+            "n_plates": n_plates,
+            "workflow_steps": {},
+        }, f)
+
+    for name in ("run1.fastq", "run2.fastq"):
+        (tmp_path / name).write_text("@r0\nACGTACGT\n+\nIIIIIIII\n")
+
+    cfg = tmp_path / "plate_map.toml"
+    cfg.write_text(
+        '[[fastq]]\nname = "run1"\npath = "run1.fastq"\n'
+        "plates = { 1 = 1, 2 = 2, 3 = 3, 4 = 4, 5 = 5, 6 = 6 }\n\n"
+        '[[fastq]]\nname = "run2"\npath = "run2.fastq"\n'
+        "plates = { 7 = 7, 8 = 8, 1 = 9, 2 = 10 }\n"
+    )
+    reference = tmp_path / "reference.fasta"
+    reference.write_text(">var_001\nACGTACGTACGTACGTACGT\n")
+    return project_dir, cfg, reference
+
+
+def _fake_run_demux(sort_plates_by_segment):
+    """Build a _run_demux stand-in that emits per-segment tables.
+
+    Each call writes the read_df/well_df a real run would leave behind, so the
+    merge path is exercised against real files.
+    """
+    import pandas as pd
+
+    def _side_effect(**kwargs):
+        out = Path(kwargs["output_dir"])
+        out.mkdir(parents=True, exist_ok=True)
+        plates = sort_plates_by_segment[out.name]
+        wells = [f"{p}A1" for p in plates]
+
+        # 30 reads per well: above the ghost-plate threshold the plate map
+        # applies, so the merged view renders like a real run.
+        read_wells = [w for w in wells for _ in range(30)]
+        pd.DataFrame({
+            "read_name": [f"{out.name}_r{i}" for i in range(len(read_wells))],
+            "well_pos": read_wells,
+            "ref_name": ["fwd:var_001"] * len(read_wells),
+        }).to_csv(out / "read_df.csv", index=False)
+        pd.DataFrame({
+            "plate": plates,
+            "well": ["A1"] * len(wells),
+            "global_well": wells,
+            "depth": [150] * len(wells),
+            "major_ref": ["var_001"] * len(wells),
+            "major_freq": [0.99] * len(wells),
+            "ref_len": [20] * len(wells),
+        }).to_csv(out / "well_df.csv", index=False)
+
+        return {
+            "input_reads": 100 * len(wells),
+            "aligned_reads": 90 * len(wells),
+            "demuxed_reads": 80 * len(wells),
+            "assigned_reads": 70 * len(wells),
+            "wells_with_data": len(wells),
+            "wells_passing": len(wells),
+            "well_assignments": {
+                f"{p}_A1": {
+                    "plate": str(p), "well": "A1", "reads": 150,
+                    "variant": "var_001", "consensus_fraction": 0.99,
+                    "cons_check": "",
+                } for p in plates
+            },
+        }
+    return _side_effect
+
+
+def test_demux_plate_map_runs_each_fastq_with_its_own_mapping(tmp_path):
+    """Each FASTQ must be demuxed separately with its own barcode mapping —
+    barcode plate 1 means sort plate 1 in one file and 9 in the other."""
+    project_dir, cfg, reference = _plate_map_project(tmp_path)
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        side_effect=_fake_run_demux({"run1": [1, 2, 3, 4, 5, 6],
+                                     "run2": [7, 8, 9, 10]}),
+    ) as run_demux, patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--plate-map", str(cfg),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    assert run_demux.call_count == 2
+
+    maps = [c.kwargs["plate_map"] for c in run_demux.call_args_list]
+    assert maps[0] == {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
+    assert maps[1] == {7: 7, 8: 8, 1: 9, 2: 10}
+
+    # Each segment ran in its own directory, so their caches stay independent.
+    dirs = [Path(c.kwargs["output_dir"]).name for c in run_demux.call_args_list]
+    assert dirs == ["run1", "run2"]
+
+
+def test_demux_plate_map_merges_onto_one_plate_numbering(tmp_path):
+    project_dir, cfg, reference = _plate_map_project(tmp_path)
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        side_effect=_fake_run_demux({"run1": [1, 2, 3, 4, 5, 6],
+                                     "run2": [7, 8, 9, 10]}),
+    ), patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--plate-map", str(cfg),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    demux_output = project_dir / "demux_output"
+
+    with open(demux_output / "well_assignments.csv") as f:
+        plates = sorted({int(row["plate"]) for row in csv.DictReader(f)})
+    assert plates == list(range(1, 11))
+
+    summary = json.loads((demux_output / "demux_summary.json").read_text())
+    assert summary["wells_with_data"] == 10
+    assert summary["input_reads"] == 100 * 10  # both segments summed
+
+    import pandas as pd
+    merged = pd.read_csv(demux_output / "read_df.csv")
+    assert sorted(merged["segment"].unique()) == ["run1", "run2"]
+    assert sorted(merged["well_pos"].unique()) == sorted(
+        f"{p}A1" for p in range(1, 11)
+    )
+    # Sort plates 9 and 10 come from run2's reuse of barcode plates 1 and 2.
+    assert set(merged[merged["well_pos"].isin(["9A1", "10A1"])]["segment"]) == {"run2"}
+
+
+def test_demux_uses_project_plate_map_when_present(tmp_path):
+    """A plate_map.toml in the project directory is picked up automatically."""
+    project_dir, cfg, reference = _plate_map_project(tmp_path)
+    # Paths inside the config are relative to the config, so move it wholesale.
+    (project_dir / "plate_map.toml").write_text(
+        cfg.read_text().replace('"run1.fastq"', f'"{tmp_path / "run1.fastq"}"')
+                       .replace('"run2.fastq"', f'"{tmp_path / "run2.fastq"}"')
+    )
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        side_effect=_fake_run_demux({"run1": [1, 2, 3, 4, 5, 6],
+                                     "run2": [7, 8, 9, 10]}),
+    ) as run_demux, patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir), "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    assert run_demux.call_count == 2
+    assert "Using project plate map" in result.stdout
+
+
+def test_demux_rejects_an_invalid_plate_map(tmp_path):
+    project_dir, cfg, reference = _plate_map_project(tmp_path)
+    # Barcode plate 9 does not exist — the kit provides 8.
+    cfg.write_text('[[fastq]]\npath = "run1.fastq"\nplates = { 9 = 9 }\n')
+
+    with patch("usortm.cli.demux_cmd._run_demux") as run_demux, patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--plate-map", str(cfg),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 1
+    assert "out of range" in result.stdout
+    run_demux.assert_not_called()
+
+
+def test_demux_single_fastq_is_unaffected(tmp_path, mock_fastq):
+    """The ordinary one-FASTQ run keeps writing straight to demux_output with
+    no plate map, so nothing changes for existing projects."""
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump({"library_size": 10, "barcode_kit": "levseq",
+                   "n_plates": 1, "workflow_steps": {}}, f)
+    reference = tmp_path / "reference.fasta"
+    reference.write_text(">var_001\nACGTACGT\n")
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        return_value={
+            "input_reads": 10, "aligned_reads": 9, "demuxed_reads": 8,
+            "assigned_reads": 7, "wells_with_data": 1, "wells_passing": 1,
+            "well_assignments": {"1_A1": {
+                "plate": "1", "well": "A1", "reads": 10,
+                "variant": "var_001", "consensus_fraction": 1.0,
+                "cons_check": "",
+            }},
+        },
+    ) as run_demux, patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--fastq", str(mock_fastq),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    assert run_demux.call_count == 1
+    assert run_demux.call_args.kwargs["plate_map"] is None
+    assert Path(run_demux.call_args.kwargs["output_dir"]).name == "demux_output"
+    assert not (project_dir / "demux_output" / "segments").exists()
 
 
 def test_demux_requires_a_reference(tmp_path, mock_fastq):

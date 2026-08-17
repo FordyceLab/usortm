@@ -9,6 +9,8 @@ from pathlib import Path
 import csv
 import gzip
 import json
+import os
+import shutil
 from datetime import datetime
 
 import typer
@@ -31,13 +33,28 @@ def demux(
         help="Path to uSort-M project directory (created by 'usortm plan').",
         exists=True,
     ),
-    fastq: Path = typer.Option(
-        ...,
+    fastq: Optional[Path] = typer.Option(
+        None,
         "--fastq", "-f",
-        help="Path to FASTQ file or directory containing FASTQ files.",
+        help=(
+            "Path to FASTQ file or directory containing FASTQ files. "
+            "Omit when --plate-map lists the FASTQs instead."
+        ),
         exists=True,
         file_okay=True,
         dir_okay=True,
+    ),
+    plate_map_file: Optional[Path] = typer.Option(
+        None,
+        "--plate-map",
+        help=(
+            "TOML file mapping each FASTQ's barcode plates to sort plates. "
+            "Needed when a run reuses barcode plates across separate FASTQs "
+            "(more sort plates than the kit's 8 barcode plates). Defaults to "
+            "<project>/plate_map.toml, or prompts if neither is present."
+        ),
+        exists=True,
+        dir_okay=False,
     ),
     barcodes: Optional[Path] = typer.Option(
         None,
@@ -313,11 +330,18 @@ def demux(
     # Create output directory (path already resolved for the correct round above)
     demux_output.mkdir(parents=True, exist_ok=True)
 
-    # If directory, concatenate all FASTQs into a single file
-    if fastq.is_dir():
-        fastq = _concat_fastq_dir(fastq, demux_output)
+    # Resolve how each FASTQ's barcode plates map onto sort plates.  A single
+    # FASTQ with matching plate numbers is the ordinary case and runs straight
+    # into demux_output; anything else is demuxed per FASTQ and merged, since
+    # a reused barcode plate means the same barcode denotes different sort
+    # plates in different files.
+    segments = _resolve_plate_map(
+        plate_map_file, project_dir, fastq,
+        effective_params.get("n_plates", 1),
+    )
+    single_plain_run = len(segments) == 1 and _is_identity_map(segments[0].plates)
 
-    # Run the pipeline with progress updates
+    per_segment = []
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -325,28 +349,58 @@ def demux(
     ) as progress:
         task = progress.add_task("Starting pipeline...", total=None)
 
-        def on_progress(msg: str):
-            """Update the spinner text as the pipeline progresses."""
-            progress.update(task, description=msg)
+        for segment in segments:
+            if single_plain_run:
+                seg_dir = demux_output
+                label = ""
+            else:
+                seg_dir = demux_output / "segments" / segment.name
+                seg_dir.mkdir(parents=True, exist_ok=True)
+                label = f"[{segment.name}] "
 
-        results = _run_demux(
-            fastq=fastq,
-            output_dir=demux_output,
-            reference=reference,
-            min_reads=min_reads,
-            min_fraction=min_fraction,
-            threads=threads,
-            workers=workers,
-            project_params=effective_params,
-            progress_callback=on_progress,
-            mask_config=mask_config,
-            subsample=subsample,
-            orient_ref=orient_ref,
-            vector_fasta=vector_fasta,
-            reads_per_well=reads_per_well,
+            def on_progress(msg: str, _label=label):
+                """Update the spinner text as the pipeline progresses."""
+                progress.update(task, description=f"{_label}{msg}")
+
+            seg_fastq = segment.path
+            if seg_fastq.is_dir():
+                seg_fastq = _concat_fastq_dir(seg_fastq, seg_dir)
+
+            results = _run_demux(
+                fastq=seg_fastq,
+                output_dir=seg_dir,
+                reference=reference,
+                min_reads=min_reads,
+                min_fraction=min_fraction,
+                threads=threads,
+                workers=workers,
+                project_params=effective_params,
+                progress_callback=on_progress,
+                mask_config=mask_config,
+                subsample=subsample,
+                orient_ref=orient_ref,
+                vector_fasta=vector_fasta,
+                reads_per_well=reads_per_well,
+                plate_map=None if single_plain_run else segment.plates,
+            )
+            per_segment.append((segment, results, seg_dir))
+
+    if single_plain_run:
+        results = per_segment[0][1]
+    else:
+        console.print()
+        console.print("Merging segments onto a single plate numbering...")
+        results = _merge_segment_results(per_segment, demux_output, min_reads)
+        # Per-well artefacts are named by sort plate, which is unique to one
+        # segment, so the merged view can link them all into place.
+        for _segment, _results, seg_dir in per_segment:
+            for sub in ("wells", "streakout", "reference_fasta"):
+                _link_or_copy_tree(seg_dir / sub, demux_output / sub)
+        console.print(
+            f"[green]✓[/green] Merged {len(per_segment)} FASTQ segment(s) "
+            f"covering sort plates "
+            f"{', '.join(str(p) for seg in segments for p in seg.sort_plates)}"
         )
-
-        progress.update(task, description="Done!", completed=True)
 
     # Save results (skip recovery-curve simulation for round > 1)
     _save_demux_results(results, demux_output, project=(None if round_num > 1 else project))
@@ -422,13 +476,25 @@ def demux(
     demux_step_data = {
         "completed": True,
         "timestamp": datetime.now().isoformat(),
-        "fastq": str(fastq.absolute()),
+        # Kept for single-FASTQ runs, which is what most projects are.
+        "fastq": str(segments[0].path.absolute()),
         "input_reads": results.get("input_reads", 0),
         "aligned_reads": results.get("aligned_reads", 0),
         "demuxed_reads": results.get("demuxed_reads", 0),
         "assigned_reads": results["assigned_reads"],
         "wells_with_data": results["wells_with_data"],
     }
+    if not single_plain_run:
+        # Record how each FASTQ's barcode plates were read, so the run can be
+        # reproduced and the plate numbering explained after the fact.
+        demux_step_data["segments"] = [
+            {
+                "name": seg.name,
+                "fastq": str(seg.path.absolute()),
+                "plates": {str(bc): sort for bc, sort in sorted(seg.plates.items())},
+            }
+            for seg in segments
+        ]
 
     if round_num > 1:
         # Update round-specific state file
@@ -767,6 +833,359 @@ def _prompt_preset_selection() -> Optional[dict]:
     return _load_mask_config(selected["path"])
 
 
+def _is_identity_map(plates: dict) -> bool:
+    """True when every barcode plate maps to the sort plate of the same number."""
+    return all(bc == sort for bc, sort in plates.items())
+
+
+def _describe_segments(segments: list) -> None:
+    """Print a table of the resolved FASTQ-to-sort-plate mapping."""
+    table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+    table.add_column("FASTQ")
+    table.add_column("Barcode plates")
+    table.add_column("Sort plates")
+    for seg in segments:
+        table.add_row(
+            seg.name,
+            ", ".join(str(b) for b in seg.barcode_plates),
+            ", ".join(str(s) for s in seg.sort_plates),
+        )
+    console.print(table)
+
+
+def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
+    """Interactively build a plate map when none was supplied.
+
+    Offers the ordinary one-FASTQ layout first, since that is what most runs
+    use.  A multi-FASTQ mapping is collected FASTQ by FASTQ and offered for
+    saving, so the next run can pass ``--plate-map`` instead.
+
+    Args:
+        fastq: The ``--fastq`` value, if one was given.
+        n_plates: Sort plate count from the project.
+        project_dir: Project directory, used to offer a save location.
+
+    Returns:
+        List of Segment, or None to fall back to the default behaviour.
+    """
+    import sys
+    from usortm.demux.plate_map import (
+        MAX_BARCODE_PLATES, PlateMapError, Segment, identity_segment,
+        write_plate_map,
+    )
+
+    if not sys.stdin.isatty():
+        return None
+
+    import questionary
+
+    console.print(
+        "\n[muted]Barcode plates normally match sort plates one-to-one. They "
+        "differ when a run has more sort plates than the kit has barcode "
+        f"plates ({MAX_BARCODE_PLATES}), so barcode plates are reused across "
+        "separate FASTQs.[/muted]"
+    )
+
+    try:
+        choice = questionary.select(
+            "How do barcode plates map to sort plates?",
+            choices=[
+                questionary.Choice(
+                    title=f"One FASTQ, barcode plate = sort plate (1-{n_plates})",
+                    value="identity",
+                ),
+                questionary.Choice(
+                    title="Multiple FASTQs with reused barcode plates — configure now",
+                    value="custom",
+                ),
+            ],
+        ).ask()
+    except KeyboardInterrupt:
+        return None
+
+    if choice is None:
+        return None
+    if choice == "identity":
+        return [identity_segment(fastq, n_plates)] if fastq else None
+
+    segments: list = []
+    while True:
+        idx = len(segments) + 1
+        try:
+            path_str = questionary.text(
+                f"FASTQ #{idx} — path to file or directory:"
+            ).ask()
+            if not path_str:
+                break
+            pairs_str = questionary.text(
+                f"FASTQ #{idx} — barcode:sort plate pairs "
+                "(e.g. '7:7, 8:8, 1:9, 2:10'):"
+            ).ask()
+            if not pairs_str:
+                break
+        except KeyboardInterrupt:
+            return None
+
+        try:
+            plates = _parse_plate_pairs(pairs_str)
+        except PlateMapError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            continue
+
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            console.print(f"[red]Error:[/red] {path} does not exist.")
+            continue
+
+        segments.append(Segment(name=path.stem or f"segment{idx}", path=path,
+                                plates=plates))
+        console.print(f"  [green]✓[/green] {path.name}: {segments[-1].describe()}")
+
+        try:
+            if not questionary.confirm("Add another FASTQ?", default=True).ask():
+                break
+        except KeyboardInterrupt:
+            return None
+
+    if not segments:
+        return None
+
+    from usortm.demux.plate_map import _validate_across_segments
+    try:
+        _validate_across_segments(segments)
+    except PlateMapError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        return None
+
+    console.print()
+    _describe_segments(segments)
+
+    try:
+        if questionary.confirm(
+            "Save this mapping for future runs?", default=True
+        ).ask():
+            saved = write_plate_map(segments, project_dir / "plate_map.toml")
+            console.print(
+                f"[green]✓[/green] Saved to {saved} — reuse with "
+                f"[cyan]--plate-map {saved}[/cyan]"
+            )
+    except KeyboardInterrupt:
+        pass
+
+    return segments
+
+
+def _parse_plate_pairs(text: str) -> dict:
+    """Parse ``'7:7, 8:8, 1:9'`` into ``{7: 7, 8: 8, 1: 9}``."""
+    from usortm.demux.plate_map import parse_plate_map
+
+    plates: dict = {}
+    for chunk in text.replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if ":" not in chunk and "=" not in chunk:
+            from usortm.demux.plate_map import PlateMapError
+            raise PlateMapError(
+                f"'{chunk}' is not a barcode:sort pair (expected e.g. '1:9')."
+            )
+        sep = ":" if ":" in chunk else "="
+        bc_str, sort_str = chunk.split(sep, 1)
+        plates[bc_str.strip()] = sort_str.strip()
+
+    # Reuse the config validator so interactive and file input agree.
+    doc = {"fastq": [{"path": "x", "plates": {
+        k: int(v) if str(v).lstrip("-").isdigit() else v for k, v in plates.items()
+    }}]}
+    return parse_plate_map(doc)[0].plates
+
+
+def _resolve_plate_map(
+    plate_map_file: Optional[Path],
+    project_dir: Path,
+    fastq: Optional[Path],
+    n_plates: int,
+):
+    """Decide which FASTQ-to-sort-plate mapping this run uses.
+
+    Order of precedence: an explicit ``--plate-map``, then a ``plate_map.toml``
+    saved in the project directory, then an interactive prompt, and finally the
+    ordinary single-FASTQ layout.
+
+    Returns:
+        List of Segment.
+    """
+    from usortm.demux.plate_map import (
+        PlateMapError, identity_segment, load_plate_map,
+    )
+
+    if plate_map_file is not None:
+        try:
+            segments = load_plate_map(plate_map_file)
+        except PlateMapError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+        console.print(f"[green]✓[/green] Loaded plate map from {plate_map_file}")
+        _describe_segments(segments)
+        return segments
+
+    default_map = project_dir / "plate_map.toml"
+    if default_map.exists():
+        try:
+            segments = load_plate_map(default_map)
+        except PlateMapError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+        console.print(f"[green]✓[/green] Using project plate map ({default_map})")
+        _describe_segments(segments)
+        return segments
+
+    prompted = _prompt_plate_map(fastq, n_plates, project_dir)
+    if prompted:
+        return prompted
+
+    if fastq is None:
+        console.print(
+            "[red]Error:[/red] no FASTQ given. Pass [cyan]--fastq[/cyan], or "
+            "[cyan]--plate-map[/cyan] for a run whose barcode plates are "
+            "reused across several FASTQs."
+        )
+        raise typer.Exit(1)
+    return [identity_segment(fastq, n_plates)]
+
+
+def _merge_segment_results(per_segment: list, output_dir: Path, min_reads: int) -> dict:
+    """Combine per-segment pipeline results onto one sort-plate numbering.
+
+    Sort plates are unique to a single segment, so per-well keys and per-well
+    artefacts never collide and the tables concatenate directly.
+
+    Args:
+        per_segment: List of ``(segment, results, segment_dir)`` tuples.
+        output_dir: Project demux output directory.
+        min_reads: Minimum depth for a well to count as passing.
+
+    Returns:
+        A merged results dict in the same shape a single run returns.
+    """
+    import pandas as pd
+
+    merged: dict = {
+        "input_reads": 0, "aligned_reads": 0, "demuxed_reads": 0,
+        "assigned_reads": 0, "well_assignments": {},
+    }
+    read_frames, well_frames = [], []
+    streak_candidates, streak_variants = 0, set()
+    hists = []
+
+    for segment, results, seg_dir in per_segment:
+        for key in ("input_reads", "aligned_reads", "demuxed_reads", "assigned_reads"):
+            merged[key] += int(results.get(key, 0) or 0)
+        merged["well_assignments"].update(results.get("well_assignments", {}))
+
+        streak = results.get("streakout") or {}
+        streak_candidates += int(streak.get("candidates", 0) or 0)
+        streak_variants.update(streak.get("recoverable_variants", []) or [])
+
+        if results.get("read_len_hist"):
+            hists.append(results["read_len_hist"])
+        for key in ("flank_5p_len", "flank_3p_len"):
+            if key in results:
+                merged[key] = results[key]
+
+        for name, frames in (("read_df.csv", read_frames), ("well_df.csv", well_frames)):
+            path = seg_dir / name
+            if path.exists():
+                frame = pd.read_csv(path)
+                frame["segment"] = segment.name
+                frames.append(frame)
+
+    merged["total_reads"] = merged["input_reads"]
+
+    if read_frames:
+        combined_reads = pd.concat(read_frames, ignore_index=True)
+        combined_reads.to_csv(output_dir / "read_df.csv", index=False)
+    if well_frames:
+        combined_wells = pd.concat(well_frames, ignore_index=True)
+        combined_wells.to_csv(output_dir / "well_df.csv", index=False)
+        merged["wells_with_data"] = len(combined_wells)
+        if "depth" in combined_wells.columns:
+            merged["wells_passing"] = int(
+                (combined_wells["depth"] >= min_reads).sum()
+            )
+        else:
+            merged["wells_passing"] = 0
+        if "ref_len" in combined_wells.columns:
+            ref_lens = combined_wells["ref_len"].dropna().astype(int)
+            if len(ref_lens):
+                merged["seq_len_min"] = int(ref_lens.min())
+                merged["seq_len_max"] = int(ref_lens.max())
+                merged["seq_len_median"] = int(ref_lens.median())
+    else:
+        merged["wells_with_data"] = 0
+        merged["wells_passing"] = 0
+
+    hist = _merge_read_len_hists(hists)
+    if hist:
+        merged["read_len_hist"] = hist
+    if streak_candidates or streak_variants:
+        merged["streakout"] = {
+            "candidates": streak_candidates,
+            "recoverable_variants": sorted(streak_variants),
+        }
+    return merged
+
+
+def _merge_read_len_hists(hists: list) -> dict:
+    """Combine per-segment read-length histograms.
+
+    Counts add directly when the segments share a bin size.  When they do not,
+    rebinning 50 fixed bins would invent precision that is not there, so the
+    histogram covering the most reads is reported instead.
+    """
+    hists = [h for h in hists if h and h.get("counts")]
+    if not hists:
+        return {}
+    if len(hists) == 1:
+        return hists[0]
+
+    bin_sizes = {h.get("bin_size") for h in hists}
+    if len(bin_sizes) == 1:
+        n_bins = len(hists[0]["counts"])
+        counts = [sum(h["counts"][i] for h in hists) for i in range(n_bins)]
+        total = sum(h.get("n_reads", 0) for h in hists)
+        medians = sorted(h.get("median", 0) for h in hists)
+        return {
+            "bin_size": hists[0]["bin_size"],
+            "counts": counts,
+            "median": medians[len(medians) // 2],
+            "n_reads": total,
+        }
+    return max(hists, key=lambda h: h.get("n_reads", 0))
+
+
+def _link_or_copy_tree(src: Path, dest: Path) -> None:
+    """Mirror *src* into *dest*, hard-linking files where the filesystem allows.
+
+    Per-well FASTQs and BAMs are large, and a run's segments live under the
+    same output directory, so linking keeps the merged view free rather than
+    doubling the run's disk footprint.
+    """
+    if not src.exists():
+        return
+    for item in src.rglob("*"):
+        if item.is_dir():
+            continue
+        target = dest / item.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            continue
+        try:
+            os.link(item, target)
+        except OSError:
+            shutil.copy2(item, target)
+
+
 def _concat_fastq_dir(directory: Path, output_dir: Path) -> Path:
     """Concatenate all FASTQ files in a directory into a single file.
 
@@ -829,6 +1248,7 @@ def _run_demux(
     orient_ref: Optional[Path] = None,
     vector_fasta: Optional[Path] = None,
     reads_per_well: int = 20,
+    plate_map: Optional[dict] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -849,6 +1269,8 @@ def _run_demux(
         subsample: Optional number of reads to subsample before processing.
         reads_per_well: Number of reads to sample per well for variant
             assignment in orient-ref / vector-fasta mode.
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping for this
+            FASTQ, when a run reuses barcode plates across several files.
 
     Returns:
         Results dict with input_reads, aligned_reads, demuxed_reads,
@@ -879,6 +1301,7 @@ def _run_demux(
             orient_ref=orient_ref,
             vector_fasta=vector_fasta,
             reads_per_well=reads_per_well,
+            plate_map=plate_map,
         )
     else:
         raise NotImplementedError(

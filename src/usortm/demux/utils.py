@@ -675,7 +675,7 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     print(f"Malformed counts: {malformed_counts}")
     return df
 
-def barcode_to_well(fbc_name, rbc_name):
+def barcode_to_well(fbc_name, rbc_name, plate_map=None):
     """
     Map FBxx + RBxx to interleaved 384-well coordinate like '1A3'.
     Interleaving (by quadrant):
@@ -685,6 +685,16 @@ def barcode_to_well(fbc_name, rbc_name):
       BR(q=3): even rows, even cols
     RB01–RB32 -> plate 1–8 and quadrant order TL, TR, BL, BR.
     FB01–FB96 index within the 96 grid (A–H x 1–12).
+
+    Args:
+        fbc_name: Forward barcode name, e.g. ``FB07``.
+        rbc_name: Reverse barcode name, e.g. ``RB05``.
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping, used when
+            a run reuses barcode plates across FASTQs so the two numbers
+            differ.  Reads on a barcode plate the mapping does not list return
+            ``None`` — for a given FASTQ those plates were not in the pool, so
+            a hit there is carry-over rather than a real assignment.  Without
+            a mapping the barcode plate is used as the sort plate.
     """
     if pd.isna(fbc_name) or pd.isna(rbc_name):
         return None
@@ -698,6 +708,11 @@ def barcode_to_well(fbc_name, rbc_name):
     # Plate number (1..8) and quadrant (0..3)
     plate_num = (rb // 4) + 1
     quadrant = rb % 4  # 0=TL,1=TR,2=BL,3=BR
+
+    if plate_map is not None:
+        if plate_num not in plate_map:
+            return None
+        plate_num = plate_map[plate_num]
 
     # 96-well row/col (0-based)
     row96 = fb // 12       # 0..7 (A..H)
@@ -723,10 +738,16 @@ def _parse_well(w):
     else:
         return None
 
-def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=None):
+def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=None,
+              plate_map=None):
     """
     Format merged demux/reference DataFrame.
     Adds readable barcode names, well positions, reference sequences, and lengths.
+
+    Args:
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping forwarded
+            to :func:`barcode_to_well`.  See that function for the semantics of
+            barcode plates the mapping omits.
     """
     # --- map barcode numeric IDs to names ---
     if fbc_df is not None and "fbc" in df.columns:
@@ -750,8 +771,18 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=Non
     # --- add well position ---
     if len(df) > 0:
         df["well_pos"] = df.apply(
-            lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1
+            lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"], plate_map), axis=1
         )
+        if plate_map is not None:
+            n_off_pool = int(df["well_pos"].isna().sum())
+            if n_off_pool:
+                logger.warning(
+                    "format_df: %d read(s) classified to a barcode plate not in "
+                    "this FASTQ's pool (%s) and were dropped — likely carry-over "
+                    "from another run",
+                    n_off_pool,
+                    ", ".join(str(p) for p in sorted(plate_map)),
+                )
     else:
         df["well_pos"] = pd.Series(dtype=object)
 

@@ -131,6 +131,7 @@ def run_levseq_pipeline(
     orient_ref: Optional[Path] = None,
     vector_fasta: Optional[Path] = None,
     reads_per_well: int = 20,
+    plate_map: Optional[dict] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -162,6 +163,11 @@ def run_levseq_pipeline(
             containing mask sequences for Dorado barcode TOML files.
             Falls back to DEFAULT_MASKS if not provided.
         subsample: Optional number of reads to subsample before processing.
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping for runs
+            that reuse barcode plates across FASTQs.  When given, the number
+            of reverse barcodes follows the mapping's highest barcode plate
+            rather than *n_plates*, and reads on barcode plates outside the
+            mapping are dropped.
 
     Returns:
         Dict with keys: input_reads, aligned_reads, demuxed_reads,
@@ -184,7 +190,13 @@ def run_levseq_pipeline(
     # --- Stage 2: Generate Dorado barcode config files ---
     _progress("Generating barcode config files...")
     config_dir = output_dir / "dorado_config"
-    n_rbc = get_rbc_count_for_plates(n_plates)
+    if plate_map:
+        # Reverse barcodes are generated contiguously from RB01, so cover up
+        # to this segment's highest barcode plate.  Plates in that span but
+        # absent from the mapping are filtered out later, in format_df.
+        n_rbc = max(plate_map) * 4
+    else:
+        n_rbc = get_rbc_count_for_plates(n_plates)
 
     fbc_masks = mask_config.get("fbc") if mask_config else None
     rbc_masks = mask_config.get("rbc") if mask_config else None
@@ -333,6 +345,7 @@ def run_levseq_pipeline(
         rbc_df=rbc_df,
         ref_fasta=str(reference) if reference else None,
         orient_ref_fasta=str(orient_ref) if orient_ref else None,
+        plate_map=plate_map,
     )
     pipeline_stats["demux"]["complete_assignments"] = len(read_df)
     pipeline_stats["demux"]["dropped_incomplete"] = pre_filter - len(read_df)
