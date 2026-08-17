@@ -179,16 +179,48 @@ def test_demux_with_mock_pipeline(tmp_path, mock_fastq):
             "samtools": "/usr/bin/samtools",
         },
     ):
+        reference = tmp_path / "reference.fasta"
+        reference.write_text(">GFP_test\nACGTACGTACGTACGTACGT\n")
         result = runner.invoke(app, [
             "demux",
             str(project_dir),
             "--fastq", str(mock_fastq),
+            "--reference", str(reference),
         ])
 
     assert result.exit_code == 0
     assert "Demultiplexing" in result.stdout
     assert (project_dir / "demux_output").exists()
     assert (project_dir / "demux_output" / "well_assignments.csv").exists()
+
+
+def test_demux_requires_a_reference(tmp_path, mock_fastq):
+    """Without a reference the pipeline skips alignment and drops every read,
+    so the CLI must refuse up front rather than produce an empty result."""
+    project_dir = tmp_path / "mock_project"
+    project_dir.mkdir()
+    with open(project_dir / "usortm_project.json", "w") as f:
+        json.dump({
+            "library_size": 10,
+            "barcode_kit": "levseq",
+            "n_plates": 1,
+            "workflow_steps": {},
+        }, f)
+
+    with patch("usortm.cli.demux_cmd._run_demux") as run_demux:
+        result = runner.invoke(app, [
+            "demux",
+            str(project_dir),
+            "--fastq", str(mock_fastq),
+        ])
+
+    assert result.exit_code == 1
+    assert "reference is required" in result.stdout
+    # Names both ways of supplying one.
+    assert "--reference" in result.stdout
+    assert "--library-csv" in result.stdout
+    # And bails out before doing any work.
+    run_demux.assert_not_called()
 
 
 # ===================================================================
@@ -463,6 +495,7 @@ def test_full_workflow_with_tools(tmp_path, library_csv, mock_fastq):
         "demux",
         str(project_dir),
         "--fastq", str(mock_fastq),
+        "--library-csv", str(library_csv),
     ])
     assert result.exit_code == 0
     assert (project_dir / "demux_output" / "well_assignments.csv").exists()

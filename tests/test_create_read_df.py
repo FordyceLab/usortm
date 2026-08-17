@@ -325,27 +325,36 @@ class TestReferenceAssignment:
         assert df.loc["read_b", "ref_name"] == "rev:var_001"
         assert df.loc["read_c", "ref_name"] == "fwd:var_002"
 
-    def test_legacy_refs_directory_scan(self, tmp_path):
-        """Without ref_map, reference info comes from refs/fwd and refs/rev,
-        parsed out of the |ref= tag in each read header."""
+    def test_without_alignment_results_nothing_is_assigned(self, tmp_path, caplog):
+        """Barcodes alone are not enough: with no ref_map the table has no
+        reference and no sequence, and format_df drops every row.
+
+        The pipeline must therefore always run the alignment stage first;
+        the CLI enforces that by requiring a reference.
+        """
+        import logging
+        from usortm.demux.utils import format_df
+
         base = str(tmp_path)
         _write_fastq(
             os.path.join(base, "fbc", "barcode01.fastq"),
             [("read_a", "ACGT", "IIII")],
         )
         _write_fastq(
-            os.path.join(base, "refs", "fwd", "aligned.fastq"),
-            [("read_a|ref=var_001", "ACGT", "IIII")],
-        )
-        _write_fastq(
-            os.path.join(base, "refs", "rev", "aligned.fastq"),
-            [("read_b|ref=var_002", "TTTT", "IIII")],
+            os.path.join(base, "rbc", "barcode01.fastq"),
+            [("read_a", "ACGT", "IIII")],
         )
 
-        df = _by_name(create_read_df(base))
-        assert df.loc["read_a", "ref_name"] == "fwd:var_001"
-        assert df.loc["read_b", "ref_name"] == "rev:var_002"
-        assert df.loc["read_a", "read_seq"] == "ACGT"
+        with caplog.at_level(logging.WARNING):
+            df = create_read_df(base)
+
+        assert len(df) == 1
+        assert df["ref_name"].isna().all()
+        assert df["read_seq"].isna().all()
+        assert "align_and_split_by_strand" in caplog.text
+
+        # ...and the row does not survive well assignment.
+        assert len(format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None)) == 0
 
 
 # ---------------------------------------------------------------------------

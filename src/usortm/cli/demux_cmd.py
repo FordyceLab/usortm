@@ -47,7 +47,10 @@ def demux(
     reference: Optional[Path] = typer.Option(
         None,
         "--reference", "-r",
-        help="Reference FASTA for alignment (improves variant calling).",
+        help=(
+            "Reference FASTA for alignment. Required unless --library-csv "
+            "is given (or a re-order round supplies one)."
+        ),
     ),
     library_csv: Optional[Path] = typer.Option(
         None,
@@ -142,7 +145,7 @@ def demux(
 
     \u2022 Project directory from 'usortm plan'
     \u2022 FASTQ file from nanopore sequencing
-    \u2022 Reference FASTA for variant calling (recommended)
+    \u2022 Reference FASTA (--reference) or library CSV (--library-csv)
 
     [bold]Example:[/bold]
 
@@ -260,6 +263,24 @@ def demux(
             f"[green]\u2713[/green] Converted library CSV to reference FASTA "
             f"({ref_fasta_path})"
         )
+
+    # A reference is required.  Without one the pipeline skips alignment,
+    # so no read gets a reference or a sequence and every row is dropped
+    # later — producing an empty result that looks like a barcode problem.
+    if reference is None:
+        console.print(
+            "[red]Error:[/red] a reference is required for demultiplexing."
+        )
+        console.print("Pass one of:")
+        console.print(
+            "  [cyan]--reference[/cyan]    ref.fasta      "
+            "(reference FASTA)"
+        )
+        console.print(
+            "  [cyan]--library-csv[/cyan]  variants.csv   "
+            "(Name,Sequence CSV — converted for you)"
+        )
+        raise typer.Exit(1)
 
     # Check external tool dependencies before starting
     try:

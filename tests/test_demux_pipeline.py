@@ -513,6 +513,42 @@ class TestCsvToFasta:
         assert ">gene_A\nATGCGATCG\n" in content
         assert ">gene_B\nTTGGCCAA\n" in content
 
+    def test_lowercase_headers_accepted(self, tmp_path):
+        """`usortm plan` accepts a 'name,sequence' CSV, so --library-csv must
+        too — previously this raised a bare KeyError('Name')."""
+        from usortm.demux.utils import csv_to_reference_fasta
+
+        csv_path = tmp_path / "library.csv"
+        csv_path.write_text("name,sequence\ngene_A,ATGCGATCG\n")
+
+        fasta_path = tmp_path / "ref.fasta"
+        csv_to_reference_fasta(str(csv_path), str(fasta_path), strip_flanking=False)
+
+        assert ">gene_A\nATGCGATCG\n" in fasta_path.read_text()
+
+    def test_mixed_case_and_padded_headers_accepted(self, tmp_path):
+        from usortm.demux.utils import csv_to_reference_fasta
+
+        csv_path = tmp_path / "library.csv"
+        csv_path.write_text(" NAME , Sequence \ngene_A,ATGCGATCG\n")
+
+        fasta_path = tmp_path / "ref.fasta"
+        csv_to_reference_fasta(str(csv_path), str(fasta_path), strip_flanking=False)
+
+        assert ">gene_A\nATGCGATCG\n" in fasta_path.read_text()
+
+    def test_missing_column_names_the_problem(self, tmp_path):
+        """A missing column must say which one, not raise a bare KeyError."""
+        from usortm.demux.utils import csv_to_reference_fasta
+
+        csv_path = tmp_path / "library.csv"
+        csv_path.write_text("name,mutation\ngene_A,V21A\n")
+
+        with pytest.raises(ValueError, match="Sequence"):
+            csv_to_reference_fasta(
+                str(csv_path), str(tmp_path / "ref.fasta"), strip_flanking=False
+            )
+
     def test_strip_flanking(self, tmp_path):
         """Lowercase flanking regions should be stripped when enabled."""
         from usortm.demux.utils import csv_to_reference_fasta
