@@ -16,6 +16,7 @@ from .merge import merge
 from .config_cmd import config_app
 from .remote_cmd import remote_app
 from .platemap import platemap
+from .pileups import pileups
 
 console = get_console()
 
@@ -79,6 +80,7 @@ app.command(name="reorder")(reorder)
 app.command(name="merge")(merge)
 app.command(name="report")(report)
 app.command(name="platemap")(platemap)
+app.command(name="pileups")(pileups)
 app.add_typer(config_app, name="config")
 app.add_typer(remote_app, name="remote")
 

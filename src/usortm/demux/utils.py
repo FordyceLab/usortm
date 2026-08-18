@@ -16,6 +16,7 @@ import re
 import string
 import subprocess
 import json
+from pathlib import Path
 
 
 def _open_fastq(path: str):
@@ -139,6 +140,73 @@ def _rebuild_ref_map_from_fastq(path):
     return ref_map, stats
 
 
+FASTQ_PATTERNS = ("*.fastq", "*.fastq.gz", "*.fq", "*.fq.gz")
+
+
+def resolve_fastq_inputs(fastq):
+    """Expand a FASTQ argument into the list of files to align.
+
+    Accepts a single file, a directory to scan recursively, or an explicit
+    list.  minimap2 takes many query files at once and reads gzip natively, so
+    a directory never has to be concatenated into one decompressed file first.
+
+    Args:
+        fastq: Path, directory, or iterable of paths.
+
+    Returns:
+        Sorted list of file paths as strings.
+
+    Raises:
+        ValueError: If a directory contains no FASTQ files.
+    """
+    if isinstance(fastq, (list, tuple)):
+        return [str(f) for f in fastq]
+
+    path = Path(fastq)
+    if path.is_dir():
+        found = sorted(str(f) for p in FASTQ_PATTERNS for f in path.rglob(p))
+        if not found:
+            raise ValueError(f"No FASTQ files found in {path}")
+        return found
+    return [str(path)]
+
+
+def _input_fingerprint(fastq):
+    """Identify the input reads cheaply, for cache invalidation.
+
+    Hashing the reads themselves is not affordable — a production input runs
+    to several gigabytes — so each file is identified by absolute path, byte
+    size and modification time instead.  The bias is deliberate: a false
+    mismatch costs a re-alignment, while a false match would silently process
+    the wrong reads.
+
+    Args:
+        fastq: Path, directory, or list of paths, as accepted by
+            :func:`resolve_fastq_inputs`.
+
+    Returns:
+        List of dicts describing each file, or ``None`` if any cannot be
+        stat'ed — an unidentifiable input must not validate a cache.
+    """
+    try:
+        paths = resolve_fastq_inputs(fastq)
+    except ValueError:
+        return None
+
+    prints = []
+    for p in paths:
+        try:
+            st = os.stat(p)
+        except OSError:
+            return None
+        prints.append({
+            "path": os.path.abspath(p),
+            "size": st.st_size,
+            "mtime_ns": st.st_mtime_ns,
+        })
+    return prints
+
+
 def align_and_split_by_strand(
     multi_ref_fasta,
     fastq,
@@ -188,18 +256,33 @@ def align_and_split_by_strand(
     oriented_fq = os.path.join(output_dir, "oriented_reads.fastq")
     stats_path = os.path.join(output_dir, "align_stats.json")
 
-    # --- Cache invalidation: hash the reference FASTA so we detect changes ---
+    # --- Cache invalidation ---
+    # The cache is keyed on BOTH the reference and the input FASTQ.  Keying on
+    # the reference alone silently reuses a previous run's reads whenever the
+    # input changes but the reference does not — e.g. a --subsample pass
+    # followed by the full run in the same project directory, which would
+    # process only the subsampled reads while reporting success.
     ref_hash = hashlib.md5(open(multi_ref_fasta, "rb").read()).hexdigest()
+    input_paths = resolve_fastq_inputs(fastq)
+    input_fp = _input_fingerprint(fastq)
 
     # --- Cache check: if oriented FASTQ already exists, rebuild from it ---
     if os.path.exists(oriented_fq):
-        cache_valid = False
+        stale_reason = "no saved alignment stats"
+        saved = None
         if os.path.exists(stats_path):
             with open(stats_path) as fh:
                 saved = json.load(fh)
-            if saved.get("ref_hash") == ref_hash:
-                cache_valid = True
-        if cache_valid:
+            if saved.get("ref_hash") != ref_hash:
+                stale_reason = "reference changed"
+            elif saved.get("input") != input_fp:
+                stale_reason = "input FASTQ changed"
+            elif input_fp is None:
+                stale_reason = "input FASTQ could not be identified"
+            else:
+                stale_reason = None
+
+        if stale_reason is None:
             logger.info("Using cached oriented FASTQ: %s", oriented_fq)
             if progress_callback is not None:
                 progress_callback(None, None)  # signal: cached
@@ -208,7 +291,7 @@ def align_and_split_by_strand(
             return oriented_fq, ref_map, align_stats
         else:
             logger.info(
-                "Alignment reference changed — regenerating oriented FASTQ"
+                "Regenerating oriented FASTQ (%s): %s", stale_reason, oriented_fq
             )
             os.remove(oriented_fq)
 
@@ -220,12 +303,15 @@ def align_and_split_by_strand(
 
     # --- Stream minimap2 SAM as plain text (no pysam, no samtools) ---
     logger.info("Running minimap2 multi-ref alignment (streaming)...")
+    # minimap2 accepts many query files and reads gzip natively, so a
+    # directory of FASTQs is streamed straight in rather than being
+    # concatenated into one decompressed staging copy first.
     mm2_cmd = [
         minimap2_path, "-ax", "map-ont",
         "--secondary=no",
         "-t", str(threads),
-        mmi, fastq,
-    ]
+        mmi,
+    ] + input_paths
     mm2_stderr_path = os.path.join(output_dir, "minimap2.log")
     mm2_stderr_fh = open(mm2_stderr_path, "w")
     logger.info("minimap2 stderr → %s", mm2_stderr_path)
@@ -297,9 +383,10 @@ def align_and_split_by_strand(
         "unmapped": n_unmapped,
     }
 
-    # Write sidecar for unmapped count + ref hash (for cache invalidation)
+    # Write sidecar for unmapped count + cache key (reference and input FASTQ)
     sidecar = dict(align_stats)
     sidecar["ref_hash"] = ref_hash
+    sidecar["input"] = _input_fingerprint(fastq)
     with open(stats_path, "w") as fh:
         json.dump(sidecar, fh)
 
@@ -328,13 +415,24 @@ def csv_to_reference_fasta(csv_path, fasta_path, strip_flanking=True):
     n_entries = 0
     with open(csv_path) as f_in, open(fasta_path, "w") as f_out:
         reader = csv_mod.DictReader(f_in)
-        # Normalise headers: strip surrounding whitespace so "Sequence " == "Sequence"
-        if reader.fieldnames:
-            reader.fieldnames = [h.strip() for h in reader.fieldnames]
+        if not reader.fieldnames:
+            raise ValueError(
+                f"{csv_path} has no header row; expected Name and Sequence columns."
+            )
+        # Match headers ignoring surrounding whitespace and case, so a
+        # "name,sequence" CSV -- which `usortm plan` accepts -- works here too.
+        lookup = {h.strip().lower(): h for h in reader.fieldnames}
+        missing = [c for c in ("name", "sequence") if c not in lookup]
+        if missing:
+            raise ValueError(
+                f"{csv_path} is missing required column(s): "
+                f"{', '.join(c.capitalize() for c in missing)}. "
+                f"Found: {', '.join(reader.fieldnames)}"
+            )
+        name_col, seq_col = lookup["name"], lookup["sequence"]
         for row in reader:
-            row = {k.strip(): v for k, v in row.items()}
-            name = row["Name"]
-            seq = row["Sequence"]
+            name = row[name_col]
+            seq = row[seq_col]
             if strip_flanking:
                 seq = "".join(c for c in seq if c.isupper())
             f_out.write(f">{name}\n{seq}\n")
@@ -343,189 +441,6 @@ def csv_to_reference_fasta(csv_path, fasta_path, strip_flanking=True):
     logger.info("Wrote %d entries to %s", n_entries, fasta_path)
     return fasta_path
 
-
-def bam_to_fastq_with_ref(bam_path, fastq_out):
-    """
-    Convert BAM → FASTQ, appending aligned reference name to read ID.
-    Handles missing qualities and skips unmapped reads.
-    """
-    with pysam.AlignmentFile(bam_path, "rb") as bam, open(fastq_out, "w") as fq:
-        for read in bam:
-            if read.is_unmapped:
-                continue
-            ref_name = bam.get_reference_name(read.reference_id)
-            seq = read.query_sequence or ""
-            quals = read.query_qualities
-            qual_str = "".join(chr(q + 33) for q in quals) if quals else "I" * len(seq)
-            fq.write(f"@{read.query_name}|ref={ref_name}\n{seq}\n+\n{qual_str}\n")
-
-def align_multi_ref(
-    multi_ref_fasta,
-    fastq,
-    out_root,
-    preset="map-ont",
-    direction=None,
-    minimap2_path=None,
-    samtools_path=None,
-):
-    """Align one FASTQ to a multi-entry reference and export a ref-tagged FASTQ.
-
-    Handles disk and SAM parsing errors gracefully.
-
-    Args:
-        multi_ref_fasta: Path to multi-entry reference FASTA.
-        fastq: Path to input FASTQ file.
-        out_root: Output directory root.
-        preset: minimap2 preset (default "map-ont" for ONT reads).
-        direction: "forward", "reverse", or None.
-        minimap2_path: Path to minimap2 binary. Auto-detected if None.
-        samtools_path: Path to samtools binary. Auto-detected if None.
-    """
-    if minimap2_path is None:
-        minimap2_path = find_minimap2()
-    if samtools_path is None:
-        samtools_path = find_samtools()
-    os.makedirs(out_root, exist_ok=True)
-    mmi = make_index(multi_ref_fasta, minimap2_path=minimap2_path)
-
-    parent = os.path.basename(os.path.dirname(fastq))
-    stem = os.path.splitext(os.path.basename(fastq))[0]
-    sample = f"{parent}_{stem}"
-    sample_dir = os.path.join(out_root, sample)
-    os.makedirs(sample_dir, exist_ok=True)
-
-    sam_path = os.path.join(sample_dir, f"{sample}.sam")
-    bam_path = sam_path.replace(".sam", ".bam")
-    fq_out = os.path.join(sample_dir, f"{sample}.fastq")
-
-    # --- run minimap2 ---
-    if not os.path.exists(sam_path):
-        cmd_list = [minimap2_path, "-ax", preset, mmi, fastq]
-        if direction == "forward":
-            cmd_list.append("--for-only")
-        elif direction == "reverse":
-            cmd_list.append("--rev-only")
-
-        print(f"[INFO] Running: {' '.join(cmd_list)}")
-        try:
-            with open(sam_path, "w") as out_sam:
-                subprocess.run(cmd_list, stdout=out_sam, stderr=subprocess.PIPE, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"minimap2 failed for {fastq}: {e.stderr.decode(errors='ignore')[:500]}")
-            return
-        except OSError as e:
-            print(f"OS error for {fastq}: {e}")
-            return
-
-    # --- convert SAM → BAM ---
-    try:
-        subprocess.run([samtools_path, "view", "-bS", sam_path, "-o", bam_path],
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"samtools view failed for {sam_path}: {e.stderr.decode(errors='ignore')[:500]}")
-        return
-    except OSError as e:
-        print(f"OS error during samtools view for {sam_path}: {e}")
-        return
-
-    # --- export ref-tagged FASTQ ---
-    try:
-        with pysam.AlignmentFile(bam_path, "rb") as bam, open(fq_out, "w") as fq:
-            for read in bam:
-                if read.is_unmapped or not read.query_sequence:
-                    continue
-                seq = read.query_sequence
-                quals = read.query_qualities
-                if direction == "reverse":
-                    seq = str(Seq(seq).reverse_complement())
-                    if quals:
-                        quals = quals[::-1]
-                ref = bam.get_reference_name(read.reference_id)
-                qual_str = "".join(chr(q + 33) for q in (quals or []))
-                if not qual_str:
-                    qual_str = "I" * len(seq)
-                fq.write(f"@{read.query_name}|ref={ref}\n{seq}\n+\n{qual_str}\n")
-        print(f"[✓] Wrote combined FASTQ → {fq_out}")
-    except Exception as e:
-        print(f"Error while writing FASTQ for {fastq}: {e}")
-
-def batch_align(
-    fasta,
-    fastq_dir,
-    out_root,
-    direction=None,
-    minimap2_path=None,
-    samtools_path=None,
-):
-    """Recursively align all FASTQs under fastq_dir to a reference.
-
-    Args:
-        fasta: Path to reference FASTA.
-        fastq_dir: Directory to search for FASTQ files.
-        out_root: Output directory for aligned results.
-        direction: "forward", "reverse", or None.
-        minimap2_path: Path to minimap2 binary. Auto-detected if None.
-        samtools_path: Path to samtools binary. Auto-detected if None.
-    """
-    fastqs = glob.glob(os.path.join(fastq_dir, "**", "*.fastq*"), recursive=True)
-    print(f"Found {len(fastqs)} FASTQs")
-    for fq in fastqs:
-        try:
-            align_multi_ref(
-                fasta, fq, out_root,
-                direction=direction,
-                minimap2_path=minimap2_path,
-                samtools_path=samtools_path,
-            )
-        except Exception as e:
-            print(f"Skipped {fq}: {e}")
-
-def get_read_names(file):
-    """Get read names in current fastq
-    """
-    names, bad = set(), 0
-    open_fn = _open_fastq(file)
-    with open_fn(file, 'rt', errors='ignore') as h:
-        for rec in SeqIO.parse(h, 'fastq'):
-            if rec.id.strip():
-                names.add(rec.id)
-            else:
-                bad += 1
-    return names, bad
-
-def get_all_read_names(root_dir):
-    """Get all read names in current directory
-    """
-    names, malformed = set(), 0
-    fastqs = get_fastqs(root_dir)
-    for f in fastqs:
-        try:
-            n, b = get_read_names(f)
-            names |= n
-            malformed += b
-        except Exception as e:
-            print(f"Skipping {f}: {e}")
-    return names, malformed
-
-def ref_alignment_stats(fastq_dir, out_root):
-
-    total_count = count_all_fastqs(fastq_dir)
-    fwd_count = count_all_fastqs(os.path.join(out_root, "refs/fwd/"))
-    rev_count = count_all_fastqs(os.path.join(out_root, "refs/rev/"))
-    total_mapped_count = fwd_count + rev_count
-
-    print("--- Counts ---")
-    print(f"Total Read Count: {total_count:,}")
-    print(f"Count (Fwd): {fwd_count:,} ({round(100*fwd_count/total_count, 1)})")
-    print(f"Count (RevComp): {rev_count:,} ({round(100*rev_count/total_count, 1)})")
-    print(f"Total Mapped Count: {total_mapped_count:,} ({round(100*total_mapped_count/total_count, 1)}% of total)")
-    print()
-
-    print("--- Intersection ---")
-    fwd_names, _ = get_all_read_names(os.path.join(out_root, "refs/fwd/"))
-    rev_names, _ = get_all_read_names(os.path.join(out_root, "refs/rev/"))
-    intersection = len(fwd_names & rev_names)
-    print(f"Overlapping Reads: {len(fwd_names & rev_names):,} ({round(100 * intersection / total_count, 1)}% of total)")
 
 def read_in_barcodes(fbc_path, rbc_path):
     """Read forward and reverse barcode CSV files and generate DataFrames.
@@ -698,24 +613,103 @@ def batch_demux(
             max_reads=max_reads,
         )
 
+def _barcode_calls_from_summary(summary_path, normalize_id):
+    """Read read_id -> 0-based barcode index from a Dorado demux summary.
+
+    Dorado writes ``sequencing_summary.txt`` alongside its demux output with a
+    ``barcode_arrangement`` column holding ``barcode01``..``barcode96`` (or
+    ``unclassified``).  That is the same assignment the per-barcode FASTQ
+    layout encodes, so reading it here lets the run skip emitting a second
+    full copy of the reads purely to recover their barcodes.
+
+    Args:
+        summary_path: Path to Dorado's ``sequencing_summary.txt``.
+        normalize_id: Read-name normaliser.
+
+    Returns:
+        Dict of read name to 0-based barcode index.
+    """
+    calls = {}
+    with open(summary_path, newline="") as fh:
+        reader = csv_mod.DictReader(fh, delimiter="\t")
+        if not reader.fieldnames or "barcode_arrangement" not in reader.fieldnames:
+            raise ValueError(
+                f"{summary_path} has no 'barcode_arrangement' column"
+            )
+        for row in reader:
+            arrangement = (row.get("barcode_arrangement") or "").strip()
+            m = re.search(r"barcode(\d+)", arrangement)
+            if not m:
+                continue  # 'unclassified' and anything unrecognised
+            rid = normalize_id(row.get("read_id"))
+            if rid:
+                calls[rid] = int(m.group(1)) - 1
+    return calls
+
+
+def _collect_barcode_calls(base_dir, sub, normalize_id, malformed_counts):
+    """Collect barcode assignments from one Dorado output directory.
+
+    Prefers the demux summary, falling back to scanning the per-barcode FASTQ
+    tree so output directories written before the summary was used — or by a
+    run that emitted FASTQs — still load.
+
+    Args:
+        base_dir: Root demux output directory.
+        sub: ``"fbc"`` or ``"rbc"``.
+        normalize_id: Read-name normaliser.
+        malformed_counts: Mutated in place when a FASTQ fails to parse.
+
+    Returns:
+        Dict of read name to 0-based barcode index.
+    """
+    summary_path = os.path.join(base_dir, sub, "sequencing_summary.txt")
+    if os.path.exists(summary_path):
+        try:
+            return _barcode_calls_from_summary(summary_path, normalize_id)
+        except (ValueError, OSError) as exc:
+            logger.warning(
+                "Could not read %s (%s) — falling back to scanning FASTQs",
+                summary_path, exc,
+            )
+
+    calls = {}
+    for fq in tqdm(glob.glob(f"{base_dir}/{sub}/**/*.fastq*", recursive=True)):
+        if "unclassified" in fq:
+            continue
+        m = re.search(r"barcode(\d+)", fq)
+        if not m:
+            continue
+        index = int(m.group(1)) - 1
+        try:
+            for rec in SeqIO.parse(fq, "fastq"):
+                rid = normalize_id(rec.id)
+                if rid:
+                    calls[rid] = index
+        except Exception:
+            malformed_counts[sub] += 1
+    return calls
+
+
 def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     """Build a per-read DataFrame merging barcode demux and reference data.
 
     Collects FBC assignments from ``base_dir/fbc/``, RBC assignments from
-    ``base_dir/rbc/``, and reference/direction info from either a
-    pre-computed *ref_map* dict (new pipeline) or by scanning
-    ``base_dir/refs/fwd/`` and ``base_dir/refs/rev/`` directories
-    (legacy pipeline).
+    ``base_dir/rbc/``, and reference/direction info from *ref_map*.
+
+    *ref_map* and *oriented_fastq* are what supply every read's reference
+    assignment and sequence.  Without them the returned table has no
+    ``ref_name`` and no ``read_seq``, and :func:`format_df` will drop every
+    row — so callers must run the alignment stage first.
 
     Args:
         base_dir: Root output directory containing ``fbc/`` and ``rbc/``
             subdirectories from Dorado demux.
-        ref_map: Optional dict ``{read_name: {"ref": ..., "direction": ...}}``
-            returned by :func:`align_and_split_by_strand`.  When provided,
-            the legacy ``refs/`` directory scan is skipped.
+        ref_map: Dict ``{read_name: {"ref": ..., "direction": ...}}``
+            returned by :func:`align_and_split_by_strand`.
         oriented_fastq: Path to the oriented FASTQ produced by
-            :func:`align_and_split_by_strand`.  Used to collect read
-            sequences and quality scores when *ref_map* is provided.
+            :func:`align_and_split_by_strand`.  Supplies read sequences
+            and quality scores.
 
     Returns:
         DataFrame with columns: ``read_name``, ``fbc``, ``rbc``,
@@ -723,7 +717,7 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     """
     fbc_map, rbc_map = {}, {}
     _ref_map, seq_map, qual_map, avgq_map = {}, {}, {}, {}
-    malformed_counts = {"fbc": 0, "rbc": 0, "ref": 0}
+    malformed_counts = {"fbc": 0, "rbc": 0}
 
     def normalize_id(rid):
         if not rid: return None
@@ -731,33 +725,15 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
         return re.sub(r"\|ref=.*|\|dir=.*|/[12]$|_pool_plates.*", "", rid)
 
     print("Collecting FBC demux...")
-    for fq in tqdm(glob.glob(f"{base_dir}/fbc/**/*.fastq*", recursive=True)):
-        if "unclassified" in fq: continue
-        m = re.search(r"barcode(\d+)", fq)
-        if not m: continue
-        fbc = int(m.group(1)) - 1
-        try:
-            for rec in SeqIO.parse(fq, "fastq"):
-                rid = normalize_id(rec.id)
-                if rid: fbc_map[rid] = fbc
-        except: malformed_counts["fbc"] += 1
+    fbc_map = _collect_barcode_calls(base_dir, "fbc", normalize_id, malformed_counts)
 
     print("Collecting RBC demux...")
-    for fq in tqdm(glob.glob(f"{base_dir}/rbc/**/*.fastq*", recursive=True)):
-        if "unclassified" in fq: continue
-        m = re.search(r"barcode(\d+)", fq)
-        if not m: continue
-        rbc = int(m.group(1)) - 1
-        try:
-            for rec in SeqIO.parse(fq, "fastq"):
-                rid = normalize_id(rec.id)
-                if rid: rbc_map[rid] = rbc
-        except: malformed_counts["rbc"] += 1
+    rbc_map = _collect_barcode_calls(base_dir, "rbc", normalize_id, malformed_counts)
 
     # --- Collect reference + sequence data ---
     if ref_map is not None and oriented_fastq is not None:
-        # New pipeline: ref info from align_and_split_by_strand(),
-        # sequences from the oriented FASTQ.
+        # Ref info from align_and_split_by_strand(), sequences from the
+        # oriented FASTQ it produced.
         print("Loading reference assignments from alignment...")
         for read_name, info in ref_map.items():
             direction = info["direction"]
@@ -776,23 +752,11 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
                 qual_map[rid] = "".join(chr(q + 33) for q in quals)
                 avgq_map[rid] = sum(quals) / len(quals)
     else:
-        # Legacy pipeline: scan refs/fwd/ and refs/rev/ directories.
-        print("Collecting reference reads...")
-        for direction in ["fwd", "rev"]:
-            for fq in tqdm(glob.glob(f"{base_dir}/refs/{direction}/**/*.fastq*", recursive=True)):
-                try:
-                    for rec in SeqIO.parse(fq, "fastq"):
-                        rid = normalize_id(rec.id)
-                        if not rid: continue
-                        m = re.search(r"\|ref=([^\s|]+)", rec.id)
-                        ref_name = m.group(1) if m else None
-                        if ref_name:
-                            quals = rec.letter_annotations["phred_quality"]
-                            _ref_map[rid] = f"{direction}:{ref_name}"
-                            seq_map[rid] = str(rec.seq)
-                            qual_map[rid] = "".join(chr(q + 33) for q in quals)
-                            avgq_map[rid] = sum(quals) / len(quals)
-                except: malformed_counts["ref"] += 1
+        logger.warning(
+            "create_read_df called without alignment results — every read "
+            "will be missing its reference and sequence, and format_df will "
+            "drop them all.  Run align_and_split_by_strand() first."
+        )
 
     print("Building DataFrame...")
     all_reads = set(fbc_map) | set(rbc_map) | set(_ref_map)
@@ -817,7 +781,7 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     print(f"Malformed counts: {malformed_counts}")
     return df
 
-def barcode_to_well(fbc_name, rbc_name):
+def barcode_to_well(fbc_name, rbc_name, plate_map=None):
     """
     Map FBxx + RBxx to interleaved 384-well coordinate like '1A3'.
     Interleaving (by quadrant):
@@ -827,6 +791,16 @@ def barcode_to_well(fbc_name, rbc_name):
       BR(q=3): even rows, even cols
     RB01–RB32 -> plate 1–8 and quadrant order TL, TR, BL, BR.
     FB01–FB96 index within the 96 grid (A–H x 1–12).
+
+    Args:
+        fbc_name: Forward barcode name, e.g. ``FB07``.
+        rbc_name: Reverse barcode name, e.g. ``RB05``.
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping, used when
+            a run reuses barcode plates across FASTQs so the two numbers
+            differ.  Reads on a barcode plate the mapping does not list return
+            ``None`` — for a given FASTQ those plates were not in the pool, so
+            a hit there is carry-over rather than a real assignment.  Without
+            a mapping the barcode plate is used as the sort plate.
     """
     if pd.isna(fbc_name) or pd.isna(rbc_name):
         return None
@@ -840,6 +814,11 @@ def barcode_to_well(fbc_name, rbc_name):
     # Plate number (1..8) and quadrant (0..3)
     plate_num = (rb // 4) + 1
     quadrant = rb % 4  # 0=TL,1=TR,2=BL,3=BR
+
+    if plate_map is not None:
+        if plate_num not in plate_map:
+            return None
+        plate_num = plate_map[plate_num]
 
     # 96-well row/col (0-based)
     row96 = fb // 12       # 0..7 (A..H)
@@ -858,6 +837,108 @@ def barcode_to_well(fbc_name, rbc_name):
     row_letter = string.ascii_uppercase[row384 - 1]  # A..P
     return f"{plate_num}{row_letter}{col384}"
 
+READ_DF_HEAVY_COLUMNS = ("read_seq", "read_qual")
+
+
+def load_well_reads(well_fastqs_dir, well_pos):
+    """Load one well's reads from its per-well FASTQ.
+
+    The per-well FASTQs are the run's read store; ``read_df.csv`` records only
+    each read's identity and assignment, so anything needing sequences —
+    pileups, haplotype splitting — reads them from here.
+
+    Args:
+        well_fastqs_dir: Directory of ``<well>.fastq`` files.
+        well_pos: Well key, e.g. ``"3B12"``.
+
+    Returns:
+        DataFrame with ``read_name``, ``read_seq``, ``read_qual`` and
+        ``well_pos``, empty if the well has no FASTQ.
+    """
+    path = os.path.join(str(well_fastqs_dir), f"{well_pos}.fastq")
+    if not os.path.exists(path):
+        return pd.DataFrame(
+            columns=["read_name", "read_seq", "read_qual", "well_pos"]
+        )
+
+    names, seqs, quals = [], [], []
+    open_fn = _open_fastq(path)
+    with open_fn(path, "rt") as fh:
+        while True:
+            header = fh.readline()
+            if not header:
+                break
+            seq = fh.readline().rstrip("\n")
+            fh.readline()                      # '+'
+            qual = fh.readline().rstrip("\n")
+            names.append(header[1:].split()[0] if header.startswith("@")
+                         else header.strip())
+            seqs.append(seq)
+            quals.append(qual)
+
+    return pd.DataFrame({
+        "read_name": names, "read_seq": seqs, "read_qual": quals,
+        "well_pos": [well_pos] * len(names),
+    })
+
+
+def write_read_df_csv(read_df, path):
+    """Write the per-read table without the sequence and quality columns.
+
+    Those two columns are most of the file — several gigabytes on a real run —
+    and duplicate what the per-well FASTQs already hold.  Everything the table
+    is read for afterwards (plate maps, per-well grouping, pileup lookup)
+    needs only the identity and assignment columns.
+
+    Args:
+        read_df: Per-read DataFrame.
+        path: Destination CSV path.
+    """
+    slim = read_df.drop(
+        columns=[c for c in READ_DF_HEAVY_COLUMNS if c in read_df.columns]
+    )
+    slim.to_csv(path, index=False)
+
+
+def well_to_barcode(plate, row, col):
+    """Inverse of :func:`barcode_to_well`: 384-well position to barcode pair.
+
+    Used to synthesise reads for a known well, so a simulated run can be
+    checked against the wells it was built from.
+
+    Args:
+        plate: 1-based barcode plate number (1-8).
+        row: 1-based 384-well row, 1-16 (A-P).
+        col: 1-based 384-well column, 1-24.
+
+    Returns:
+        Tuple of 1-based ``(fbc_number, rbc_number)`` matching the ``FBxx`` and
+        ``RBxx`` names :func:`barcode_to_well` expects.
+
+    Raises:
+        ValueError: If the position or plate is out of range.
+    """
+    if not 1 <= plate <= 8:
+        raise ValueError(f"plate must be 1-8, got {plate}")
+    if not 1 <= row <= 16:
+        raise ValueError(f"row must be 1-16, got {row}")
+    if not 1 <= col <= 24:
+        raise ValueError(f"col must be 1-24, got {col}")
+
+    # Quadrant is encoded by the parity of the 384-well coordinates:
+    # odd row + odd col = TL, odd/even = TR, even/odd = BL, even/even = BR.
+    row_off = 1 if row % 2 else 2
+    col_off = 1 if col % 2 else 2
+    quadrant = (0 if row_off == 1 else 2) + (0 if col_off == 1 else 1)
+
+    row96 = (row - row_off) // 2
+    col96 = (col - col_off) // 2
+
+    fb = row96 * 12 + col96          # 0-based within the 96 grid
+    rb = (plate - 1) * 4 + quadrant  # 0-based reverse barcode
+    return fb + 1, rb + 1
+
+
 def _parse_well(w):
     if type(w) == str:
         m = re.match(r"(\d+)([A-P]+)(\d+)", str(w))
@@ -865,10 +946,16 @@ def _parse_well(w):
     else:
         return None
 
-def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=None):
+def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=None,
+              plate_map=None):
     """
     Format merged demux/reference DataFrame.
     Adds readable barcode names, well positions, reference sequences, and lengths.
+
+    Args:
+        plate_map: Optional ``{barcode_plate: sort_plate}`` mapping forwarded
+            to :func:`barcode_to_well`.  See that function for the semantics of
+            barcode plates the mapping omits.
     """
     # --- map barcode numeric IDs to names ---
     if fbc_df is not None and "fbc" in df.columns:
@@ -892,8 +979,18 @@ def format_df(df, fbc_df=None, rbc_df=None, ref_fasta=None, orient_ref_fasta=Non
     # --- add well position ---
     if len(df) > 0:
         df["well_pos"] = df.apply(
-            lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"]), axis=1
+            lambda r: barcode_to_well(r["fbc_name"], r["rbc_name"], plate_map), axis=1
         )
+        if plate_map is not None:
+            n_off_pool = int(df["well_pos"].isna().sum())
+            if n_off_pool:
+                logger.warning(
+                    "format_df: %d read(s) classified to a barcode plate not in "
+                    "this FASTQ's pool (%s) and were dropped — likely carry-over "
+                    "from another run",
+                    n_off_pool,
+                    ", ".join(str(p) for p in sorted(plate_map)),
+                )
     else:
         df["well_pos"] = pd.Series(dtype=object)
 

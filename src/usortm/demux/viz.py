@@ -140,7 +140,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
                                well_size=26, plot_width=800,
                                streakout_wells=None,
                                mutation_wells=None,
-                               silent_mutation_wells=None):
+                               silent_mutation_wells=None,
+                               pileup_url_map=None):
     
     ROWS = list(string.ascii_uppercase[:16])  # A–P
 
@@ -185,6 +186,9 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     _streakout_set = streakout_wells or set()
     _mutation_set = mutation_wells or set()
     _silent_mut_set = silent_mutation_wells or set()
+    # Every well that has a rendered pileup, so any well can be opened and not
+    # only the ones flagged as a streak-out candidate or a mutation.
+    _pileup_urls = pileup_url_map or {}
 
     def fill_plate(p):
         merged = full_layout.copy()
@@ -262,6 +266,19 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
             return ""
 
         merged["mutation_url"] = merged.apply(_mutation_url, axis=1)
+
+        def _pileup_url(r):
+            key = f"{int(p)}_{_well_label(r['row'], r['col'])}"
+            return _pileup_urls.get(key, "")
+
+        merged["pileup_url"] = merged.apply(_pileup_url, axis=1)
+        merged["pileup_hint"] = merged.apply(
+            lambda r: '<div style="font-size:11px;color:#6b7280;margin-top:2px;">'
+                      'Click to view pileup</div>'
+            if r["pileup_url"] and not r["streakout_url"] and not r["mutation_url"]
+            else "",
+            axis=1,
+        )
         merged["mutation_hint"] = merged["mutation_url"].apply(
             lambda u: '<div style="font-size:11px;color:#dc2626;margin-top:2px;">'
                       '⚠ Mutation — click to view pileup</div>' if u else ""
@@ -316,6 +333,7 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
       @streakout_hint{safe}
       @mutation_hint{safe}
       @silent_mut_hint{safe}
+      @pileup_hint{safe}
     </div>
     """
 
@@ -353,7 +371,8 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
         if (indices.length > 0) {
             const so_url = src.data['streakout_url'][indices[0]];
             const mut_url = src.data['mutation_url'][indices[0]];
-            const url = so_url || mut_url;
+            const pu_url = (src.data['pileup_url'] || [])[indices[0]];
+            const url = so_url || mut_url || pu_url;
             if (url && url.length > 0) {
                 (window.top || window).open(url, '_blank');
             }
@@ -401,6 +420,36 @@ def make_plate_map_bokeh_reads(df, well_col="well_pos", ref_col="ref_name",
     else:
         layout = column(fig)
     return layout
+
+
+PLATE_MAP_COLUMNS = ["well_pos", "ref_name"]
+
+
+def load_plate_map_reads(read_df_path):
+    """Load only the columns a plate map needs from ``read_df.csv``.
+
+    ``read_df.csv`` carries the full sequence and quality string for every
+    read, which on a large run is several gigabytes.  The plate map derives
+    everything it draws from ``well_pos`` and ``ref_name`` alone, so the rest
+    is never worth materialising.
+
+    Falls back to a full read if those columns are absent, which happens only
+    for a degenerate (empty) table.
+
+    Args:
+        read_df_path: Path to ``read_df.csv``.
+
+    Returns:
+        DataFrame with ``well_pos`` and ``ref_name``.
+    """
+    import pandas as pd
+
+    try:
+        return pd.read_csv(read_df_path, usecols=PLATE_MAP_COLUMNS)
+    except ValueError:
+        # Column missing — an empty or older read_df.csv.  Read it whole so
+        # callers still get their usual "no reads assigned" message.
+        return pd.read_csv(read_df_path)
 
 
 def save_plate_map_html(df, output_path, title="Plate Map",

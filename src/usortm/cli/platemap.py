@@ -42,8 +42,7 @@ def platemap(
     """
     import csv
     import json
-    import pandas as pd
-    from usortm.demux.viz import save_plate_map_html
+    from usortm.demux.viz import load_plate_map_reads, save_plate_map_html
 
     demux_output = project_dir / "demux_output"
     read_df_path = demux_output / "read_df.csv"
@@ -56,7 +55,7 @@ def platemap(
         raise typer.Exit(1)
 
     console.print(f"Loading reads from [cyan]{read_df_path}[/cyan] ...")
-    read_df = pd.read_csv(read_df_path)
+    read_df = load_plate_map_reads(read_df_path)
 
     if read_df.empty:
         console.print(
