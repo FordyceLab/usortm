@@ -158,6 +158,7 @@ def pileups(
         )
 
     index_path = _write_pileup_index(out_dir, selected, min_reads)
+    relinked = _relink_plate_map(demux_output, out_dir, selected, min_reads)
 
     console.print(
         f"\n[green]✓[/green] {rendered['n']:,} pileup(s) written to {out_dir}"
@@ -165,6 +166,111 @@ def pileups(
            if rendered["skipped"] else "")
     )
     console.print(f"[green]✓[/green] Index: {index_path}")
+    if relinked:
+        console.print(
+            f"[green]✓[/green] Plate map wells now link to their pileups "
+            f"({relinked}) — rebuild the report with "
+            f"[cyan]usortm report {project_dir}[/cyan] to pick them up there"
+        )
+
+
+def _flag_well_keys(demux_output: Path) -> tuple:
+    """Read the streak-out, mutation and silent-mutation well sets.
+
+    These drive the plate map's corner tabs, so a rebuilt map has to carry
+    them or the flags would silently disappear.
+    """
+    streakout: set = set()
+    mutation: set = set()
+    silent: set = set()
+
+    so_csv = demux_output / "streakout" / "streakout_candidates.csv"
+    if so_csv.exists():
+        with open(so_csv) as fh:
+            for row in csv.DictReader(fh):
+                streakout.add(f"{row['plate']}_{row['well']}")
+
+    wa_csv = demux_output / "well_assignments.csv"
+    if wa_csv.exists():
+        with open(wa_csv) as fh:
+            for row in csv.DictReader(fh):
+                key = f"{row['plate']}_{row['well']}"
+                cons = row.get("cons_check", "")
+                reads = int(row.get("reads", 0) or 0)
+                if reads >= 20 and key not in streakout:
+                    if cons in ("Other Error", "Error"):
+                        mutation.add(key)
+                    elif cons == "Silent Mutation":
+                        silent.add(key)
+                elif cons == "Silent Mutation":
+                    silent.add(key)
+    return streakout, mutation, silent
+
+
+def _relink_plate_map(demux_output: Path, out_dir: Path, wells: list,
+                      min_reads: int) -> Optional[str]:
+    """Rebuild ``plate_map.html`` so every rendered well links to its pileup.
+
+    The map is regenerated rather than patched because the links are baked
+    into the Bokeh data at build time.  Returns None when the pileups live
+    outside the demux directory, since a relative link could not reach them.
+
+    Args:
+        demux_output: Demux output directory holding ``plate_map.html``.
+        out_dir: Directory the pileups were written to.
+        wells: Selected well rows.
+        min_reads: Depth cutoff, forwarded to the plate map's own tiering.
+
+    Returns:
+        Description of what was linked, or None if nothing was.
+    """
+    plate_map_path = demux_output / "plate_map.html"
+    read_df_path = demux_output / "read_df.csv"
+    if not plate_map_path.exists() or not read_df_path.exists():
+        return None
+
+    try:
+        rel_root = out_dir.resolve().relative_to(demux_output.resolve())
+    except ValueError:
+        # Pileups written outside the demux directory: a relative URL from the
+        # plate map cannot reach them, so leave the existing map alone.
+        return None
+
+    pileup_dir = out_dir / "pileup"
+    url_map = {}
+    for row in wells:
+        key = f"{row['plate']}_{row['well']}"
+        fname = f"well_{key}.html"
+        if (pileup_dir / fname).exists():
+            url_map[key] = f"{rel_root.as_posix()}/pileup/{fname}"
+    if not url_map:
+        return None
+
+    try:
+        from usortm.demux.viz import load_plate_map_reads, save_plate_map_html
+
+        read_df = load_plate_map_reads(read_df_path)
+        if read_df.empty:
+            return None
+        streakout, mutation, silent = _flag_well_keys(demux_output)
+        save_plate_map_html(
+            read_df, str(plate_map_path),
+            title="Demux Plate Map",
+            streakout_wells=streakout,
+            mutation_wells=mutation,
+            silent_mutation_wells=silent,
+            pileup_url_map=url_map,
+            min_reads=min_reads,
+        )
+    except ImportError:
+        return None      # Bokeh is optional
+    except Exception as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] could not relink the plate map: {exc}"
+        )
+        return None
+
+    return f"{len(url_map):,} well(s)"
 
 
 def _write_pileup_index(out_dir: Path, wells: list, min_reads: int) -> Path:
