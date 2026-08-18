@@ -1012,17 +1012,23 @@ def _write_default_mask_config(output_dir: Path, preset: Optional[str] = None):
     content = f"""# Barcode mask (flanking) sequences for Dorado demultiplexing.
 #
 # These sequences flank the barcode cassettes in the plasmid backbone
-# and help Dorado locate barcodes in each read.  Edit these to match
-# YOUR plasmid backbone before running `usortm demux`.
+# and help Dorado locate barcodes in each read.
+#
+# THESE ARE PLACEHOLDERS FROM ANOTHER CONSTRUCT AND WILL NOT WORK ON YOURS.
+# Masks are specific to a plasmid backbone; using another construct's masks
+# classifies almost no reads, while alignment still succeeds — so the run
+# looks finished but every well comes out empty.
+#
+# To get the right ones, run a demux once and then:
+#     usortm masks derive <project>
+# which reads the real flanking sequences off your own reads. You can also
+# start from a built-in preset: usortm config list
 #
 # Only the [fbc] section is needed — the reverse-barcode (RBC) masks
 # are automatically derived as reverse complements at load time.
-#
-# The defaults below are for the cutinase expression vector.
-# You can also use a built-in preset: usortm config list
 
 [meta]
-description = "Cutinase expression vector (T7 backbone)"
+description = "PLACEHOLDER — replace with masks for your own backbone"
 
 [fbc]
 mask1_front = "{fbc['mask1_front']}"
