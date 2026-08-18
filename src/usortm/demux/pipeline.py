@@ -392,22 +392,28 @@ def run_levseq_pipeline(
             # (flank_5p + flank_3p), which for LP014 is (119+1005)//2 = 562 bp.
             # This cleanly separates concatemer reads from full-length reads
             # regardless of variable-insert size.
-            _min_read_len = (len(flank_5p) + len(flank_3p)) // 2
-            n_before = len(read_df)
-            read_df = read_df[
-                read_df["read_seq"].str.len() >= _min_read_len
-            ].reset_index(drop=True)
-            n_removed = n_before - len(read_df)
-            if n_removed:
-                _progress(
-                    f"Filtered {n_removed:,} flank-only reads "
-                    f"(<{_min_read_len} bp) that cannot overlap the variable region"
-                )
-                # Update per-well depths to reflect only variable-spanning reads
-                _depth = read_df.groupby("well_pos").size()
-                well_df["depth"] = (
-                    well_df["global_well"].map(_depth).fillna(0).astype(int)
-                )
+            # The cutoff comes from the vector's flanks, so it only applies
+            # when --vector-fasta supplied them.  With a bare --orient-ref
+            # there is no amplicon length to reason about and every read is
+            # kept.
+            if flank_5p is not None and flank_3p is not None:
+                _min_read_len = (len(flank_5p) + len(flank_3p)) // 2
+                n_before = len(read_df)
+                read_df = read_df[
+                    read_df["read_seq"].str.len() >= _min_read_len
+                ].reset_index(drop=True)
+                n_removed = n_before - len(read_df)
+                if n_removed:
+                    _progress(
+                        f"Filtered {n_removed:,} flank-only reads "
+                        f"(<{_min_read_len} bp) that cannot overlap the "
+                        "variable region"
+                    )
+                    # Update per-well depths to reflect only variable-spanning reads
+                    _depth = read_df.groupby("well_pos").size()
+                    well_df["depth"] = (
+                        well_df["global_well"].map(_depth).fillna(0).astype(int)
+                    )
 
             _progress("Writing per-well FASTQs...")
             utils.write_per_well_fastqs(read_df, str(output_dir))
