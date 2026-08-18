@@ -16,6 +16,7 @@ import re
 import string
 import subprocess
 import json
+from pathlib import Path
 
 
 def _open_fastq(path: str):
@@ -139,30 +140,71 @@ def _rebuild_ref_map_from_fastq(path):
     return ref_map, stats
 
 
-def _input_fingerprint(fastq_path):
-    """Identify an input FASTQ cheaply, for cache invalidation.
+FASTQ_PATTERNS = ("*.fastq", "*.fastq.gz", "*.fq", "*.fq.gz")
+
+
+def resolve_fastq_inputs(fastq):
+    """Expand a FASTQ argument into the list of files to align.
+
+    Accepts a single file, a directory to scan recursively, or an explicit
+    list.  minimap2 takes many query files at once and reads gzip natively, so
+    a directory never has to be concatenated into one decompressed file first.
+
+    Args:
+        fastq: Path, directory, or iterable of paths.
+
+    Returns:
+        Sorted list of file paths as strings.
+
+    Raises:
+        ValueError: If a directory contains no FASTQ files.
+    """
+    if isinstance(fastq, (list, tuple)):
+        return [str(f) for f in fastq]
+
+    path = Path(fastq)
+    if path.is_dir():
+        found = sorted(str(f) for p in FASTQ_PATTERNS for f in path.rglob(p))
+        if not found:
+            raise ValueError(f"No FASTQ files found in {path}")
+        return found
+    return [str(path)]
+
+
+def _input_fingerprint(fastq):
+    """Identify the input reads cheaply, for cache invalidation.
 
     Hashing the reads themselves is not affordable — a production input runs
-    to several gigabytes — so the input is identified by absolute path, byte
+    to several gigabytes — so each file is identified by absolute path, byte
     size and modification time instead.  The bias is deliberate: a false
     mismatch costs a re-alignment, while a false match would silently process
     the wrong reads.
 
     Args:
-        fastq_path: Path to the input FASTQ.
+        fastq: Path, directory, or list of paths, as accepted by
+            :func:`resolve_fastq_inputs`.
 
     Returns:
-        Dict describing the file, or ``None`` if it cannot be stat'ed.
+        List of dicts describing each file, or ``None`` if any cannot be
+        stat'ed — an unidentifiable input must not validate a cache.
     """
     try:
-        st = os.stat(fastq_path)
-    except OSError:
+        paths = resolve_fastq_inputs(fastq)
+    except ValueError:
         return None
-    return {
-        "path": os.path.abspath(fastq_path),
-        "size": st.st_size,
-        "mtime_ns": st.st_mtime_ns,
-    }
+
+    prints = []
+    for p in paths:
+        try:
+            st = os.stat(p)
+        except OSError:
+            return None
+        prints.append({
+            "path": os.path.abspath(p),
+            "size": st.st_size,
+            "mtime_ns": st.st_mtime_ns,
+        })
+    return prints
 
 
 def align_and_split_by_strand(
@@ -221,6 +263,7 @@ def align_and_split_by_strand(
     # followed by the full run in the same project directory, which would
     # process only the subsampled reads while reporting success.
     ref_hash = hashlib.md5(open(multi_ref_fasta, "rb").read()).hexdigest()
+    input_paths = resolve_fastq_inputs(fastq)
     input_fp = _input_fingerprint(fastq)
 
     # --- Cache check: if oriented FASTQ already exists, rebuild from it ---
@@ -260,12 +303,15 @@ def align_and_split_by_strand(
 
     # --- Stream minimap2 SAM as plain text (no pysam, no samtools) ---
     logger.info("Running minimap2 multi-ref alignment (streaming)...")
+    # minimap2 accepts many query files and reads gzip natively, so a
+    # directory of FASTQs is streamed straight in rather than being
+    # concatenated into one decompressed staging copy first.
     mm2_cmd = [
         minimap2_path, "-ax", "map-ont",
         "--secondary=no",
         "-t", str(threads),
-        mmi, fastq,
-    ]
+        mmi,
+    ] + input_paths
     mm2_stderr_path = os.path.join(output_dir, "minimap2.log")
     mm2_stderr_fh = open(mm2_stderr_path, "w")
     logger.info("minimap2 stderr → %s", mm2_stderr_path)
@@ -567,6 +613,84 @@ def batch_demux(
             max_reads=max_reads,
         )
 
+def _barcode_calls_from_summary(summary_path, normalize_id):
+    """Read read_id -> 0-based barcode index from a Dorado demux summary.
+
+    Dorado writes ``sequencing_summary.txt`` alongside its demux output with a
+    ``barcode_arrangement`` column holding ``barcode01``..``barcode96`` (or
+    ``unclassified``).  That is the same assignment the per-barcode FASTQ
+    layout encodes, so reading it here lets the run skip emitting a second
+    full copy of the reads purely to recover their barcodes.
+
+    Args:
+        summary_path: Path to Dorado's ``sequencing_summary.txt``.
+        normalize_id: Read-name normaliser.
+
+    Returns:
+        Dict of read name to 0-based barcode index.
+    """
+    calls = {}
+    with open(summary_path, newline="") as fh:
+        reader = csv_mod.DictReader(fh, delimiter="\t")
+        if not reader.fieldnames or "barcode_arrangement" not in reader.fieldnames:
+            raise ValueError(
+                f"{summary_path} has no 'barcode_arrangement' column"
+            )
+        for row in reader:
+            arrangement = (row.get("barcode_arrangement") or "").strip()
+            m = re.search(r"barcode(\d+)", arrangement)
+            if not m:
+                continue  # 'unclassified' and anything unrecognised
+            rid = normalize_id(row.get("read_id"))
+            if rid:
+                calls[rid] = int(m.group(1)) - 1
+    return calls
+
+
+def _collect_barcode_calls(base_dir, sub, normalize_id, malformed_counts):
+    """Collect barcode assignments from one Dorado output directory.
+
+    Prefers the demux summary, falling back to scanning the per-barcode FASTQ
+    tree so output directories written before the summary was used — or by a
+    run that emitted FASTQs — still load.
+
+    Args:
+        base_dir: Root demux output directory.
+        sub: ``"fbc"`` or ``"rbc"``.
+        normalize_id: Read-name normaliser.
+        malformed_counts: Mutated in place when a FASTQ fails to parse.
+
+    Returns:
+        Dict of read name to 0-based barcode index.
+    """
+    summary_path = os.path.join(base_dir, sub, "sequencing_summary.txt")
+    if os.path.exists(summary_path):
+        try:
+            return _barcode_calls_from_summary(summary_path, normalize_id)
+        except (ValueError, OSError) as exc:
+            logger.warning(
+                "Could not read %s (%s) — falling back to scanning FASTQs",
+                summary_path, exc,
+            )
+
+    calls = {}
+    for fq in tqdm(glob.glob(f"{base_dir}/{sub}/**/*.fastq*", recursive=True)):
+        if "unclassified" in fq:
+            continue
+        m = re.search(r"barcode(\d+)", fq)
+        if not m:
+            continue
+        index = int(m.group(1)) - 1
+        try:
+            for rec in SeqIO.parse(fq, "fastq"):
+                rid = normalize_id(rec.id)
+                if rid:
+                    calls[rid] = index
+        except Exception:
+            malformed_counts[sub] += 1
+    return calls
+
+
 def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     """Build a per-read DataFrame merging barcode demux and reference data.
 
@@ -601,28 +725,10 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
         return re.sub(r"\|ref=.*|\|dir=.*|/[12]$|_pool_plates.*", "", rid)
 
     print("Collecting FBC demux...")
-    for fq in tqdm(glob.glob(f"{base_dir}/fbc/**/*.fastq*", recursive=True)):
-        if "unclassified" in fq: continue
-        m = re.search(r"barcode(\d+)", fq)
-        if not m: continue
-        fbc = int(m.group(1)) - 1
-        try:
-            for rec in SeqIO.parse(fq, "fastq"):
-                rid = normalize_id(rec.id)
-                if rid: fbc_map[rid] = fbc
-        except: malformed_counts["fbc"] += 1
+    fbc_map = _collect_barcode_calls(base_dir, "fbc", normalize_id, malformed_counts)
 
     print("Collecting RBC demux...")
-    for fq in tqdm(glob.glob(f"{base_dir}/rbc/**/*.fastq*", recursive=True)):
-        if "unclassified" in fq: continue
-        m = re.search(r"barcode(\d+)", fq)
-        if not m: continue
-        rbc = int(m.group(1)) - 1
-        try:
-            for rec in SeqIO.parse(fq, "fastq"):
-                rid = normalize_id(rec.id)
-                if rid: rbc_map[rid] = rbc
-        except: malformed_counts["rbc"] += 1
+    rbc_map = _collect_barcode_calls(base_dir, "rbc", normalize_id, malformed_counts)
 
     # --- Collect reference + sequence data ---
     if ref_map is not None and oriented_fastq is not None:
@@ -730,6 +836,108 @@ def barcode_to_well(fbc_name, rbc_name, plate_map=None):
 
     row_letter = string.ascii_uppercase[row384 - 1]  # A..P
     return f"{plate_num}{row_letter}{col384}"
+
+READ_DF_HEAVY_COLUMNS = ("read_seq", "read_qual")
+
+
+def load_well_reads(well_fastqs_dir, well_pos):
+    """Load one well's reads from its per-well FASTQ.
+
+    The per-well FASTQs are the run's read store; ``read_df.csv`` records only
+    each read's identity and assignment, so anything needing sequences —
+    pileups, haplotype splitting — reads them from here.
+
+    Args:
+        well_fastqs_dir: Directory of ``<well>.fastq`` files.
+        well_pos: Well key, e.g. ``"3B12"``.
+
+    Returns:
+        DataFrame with ``read_name``, ``read_seq``, ``read_qual`` and
+        ``well_pos``, empty if the well has no FASTQ.
+    """
+    path = os.path.join(str(well_fastqs_dir), f"{well_pos}.fastq")
+    if not os.path.exists(path):
+        return pd.DataFrame(
+            columns=["read_name", "read_seq", "read_qual", "well_pos"]
+        )
+
+    names, seqs, quals = [], [], []
+    open_fn = _open_fastq(path)
+    with open_fn(path, "rt") as fh:
+        while True:
+            header = fh.readline()
+            if not header:
+                break
+            seq = fh.readline().rstrip("\n")
+            fh.readline()                      # '+'
+            qual = fh.readline().rstrip("\n")
+            names.append(header[1:].split()[0] if header.startswith("@")
+                         else header.strip())
+            seqs.append(seq)
+            quals.append(qual)
+
+    return pd.DataFrame({
+        "read_name": names, "read_seq": seqs, "read_qual": quals,
+        "well_pos": [well_pos] * len(names),
+    })
+
+
+def write_read_df_csv(read_df, path):
+    """Write the per-read table without the sequence and quality columns.
+
+    Those two columns are most of the file — several gigabytes on a real run —
+    and duplicate what the per-well FASTQs already hold.  Everything the table
+    is read for afterwards (plate maps, per-well grouping, pileup lookup)
+    needs only the identity and assignment columns.
+
+    Args:
+        read_df: Per-read DataFrame.
+        path: Destination CSV path.
+    """
+    slim = read_df.drop(
+        columns=[c for c in READ_DF_HEAVY_COLUMNS if c in read_df.columns]
+    )
+    slim.to_csv(path, index=False)
+
+
+def well_to_barcode(plate, row, col):
+    """Inverse of :func:`barcode_to_well`: 384-well position to barcode pair.
+
+    Used to synthesise reads for a known well, so a simulated run can be
+    checked against the wells it was built from.
+
+    Args:
+        plate: 1-based barcode plate number (1-8).
+        row: 1-based 384-well row, 1-16 (A-P).
+        col: 1-based 384-well column, 1-24.
+
+    Returns:
+        Tuple of 1-based ``(fbc_number, rbc_number)`` matching the ``FBxx`` and
+        ``RBxx`` names :func:`barcode_to_well` expects.
+
+    Raises:
+        ValueError: If the position or plate is out of range.
+    """
+    if not 1 <= plate <= 8:
+        raise ValueError(f"plate must be 1-8, got {plate}")
+    if not 1 <= row <= 16:
+        raise ValueError(f"row must be 1-16, got {row}")
+    if not 1 <= col <= 24:
+        raise ValueError(f"col must be 1-24, got {col}")
+
+    # Quadrant is encoded by the parity of the 384-well coordinates:
+    # odd row + odd col = TL, odd/even = TR, even/odd = BL, even/even = BR.
+    row_off = 1 if row % 2 else 2
+    col_off = 1 if col % 2 else 2
+    quadrant = (0 if row_off == 1 else 2) + (0 if col_off == 1 else 1)
+
+    row96 = (row - row_off) // 2
+    col96 = (col - col_off) // 2
+
+    fb = row96 * 12 + col96          # 0-based within the 96 grid
+    rb = (plate - 1) * 4 + quadrant  # 0-based reverse barcode
+    return fb + 1, rb + 1
+
 
 def _parse_well(w):
     if type(w) == str:

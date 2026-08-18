@@ -769,8 +769,44 @@ class TestAlignmentCache:
 
         saved = json.loads((align_dir / "align_stats.json").read_text())
         assert "ref_hash" in saved
-        assert saved["input"]["path"] == str(Path(fake_fastq).resolve())
-        assert saved["input"]["size"] == Path(fake_fastq).stat().st_size
+        # One entry per input file — a directory of FASTQs is aligned in place
+        # rather than concatenated, so the key covers every file.
+        assert len(saved["input"]) == 1
+        assert saved["input"][0]["path"] == str(Path(fake_fastq).resolve())
+        assert saved["input"][0]["size"] == Path(fake_fastq).stat().st_size
+
+    def test_directory_input_fingerprints_every_file(
+        self, tmp_path, fake_fastq, fake_reference_fasta
+    ):
+        """A directory is keyed on all of its FASTQs, so adding one to a run
+        directory invalidates the cache rather than being silently ignored."""
+        reads_dir = tmp_path / "fastq_pass"
+        reads_dir.mkdir()
+        shutil.copy(fake_fastq, reads_dir / "part1.fastq")
+        shutil.copy(fake_fastq, reads_dir / "part2.fastq")
+
+        align_dir = tmp_path / "alignment"
+        _, _, first = self._align(fake_reference_fasta, reads_dir, align_dir)
+
+        saved = json.loads((align_dir / "align_stats.json").read_text())
+        assert len(saved["input"]) == 2
+        # No staging copy is made.
+        assert not (align_dir / "combined.fastq").exists()
+
+        # Both files' reads were aligned, not just one.
+        _, _, single = self._align(
+            fake_reference_fasta, fake_fastq, tmp_path / "alignment_single"
+        )
+        assert first["mapped"] == 2 * single["mapped"]
+
+        # Adding a third file busts the cache.
+        shutil.copy(fake_fastq, reads_dir / "part3.fastq")
+        seen = []
+        _, _, third = self._align(
+            fake_reference_fasta, reads_dir, align_dir, seen=seen
+        )
+        assert seen == [], "adding a FASTQ must invalidate the cache"
+        assert third["mapped"] == 3 * single["mapped"]
 
 
 # ===================================================================

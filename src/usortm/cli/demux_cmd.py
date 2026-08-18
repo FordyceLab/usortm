@@ -362,12 +362,23 @@ def demux(
                 """Update the spinner text as the pipeline progresses."""
                 progress.update(task, description=f"{_label}{msg}")
 
-            seg_fastq = segment.path
-            if seg_fastq.is_dir():
-                seg_fastq = _concat_fastq_dir(seg_fastq, seg_dir)
+            # A directory is passed through as-is: minimap2 takes many query
+            # files and reads gzip natively, so concatenating them into one
+            # decompressed staging copy would only cost disk.
+            if segment.path.is_dir():
+                found = _find_fastqs(segment.path)
+                if not found:
+                    console.print(
+                        f"[red]Error:[/red] No FASTQ files found in {segment.path}"
+                    )
+                    raise typer.Exit(1)
+                console.print(
+                    f"[green]✓[/green] {segment.name}: {len(found)} FASTQ file(s) "
+                    f"in {segment.path}"
+                )
 
             results = _run_demux(
-                fastq=seg_fastq,
+                fastq=segment.path,
                 output_dir=seg_dir,
                 reference=reference,
                 min_reads=min_reads,

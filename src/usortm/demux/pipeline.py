@@ -65,14 +65,16 @@ def _compute_read_length_hist(fastq_path: str) -> dict:
         or empty dict if the file has no reads.
     """
     import statistics
+    from usortm.demux.utils import resolve_fastq_inputs
 
-    open_fn = _open_fastq(fastq_path)
     lengths = []
     try:
-        with open_fn(fastq_path, "rt") as fh:
-            for i, line in enumerate(fh):
-                if i % 4 == 1:
-                    lengths.append(len(line.rstrip()))
+        for path in resolve_fastq_inputs(fastq_path):
+            open_fn = _open_fastq(path)
+            with open_fn(path, "rt") as fh:
+                for i, line in enumerate(fh):
+                    if i % 4 == 1:
+                        lengths.append(len(line.rstrip()))
     except (UnicodeDecodeError, OSError) as exc:
         raise ValueError(
             f"Cannot read FASTQ file '{fastq_path}' as text. "
@@ -104,15 +106,21 @@ def _extract_reads_gzip_aware(
     Returns the number of reads actually written (may be less than
     *num_reads* if the input file is shorter).
     """
-    open_fn = _open_fastq(input_fastq)
+    from usortm.demux.utils import resolve_fastq_inputs
+
     reads_written = 0
-    with open_fn(input_fastq, "rt") as fh_in, open(output_fastq, "w") as fh_out:
-        while reads_written < num_reads:
-            lines = [fh_in.readline() for _ in range(4)]
-            if not lines[0]:
+    with open(output_fastq, "w") as fh_out:
+        for path in resolve_fastq_inputs(input_fastq):
+            if reads_written >= num_reads:
                 break
-            fh_out.writelines(lines)
-            reads_written += 1
+            open_fn = _open_fastq(path)
+            with open_fn(path, "rt") as fh_in:
+                while reads_written < num_reads:
+                    lines = [fh_in.readline() for _ in range(4)]
+                    if not lines[0]:
+                        break
+                    fh_out.writelines(lines)
+                    reads_written += 1
     return reads_written
 
 
@@ -291,7 +299,12 @@ def run_levseq_pipeline(
         pipeline_stats["align"] = align_stats
         _progress("Strand split complete.")
 
-    # --- Stage 4: Dorado FBC demux (on oriented reads) ---
+    # --- Stages 4 and 5: Dorado barcode demux (on oriented reads) ---
+    # Only the barcode call per read is needed downstream, and that is in the
+    # summary Dorado writes anyway.  Emitting FASTQs as well would write a
+    # second and third full copy of the reads — measured at 1.24x the input
+    # each, against 0.35x for summary-only — for data nothing reads: the
+    # sequences come from the oriented FASTQ, not from here.
     _progress("Running forward barcode demultiplexing...")
     fbc_output = output_dir / "fbc"
     fbc_output.mkdir(exist_ok=True)
@@ -302,11 +315,10 @@ def run_levseq_pipeline(
         barcodes=str(fbc_fasta),
         kit_name="levSeq_bcs_map",
         dorado_path=tool_paths["dorado"],
-        output_fastq=True,
+        output_fastq=False,
         emit_summary=True,
     )
 
-    # --- Stage 5: Dorado RBC demux (on oriented reads) ---
     _progress("Running reverse barcode demultiplexing...")
     rbc_output = output_dir / "rbc"
     rbc_output.mkdir(exist_ok=True)
@@ -317,7 +329,7 @@ def run_levseq_pipeline(
         barcodes=str(rbc_fasta),
         kit_name="levSeq_bcs_map",
         dorado_path=tool_paths["dorado"],
-        output_fastq=True,
+        output_fastq=False,
         emit_summary=True,
     )
 
@@ -518,7 +530,7 @@ def run_levseq_pipeline(
     _progress("Finalizing results...")
 
     # Save intermediate DataFrames for debugging / power users
-    read_df.to_csv(output_dir / "read_df.csv", index=False)
+    utils.write_read_df_csv(read_df, output_dir / "read_df.csv")
     well_df.to_csv(output_dir / "well_df.csv", index=False)
 
     # --- Stage 11: Translate to CLI output format ---

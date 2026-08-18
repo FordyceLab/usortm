@@ -2086,7 +2086,8 @@ def generate_pick_pileups(
 ) -> dict:
     """Generate per-well pileup HTMLs for all picked (non-empty) hits.
 
-    Reads are sourced from ``read_df.csv`` in *demux_output_dir*.
+    Read identities come from ``read_df.csv`` in *demux_output_dir*; their
+    sequences come from the per-well FASTQs alongside it.
     One HTML is written per unique source well to
     ``<output_dir>/pileup/well_{plate}_{well}.html``.
 
@@ -2171,9 +2172,30 @@ def generate_pick_pileups(
             "target_well": hit.get("target_well", ""),
         })
 
-    # Build lookup: well_pos → reads DataFrame
+    # Build lookup: well_pos → reads DataFrame.
+    #
+    # read_df.csv carries each read's identity and assignment but not its
+    # sequence — that lives in the per-well FASTQs, so pull the reads for the
+    # picked wells from there.  Older demux outputs kept the sequences in the
+    # CSV, so those are still used when present.
     read_df["well_pos"] = read_df["well_pos"].astype(str)
-    well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
+    if "read_seq" in read_df.columns:
+        well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
+    else:
+        from usortm.demux.utils import load_well_reads
+
+        well_fastqs_dir = os.path.join(demux_output_dir, "wells", "fastqs")
+        well_reads_map = {
+            t["well_pos"]: load_well_reads(well_fastqs_dir, t["well_pos"])
+            for t in tasks
+        }
+        missing = [w for w, df in well_reads_map.items() if df.empty]
+        if missing:
+            logger.warning(
+                "generate_pick_pileups: no per-well FASTQ for %d well(s), "
+                "e.g. %s — pileups for those will be skipped",
+                len(missing), ", ".join(missing[:5]),
+            )
 
     # Pre-build minimap2 .mmi indexes per unique variant (avoids re-indexing per well)
     unique_variants = {t["variant"] for t in tasks}
