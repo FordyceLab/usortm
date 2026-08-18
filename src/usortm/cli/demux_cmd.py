@@ -853,17 +853,83 @@ def _describe_segments(segments: list) -> None:
     console.print(table)
 
 
-def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
-    """Interactively build a plate map when none was supplied.
+FASTQ_PATTERNS = ["*.fastq", "*.fastq.gz", "*.fq", "*.fq.gz"]
 
-    Offers the ordinary one-FASTQ layout first, since that is what most runs
-    use.  A multi-FASTQ mapping is collected FASTQ by FASTQ and offered for
-    saving, so the next run can pass ``--plate-map`` instead.
+
+def _find_fastqs(path: Path) -> list:
+    """List FASTQ files at *path*, which may be a file or a directory."""
+    if path.is_file():
+        return [path]
+    return sorted(f for p in FASTQ_PATTERNS for f in path.rglob(p))
+
+
+def _prompt_sort_plate_count(n_plates: int) -> Optional[int]:
+    """Confirm how many sort plates this run covers.
+
+    The project plan's figure is derived from library size and fold-sampling,
+    which is not always what was actually sorted, so it is offered as a default
+    rather than assumed.
+    """
+    import questionary
+
+    try:
+        answer = questionary.text(
+            "How many sort plates does this run cover?",
+            default=str(n_plates),
+            validate=lambda t: (
+                True if t.strip().isdigit() and int(t) >= 1
+                else "Enter a whole number of 1 or more."
+            ),
+        ).ask()
+    except KeyboardInterrupt:
+        return None
+    return int(answer.strip()) if answer else None
+
+
+def _prompt_segment_plates(label: str, suggestion: str = "") -> Optional[dict]:
+    """Ask for one FASTQ's barcode:sort plate pairs, re-asking on error."""
+    import questionary
+    from usortm.demux.plate_map import PlateMapError
+
+    while True:
+        try:
+            text = questionary.text(
+                f"  {label} — barcode:sort plate pairs:",
+                default=suggestion,
+            ).ask()
+        except KeyboardInterrupt:
+            return None
+        if text is None:
+            return None
+        if not text.strip():
+            console.print("  [yellow]Enter at least one pair, e.g. 1:9[/yellow]")
+            continue
+        try:
+            return _parse_plate_pairs(text)
+        except PlateMapError as exc:
+            console.print(f"  [red]{exc}[/red]")
+
+
+def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
+    """Interactively establish how barcode plates map onto sort plates.
+
+    Runs whenever no plate map was supplied.  Confirms the sort plate count
+    first, then the mapping, because the count determines whether barcode
+    plates have to be reused at all.
+
+    Three situations are distinguished:
+
+    * one FASTQ (or one sequencing run's directory) within the kit's plate
+      limit — the mapping is one-to-one and only needs confirming;
+    * more sort plates than barcode plates — reuse is unavoidable, so the run
+      must be split across FASTQs;
+    * several FASTQs that came from different runs — each needs its own
+      mapping, and concatenating them would merge distinct sort plates.
 
     Args:
         fastq: The ``--fastq`` value, if one was given.
-        n_plates: Sort plate count from the project.
-        project_dir: Project directory, used to offer a save location.
+        n_plates: Sort plate count from the project, used as the default.
+        project_dir: Project directory, offered as the save location.
 
     Returns:
         List of Segment, or None to fall back to the default behaviour.
@@ -871,7 +937,7 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     import sys
     from usortm.demux.plate_map import (
         MAX_BARCODE_PLATES, PlateMapError, Segment, identity_segment,
-        write_plate_map,
+        write_plate_map, _validate_across_segments,
     )
 
     if not sys.stdin.isatty():
@@ -879,83 +945,108 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
 
     import questionary
 
-    console.print(
-        "\n[muted]Barcode plates normally match sort plates one-to-one. They "
-        "differ when a run has more sort plates than the kit has barcode "
-        f"plates ({MAX_BARCODE_PLATES}), so barcode plates are reused across "
-        "separate FASTQs.[/muted]"
-    )
-
-    try:
-        choice = questionary.select(
-            "How do barcode plates map to sort plates?",
-            choices=[
-                questionary.Choice(
-                    title=f"One FASTQ, barcode plate = sort plate (1-{n_plates})",
-                    value="identity",
-                ),
-                questionary.Choice(
-                    title="Multiple FASTQs with reused barcode plates — configure now",
-                    value="custom",
-                ),
-            ],
-        ).ask()
-    except KeyboardInterrupt:
+    n_sort = _prompt_sort_plate_count(n_plates)
+    if n_sort is None:
         return None
 
-    if choice is None:
-        return None
-    if choice == "identity":
-        return [identity_segment(fastq, n_plates)] if fastq else None
+    found = _find_fastqs(fastq) if fastq is not None else []
+    if fastq is not None and fastq.is_dir():
+        console.print(
+            f"[muted]Found {len(found)} FASTQ file(s) under {fastq}.[/muted]"
+        )
 
+    # The straightforward case: the plates fit the kit and there is a single
+    # source of reads, so barcode plate and sort plate agree.
+    if n_sort <= MAX_BARCODE_PLATES and fastq is not None:
+        one_run = True
+        if len(found) > 1:
+            try:
+                one_run = questionary.confirm(
+                    f"Are these {len(found)} files all one sequencing run "
+                    "sharing one barcode layout?",
+                    default=True,
+                ).ask()
+            except KeyboardInterrupt:
+                return None
+            if one_run is None:
+                return None
+        if one_run:
+            console.print(
+                f"[green]✓[/green] {n_sort} sort plate(s), barcode plate = "
+                "sort plate"
+            )
+            return [identity_segment(fastq, n_sort)]
+    elif n_sort > MAX_BARCODE_PLATES:
+        console.print(
+            f"\n[yellow]{n_sort} sort plates exceeds the {MAX_BARCODE_PLATES} "
+            f"barcode plates the LevSeq kit provides.[/yellow] Barcode plates "
+            "must be reused across separate FASTQs, and each FASTQ needs its "
+            "own mapping."
+        )
+
+    # Otherwise collect a mapping per FASTQ.
     segments: list = []
+    remaining = list(found)
     while True:
         idx = len(segments) + 1
-        try:
-            path_str = questionary.text(
-                f"FASTQ #{idx} — path to file or directory:"
-            ).ask()
-            if not path_str:
+        if remaining:
+            try:
+                choice = questionary.select(
+                    f"FASTQ #{idx} — which file?",
+                    choices=[questionary.Choice(title=str(f), value=f)
+                             for f in remaining]
+                    + [questionary.Choice(title="(done)", value=None)],
+                ).ask()
+            except KeyboardInterrupt:
+                return None
+            if choice is None:
                 break
-            pairs_str = questionary.text(
-                f"FASTQ #{idx} — barcode:sort plate pairs "
-                "(e.g. '7:7, 8:8, 1:9, 2:10'):"
-            ).ask()
-            if not pairs_str:
+            path = choice
+            remaining.remove(choice)
+        else:
+            try:
+                text = questionary.text(
+                    f"FASTQ #{idx} — path to file or directory (blank to finish):"
+                ).ask()
+            except KeyboardInterrupt:
+                return None
+            if not text or not text.strip():
                 break
-        except KeyboardInterrupt:
+            path = Path(text.strip()).expanduser()
+            if not path.exists():
+                console.print(f"  [red]{path} does not exist.[/red]")
+                continue
+
+        plates = _prompt_segment_plates(path.name)
+        if plates is None:
             return None
-
-        try:
-            plates = _parse_plate_pairs(pairs_str)
-        except PlateMapError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
-            continue
-
-        path = Path(path_str).expanduser()
-        if not path.exists():
-            console.print(f"[red]Error:[/red] {path} does not exist.")
-            continue
 
         segments.append(Segment(name=path.stem or f"segment{idx}", path=path,
                                 plates=plates))
         console.print(f"  [green]✓[/green] {path.name}: {segments[-1].describe()}")
 
-        try:
-            if not questionary.confirm("Add another FASTQ?", default=True).ask():
-                break
-        except KeyboardInterrupt:
-            return None
+        covered = sorted(p for s in segments for p in s.sort_plates)
+        if len(covered) >= n_sort:
+            break
+        console.print(
+            f"[muted]{len(covered)} of {n_sort} sort plates mapped so far.[/muted]"
+        )
 
     if not segments:
         return None
 
-    from usortm.demux.plate_map import _validate_across_segments
     try:
         _validate_across_segments(segments)
     except PlateMapError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         return None
+
+    covered = sorted(p for s in segments for p in s.sort_plates)
+    if len(covered) != n_sort:
+        console.print(
+            f"[yellow]⚠[/yellow] {len(covered)} sort plate(s) mapped but "
+            f"{n_sort} were expected: {covered}"
+        )
 
     console.print()
     _describe_segments(segments)
