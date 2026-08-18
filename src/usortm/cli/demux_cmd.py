@@ -26,6 +26,10 @@ console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
 
+# A plate carrying fewer reads than this across all its wells is treated as
+# barcode switching rather than a real plate, and left off the plate map.
+GHOST_PLATE_MIN_READS = 20
+
 
 def demux(
     project_dir: Path = typer.Argument(
@@ -476,10 +480,7 @@ def demux(
                     "verifying your reference FASTA."
                 )
             else:
-                # Filter out ghost plates (< 20 total reads = likely barcode switching)
-                _plate_col = read_df["well_pos"].str.split("_").str[0]
-                _plate_totals = _plate_col.groupby(_plate_col).transform("count")
-                read_df = read_df[_plate_totals >= 20]
+                read_df = _drop_ghost_plates(read_df)
                 plate_map_path = demux_output / "plate_map.html"
                 save_plate_map_html(
                     read_df, str(plate_map_path),
@@ -885,6 +886,31 @@ def _prompt_preset_selection() -> Optional[dict]:
     selected = presets[answer - 1]
     console.print(f"[green]\u2713[/green] Using preset: {selected['name']}")
     return _load_mask_config(selected["path"])
+
+
+def _drop_ghost_plates(read_df):
+    """Remove plates carrying too few reads to be real.
+
+    A handful of reads spread across a plate that was never loaded is barcode
+    switching, and plotting it invites reading noise as signal.
+
+    The plate is the leading digits of ``well_pos``, which has the form
+    ``"<plate><row><col>"`` with no separator — ``"1A2"``, ``"10P24"``.
+    Splitting on ``"_"`` returns the whole well ID, which silently turns this
+    into a per-well depth filter and hides every plate whose wells are
+    individually shallow.
+
+    Args:
+        read_df: Per-read DataFrame with a ``well_pos`` column.
+
+    Returns:
+        The rows belonging to plates above the threshold.
+    """
+    if "well_pos" not in read_df.columns or read_df.empty:
+        return read_df
+    plate = read_df["well_pos"].astype(str).str.extract(r"^(\d+)", expand=False)
+    totals = plate.groupby(plate).transform("count")
+    return read_df[totals >= GHOST_PLATE_MIN_READS]
 
 
 def _is_identity_map(plates: dict) -> bool:
