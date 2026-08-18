@@ -288,7 +288,14 @@ DEFAULT_SCORING: dict = {
 }
 
 # ---------------------------------------------------------------------------
-# Default mask (flanking) sequences — cutinase plasmid backbone
+# Fallback mask (flanking) sequences.
+#
+# Masks are specific to a plasmid backbone, so there is no correct
+# default: these are a starting point only. Applied to another
+# construct they classify almost nothing while alignment still
+# succeeds, which reads as a finished run with empty wells rather
+# than a misconfiguration. `usortm masks derive` reads the real ones
+# off a run's own reads.
 # ---------------------------------------------------------------------------
 
 DEFAULT_MASKS: dict = {

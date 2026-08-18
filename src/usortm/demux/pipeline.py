@@ -124,6 +124,51 @@ def _extract_reads_gzip_aware(
     return reads_written
 
 
+BARCODE_YIELD_CRITICAL = 0.02
+BARCODE_YIELD_POOR = 0.20
+
+
+def _check_barcode_yield(demux_stats: dict) -> Optional[dict]:
+    """Flag a run where reads aligned but almost none carried a barcode.
+
+    Dorado finds a barcode by the mask sequences flanking it, so masks built
+    for a different backbone classify nothing while alignment still succeeds.
+    That combination looks like a finished run with empty wells rather than a
+    misconfiguration, so it is called out explicitly.
+
+    Args:
+        demux_stats: The ``demux`` entry of the pipeline stats.
+
+    Returns:
+        Dict with ``headline``, ``detail`` and ``severity`` when the yield is
+        suspect, otherwise None.
+    """
+    total = demux_stats.get("ref_assigned", 0) or demux_stats.get("union_reads", 0)
+    if not total:
+        return None
+
+    fbc = demux_stats.get("fbc_classified", 0)
+    rbc = demux_stats.get("rbc_classified", 0)
+    worst = min(fbc, rbc) / total
+    if worst >= BARCODE_YIELD_POOR:
+        return None
+
+    severity = "critical" if worst < BARCODE_YIELD_CRITICAL else "low"
+    headline = (
+        f"Barcode classification is {'near zero' if severity == 'critical' else 'low'}: "
+        f"{fbc:,} forward and {rbc:,} reverse of {total:,} aligned reads"
+    )
+    detail = (
+        "Reads aligned to the reference, so they are the right molecules — "
+        "Dorado just could not find the barcodes in them. That almost always "
+        "means the mask sequences do not match this construct's backbone. "
+        "Run `usortm masks derive <project>` to read the real flanking "
+        "sequences off these reads."
+    )
+    return {"headline": headline, "detail": detail, "severity": severity,
+            "fbc_frac": fbc / total, "rbc_frac": rbc / total}
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -346,6 +391,12 @@ def run_levseq_pipeline(
         "ref_assigned": read_df.attrs.get("ref_assigned", 0),
         "union_reads": len(read_df),
     }
+
+    barcode_warning = _check_barcode_yield(pipeline_stats["demux"])
+    if barcode_warning:
+        pipeline_stats["barcode_warning"] = barcode_warning
+        _progress(barcode_warning["headline"])
+        logger.warning(barcode_warning["headline"])
 
     # --- Stage 7: Map barcodes to well positions ---
     _progress("Mapping barcodes to well positions...")
@@ -796,4 +847,6 @@ def _translate_to_cli_format(
         result["read_len_hist"] = stats["read_len_hist"]
     if "streakout" in stats:
         result["streakout"] = stats["streakout"]
+    if "barcode_warning" in stats:
+        result["barcode_warning"] = stats["barcode_warning"]
     return result

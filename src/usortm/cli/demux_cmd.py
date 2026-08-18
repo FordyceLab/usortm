@@ -132,7 +132,8 @@ def demux(
             "Barcode mask config: a preset name (see 'usortm config list') "
             "or path to a TOML file with [fbc] mask sequences. "
             "RBC masks are auto-derived if omitted. "
-            "Defaults to cutinase backbone masks."
+            "Masks are backbone-specific; derive them for your construct with "
+            "'usortm masks derive'."
         ),
     ),
     reads_per_well: int = typer.Option(
@@ -601,6 +602,33 @@ def demux(
             console.print()
 
     round_flag = f" --round {round_num}" if round_num > 1 else ""
+
+    # A run whose reads aligned but carried no findable barcode produces empty
+    # wells, not an error, so say plainly that the output is not usable rather
+    # than reporting success over the top of it.
+    warning = results.get("barcode_warning")
+    if warning:
+        console.print()
+        console.print(Panel(
+            f"[bold]{warning['headline']}[/bold]\n\n{warning['detail']}",
+            title="[red]Barcodes were not found[/red]"
+            if warning["severity"] == "critical"
+            else "[yellow]Few barcodes found[/yellow]",
+            border_style="red" if warning["severity"] == "critical" else "yellow",
+        ))
+        console.print()
+        console.print(
+            f"  [cyan]usortm masks derive {project_dir}/{round_flag}[/cyan]  "
+            "\u2192 read the real mask sequences off these reads"
+        )
+        console.print()
+        if warning["severity"] == "critical":
+            console.print(
+                f"[red]\u2717[/red] Demultiplexing produced no usable wells. "
+                f"Partial output is in {demux_output}/"
+            )
+            raise typer.Exit(1)
+
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
     console.print()
