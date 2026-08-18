@@ -364,7 +364,58 @@ def test_demux_uses_project_plate_map_when_present(tmp_path):
 
     assert result.exit_code == 0, result.stdout
     assert run_demux.call_count == 2
-    assert "Using project plate map" in result.stdout
+    assert "Found a saved plate map" in result.stdout
+
+
+def test_demux_records_the_sort_plate_count_it_used(tmp_path):
+    """The planned n_plates comes from library size, not what was sorted, so
+    the run writes back what the plate map actually covers."""
+    project_dir, cfg, reference = _plate_map_project(tmp_path, n_plates=1)
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        side_effect=_fake_run_demux({"run1": [1, 2, 3, 4, 5, 6],
+                                     "run2": [7, 8, 9, 10]}),
+    ), patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--plate-map", str(cfg),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    state = json.loads((project_dir / "usortm_project.json").read_text())
+    assert state["n_plates"] == 10
+    assert "Updated sort plate count" in result.stdout
+
+
+def test_demux_leaves_a_matching_plate_count_alone(tmp_path):
+    """Nothing to correct, so no update is reported. The state file is still
+    rewritten at the end of the run to record the demux step, so compare the
+    value rather than the file."""
+    project_dir, cfg, reference = _plate_map_project(tmp_path, n_plates=10)
+
+    with patch(
+        "usortm.cli.demux_cmd._run_demux",
+        side_effect=_fake_run_demux({"run1": [1, 2, 3, 4, 5, 6],
+                                     "run2": [7, 8, 9, 10]}),
+    ), patch(
+        "usortm.cli.demux_cmd.check_all_dependencies",
+        return_value={"dorado": "d", "minimap2": "m", "samtools": "s"},
+    ):
+        result = runner.invoke(app, [
+            "demux", str(project_dir),
+            "--plate-map", str(cfg),
+            "--reference", str(reference),
+        ])
+
+    assert result.exit_code == 0, result.stdout
+    state = json.loads((project_dir / "usortm_project.json").read_text())
+    assert state["n_plates"] == 10
+    assert "Updated sort plate count" not in result.stdout
 
 
 def test_demux_rejects_an_invalid_plate_map(tmp_path):

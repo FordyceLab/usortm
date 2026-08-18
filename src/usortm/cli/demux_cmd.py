@@ -341,6 +341,21 @@ def demux(
     )
     single_plain_run = len(segments) == 1 and _is_identity_map(segments[0].plates)
 
+    # Record what the run actually covers, which may differ from the planned
+    # figure.  Barcode generation reads n_plates, so a stale value would send
+    # a later round looking for the wrong reverse barcodes.
+    from usortm.demux.plate_map import total_sort_plates
+
+    if round_num > 1:
+        _persist_sort_plate_count(
+            round_state_file, round_state, total_sort_plates(segments)
+        )
+    else:
+        _persist_sort_plate_count(
+            state_file, project, total_sort_plates(segments)
+        )
+        effective_params = project
+
     per_segment = []
     with Progress(
         SpinnerColumn(),
@@ -897,26 +912,138 @@ def _prompt_sort_plate_count(n_plates: int) -> Optional[int]:
     return int(answer.strip()) if answer else None
 
 
-def _prompt_segment_plates(label: str, suggestion: str = "") -> Optional[dict]:
-    """Ask for one FASTQ's barcode:sort plate pairs, re-asking on error."""
-    import questionary
+def _parse_plate_list(text: str) -> list:
+    """Parse ``'1-6'``, ``'7,8,9,10'`` or ``'1-4,9'`` into a list of ints.
+
+    Order is preserved and duplicates are rejected, because the list is later
+    matched position-by-position against the barcode plates.
+
+    Raises:
+        PlateMapError: On unparseable text, a reversed range, or a repeat.
+    """
     from usortm.demux.plate_map import PlateMapError
+
+    plates: list = []
+    for chunk in text.replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "-" in chunk.lstrip("-"):
+            lo_s, _, hi_s = chunk.partition("-")
+            try:
+                lo, hi = int(lo_s.strip()), int(hi_s.strip())
+            except ValueError:
+                raise PlateMapError(f"'{chunk}' is not a plate range.") from None
+            if hi < lo:
+                raise PlateMapError(f"'{chunk}' runs backwards.")
+            plates.extend(range(lo, hi + 1))
+        else:
+            try:
+                plates.append(int(chunk))
+            except ValueError:
+                raise PlateMapError(f"'{chunk}' is not a plate number.") from None
+
+    if not plates:
+        raise PlateMapError("No plates given.")
+    dupes = sorted({p for p in plates if plates.count(p) > 1})
+    if dupes:
+        raise PlateMapError(f"Plate(s) {dupes} listed more than once.")
+    return plates
+
+
+def _parse_barcode_assignment(text: str, sort_plates: list) -> dict:
+    """Turn a barcode-plate answer into ``{barcode_plate: sort_plate}``.
+
+    Accepts a list positionally matched to *sort_plates* (``"7,8,1,2"``), or
+    explicit pairs when the correspondence is easier to state directly
+    (``"7:7, 8:8, 1:9, 2:10"``).
+
+    Raises:
+        PlateMapError: If the list length does not match, or validation fails.
+    """
+    from usortm.demux.plate_map import PlateMapError, parse_plate_map
+
+    if ":" in text or "=" in text:
+        plates = _parse_plate_pairs(text)
+        missing = sorted(set(sort_plates) - set(plates.values()))
+        if missing:
+            raise PlateMapError(
+                f"No barcode plate given for sort plate(s) {missing}."
+            )
+        return plates
+
+    barcodes = _parse_plate_list(text)
+    if len(barcodes) != len(sort_plates):
+        raise PlateMapError(
+            f"Got {len(barcodes)} barcode plate(s) for {len(sort_plates)} sort "
+            f"plate(s) ({', '.join(str(p) for p in sort_plates)}) — the lists "
+            "must line up, or use 'barcode:sort' pairs instead."
+        )
+    doc = {"fastq": [{"path": "x", "plates": dict(zip(
+        (str(b) for b in barcodes), sort_plates))}]}
+    return parse_plate_map(doc)[0].plates
+
+
+def _prompt_segment_plates(label: str, n_sort: int) -> Optional[dict]:
+    """Ask which sort plates a FASTQ holds, then which barcode plates carried
+    them.
+
+    Two questions rather than one: the sort plates are what was physically
+    loaded, and the barcode plates are how they were tagged.  Asking for
+    ``barcode:sort`` pairs up front means holding both in mind at once.
+
+    Args:
+        label: FASTQ name, shown in the questions.
+        n_sort: Total sort plates in the run, used to suggest a default.
+
+    Returns:
+        ``{barcode_plate: sort_plate}``, or None if cancelled.
+    """
+    import questionary
+    from usortm.demux.plate_map import MAX_BARCODE_PLATES, PlateMapError
 
     while True:
         try:
-            text = questionary.text(
-                f"  {label} — barcode:sort plate pairs:",
-                default=suggestion,
+            sort_text = questionary.text(
+                f"  {label} — which sort plates does it cover? "
+                f"(e.g. '1-6' or '7,8,9,10')"
             ).ask()
         except KeyboardInterrupt:
             return None
-        if text is None:
+        if sort_text is None:
             return None
-        if not text.strip():
-            console.print("  [yellow]Enter at least one pair, e.g. 1:9[/yellow]")
+        if not sort_text.strip():
+            console.print("  [yellow]Enter at least one plate.[/yellow]")
             continue
         try:
-            return _parse_plate_pairs(text)
+            sort_plates = _parse_plate_list(sort_text)
+            break
+        except PlateMapError as exc:
+            console.print(f"  [red]{exc}[/red]")
+
+    # When the sort plates all fit the kit, tagging them with the barcode
+    # plates of the same number is the usual arrangement, so offer it.
+    default = ""
+    if all(p <= MAX_BARCODE_PLATES for p in sort_plates):
+        default = ", ".join(str(p) for p in sort_plates)
+
+    listed = ", ".join(str(p) for p in sort_plates)
+    while True:
+        try:
+            bc_text = questionary.text(
+                f"  {label} — which barcode plate carried sort plate "
+                f"{listed}, in that order?",
+                default=default,
+            ).ask()
+        except KeyboardInterrupt:
+            return None
+        if bc_text is None:
+            return None
+        if not bc_text.strip():
+            console.print("  [yellow]Enter a barcode plate for each.[/yellow]")
+            continue
+        try:
+            return _parse_barcode_assignment(bc_text, sort_plates)
         except PlateMapError as exc:
             console.print(f"  [red]{exc}[/red]")
 
@@ -1028,7 +1155,7 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
                 console.print(f"  [red]{path} does not exist.[/red]")
                 continue
 
-        plates = _prompt_segment_plates(path.name)
+        plates = _prompt_segment_plates(path.name, n_sort)
         if plates is None:
             return None
 
@@ -1102,6 +1229,64 @@ def _parse_plate_pairs(text: str) -> dict:
     return parse_plate_map(doc)[0].plates
 
 
+def _confirm_saved_plate_map() -> bool:
+    """Ask whether a saved plate map still describes this run.
+
+    Answers yes without asking when there is no terminal, so scripted and
+    remote runs keep working unattended.
+    """
+    import sys
+
+    if not sys.stdin.isatty():
+        return True
+
+    import questionary
+
+    try:
+        answer = questionary.confirm(
+            "Is this mapping still correct for this run?", default=True
+        ).ask()
+    except KeyboardInterrupt:
+        return True
+    return True if answer is None else bool(answer)
+
+
+def _persist_sort_plate_count(state_path: Path, state: dict, n_sort: int) -> bool:
+    """Record the sort plate count the run actually used.
+
+    The planned figure comes from library size and fold-sampling, which is not
+    always what was sorted.  Writing back what the plate map covers keeps
+    later stages — barcode generation for a re-order round, in particular —
+    working from the real number.
+
+    Args:
+        state_path: Path to the JSON state file.
+        state: Parsed state, mutated in place.
+        n_sort: Sort plate count the resolved plate map covers.
+
+    Returns:
+        True if the file was rewritten.
+    """
+    if n_sort <= 0 or state.get("n_plates") == n_sort:
+        return False
+    previous = state.get("n_plates")
+    state["n_plates"] = n_sort
+    try:
+        with open(state_path, "w") as fh:
+            json.dump(state, fh, indent=2)
+    except OSError as exc:
+        console.print(
+            f"[yellow]Warning:[/yellow] could not update n_plates in "
+            f"{state_path}: {exc}"
+        )
+        return False
+    console.print(
+        f"[green]✓[/green] Updated sort plate count in {state_path.name}: "
+        f"{previous} → {n_sort}"
+    )
+    return True
+
+
 def _resolve_plate_map(
     plate_map_file: Optional[Path],
     project_dir: Path,
@@ -1138,8 +1323,16 @@ def _resolve_plate_map(
         except PlateMapError as exc:
             console.print(f"[red]Error:[/red] {exc}")
             raise typer.Exit(1)
-        console.print(f"[green]✓[/green] Using project plate map ({default_map})")
+        console.print(f"[green]✓[/green] Found a saved plate map ({default_map})")
         _describe_segments(segments)
+        # A saved map is an answer from a previous run, and the next run may
+        # load different plates.  Offer to redo it rather than silently
+        # assigning this run's reads by last run's layout.
+        if not _confirm_saved_plate_map():
+            redone = _prompt_plate_map(fastq, n_plates, project_dir)
+            if redone:
+                return redone
+            console.print("[muted]Keeping the saved plate map.[/muted]")
         return segments
 
     prompted = _prompt_plate_map(fastq, n_plates, project_dir)

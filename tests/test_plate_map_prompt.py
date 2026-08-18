@@ -1,16 +1,17 @@
 """Tests for the interactive plate-map prompt.
 
-The prompt runs whenever no plate map was supplied.  It confirms the sort
-plate count first, then the mapping, because the count is what decides
-whether barcode plates have to be reused at all.
+The prompt runs whenever no plate map was supplied.  It establishes the sort
+plate count, then for each FASTQ asks two things in the order the experiment
+happened: which sort plates that file holds, and which barcode plates carried
+them.
 
 questionary needs a real terminal, so its answers are scripted here — the
-branching is the part that carries risk, not the widget drawing.
+branching and parsing carry the risk, not the widget drawing.
 """
 
 import pytest
 
-from usortm.demux.plate_map import load_plate_map
+from usortm.demux.plate_map import PlateMapError, load_plate_map
 
 
 class _Scripted:
@@ -74,6 +75,80 @@ def run_dir(tmp_path):
     return d
 
 
+# ---------------------------------------------------------------------------
+# Answer parsing
+# ---------------------------------------------------------------------------
+
+class TestPlateListParsing:
+
+    def _parse(self, text):
+        from usortm.cli.demux_cmd import _parse_plate_list
+        return _parse_plate_list(text)
+
+    def test_range(self):
+        assert self._parse("1-6") == [1, 2, 3, 4, 5, 6]
+
+    def test_comma_list(self):
+        assert self._parse("7,8,9,10") == [7, 8, 9, 10]
+
+    def test_mixed_range_and_list(self):
+        assert self._parse("1-4, 9") == [1, 2, 3, 4, 9]
+
+    def test_order_is_preserved(self):
+        """The list is matched positionally against barcode plates."""
+        assert self._parse("9,7,8") == [9, 7, 8]
+
+    def test_whitespace_and_semicolons(self):
+        assert self._parse(" 1 ; 2 , 3 ") == [1, 2, 3]
+
+    def test_duplicates_rejected(self):
+        with pytest.raises(PlateMapError, match="more than once"):
+            self._parse("1,2,2")
+
+    def test_backwards_range_rejected(self):
+        with pytest.raises(PlateMapError, match="backwards"):
+            self._parse("6-1")
+
+    def test_garbage_rejected(self):
+        with pytest.raises(PlateMapError, match="not a plate number"):
+            self._parse("one,two")
+
+
+class TestBarcodeAssignment:
+
+    def _assign(self, text, sort_plates):
+        from usortm.cli.demux_cmd import _parse_barcode_assignment
+        return _parse_barcode_assignment(text, sort_plates)
+
+    def test_positional_list(self):
+        """'7,8,1,2' against sort plates 7,8,9,10 reuses barcode 1 and 2."""
+        assert self._assign("7,8,1,2", [7, 8, 9, 10]) == {7: 7, 8: 8, 1: 9, 2: 10}
+
+    def test_identity(self):
+        assert self._assign("1,2,3", [1, 2, 3]) == {1: 1, 2: 2, 3: 3}
+
+    def test_explicit_pairs_still_accepted(self):
+        assert self._assign("7:7, 8:8, 1:9, 2:10", [7, 8, 9, 10]) == {
+            7: 7, 8: 8, 1: 9, 2: 10
+        }
+
+    def test_length_mismatch_names_the_counts(self):
+        with pytest.raises(PlateMapError, match="3 barcode plate"):
+            self._assign("1,2,3", [1, 2, 3, 4])
+
+    def test_pairs_missing_a_sort_plate_rejected(self):
+        with pytest.raises(PlateMapError, match="No barcode plate"):
+            self._assign("7:7, 8:8", [7, 8, 9, 10])
+
+    def test_barcode_plate_beyond_the_kit_rejected(self):
+        with pytest.raises(PlateMapError, match="out of range"):
+            self._assign("9,10", [1, 2])
+
+
+# ---------------------------------------------------------------------------
+# Prompt flow
+# ---------------------------------------------------------------------------
+
 class TestPromptFlow:
 
     def test_non_interactive_shell_does_not_prompt(self, monkeypatch, single_fastq,
@@ -111,15 +186,13 @@ class TestPromptFlow:
         assert segments[0].path == run_dir
         assert segments[0].plates == {i: i for i in range(1, 7)}
 
-    def test_directory_from_separate_runs_maps_each_file(
+    def test_each_fastq_is_asked_sort_plates_then_barcode_plates(
         self, monkeypatch, run_dir, tmp_path
     ):
-        """Answering 'no' to the one-run question maps the files separately,
-        which is what stops two layouts being concatenated together."""
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
-            text=["6", "1:1, 2:2, 3:3", "4:4, 5:5, 6:6"],
-            confirm=[False, False],  # not one run; then decline saving
+            text=["6", "1-3", "1,2,3", "4-6", "4,5,6"],
+            confirm=[False, False],   # not one run; then decline saving
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 6, tmp_path)
@@ -129,43 +202,46 @@ class TestPromptFlow:
             {4: 4, 5: 5, 6: 6},
         ]
 
-    def test_more_sort_plates_than_barcode_plates_maps_per_fastq(
+    def test_reused_barcode_plates_across_fastqs(
         self, monkeypatch, run_dir, tmp_path
     ):
-        """The motivating case: ten sort plates, so reuse is unavoidable and
-        the single-segment shortcut is never offered."""
+        """The motivating case: ten sort plates, so barcode plates 1 and 2 are
+        used twice and the one-to-one shortcut is never offered."""
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
-            text=["10", "1:1, 2:2, 3:3, 4:4, 5:5, 6:6", "7:7, 8:8, 1:9, 2:10"],
-            confirm=[False],  # only the save question is asked
+            text=["10", "1-6", "1,2,3,4,5,6", "7-10", "7,8,1,2"],
+            confirm=[False],          # only the save question is asked
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)
 
         assert len(segments) == 2
         assert script.asked["confirm"] == 1
+        assert segments[0].plates == {i: i for i in range(1, 7)}
+        assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
         covered = sorted(p for s in segments for p in s.sort_plates)
         assert covered == list(range(1, 11))
-        assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
 
-    def test_bad_pairs_are_re_asked(self, monkeypatch, run_dir, tmp_path):
+    def test_bad_answers_are_re_asked(self, monkeypatch, run_dir, tmp_path):
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
-            text=["10", "not-pairs", "1:1, 2:2, 3:3, 4:4, 5:5, 6:6",
-                  "7:7, 8:8, 1:9, 2:10"],
+            text=["10",
+                  "not-plates", "1-6", "1,2,3,4,5,6",   # bad sort list, retried
+                  "7-10", "1,2", "7,8,1,2"],            # wrong length, retried
             confirm=[False],
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)
 
         assert len(segments) == 2
+        assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
         assert not script.text, "every scripted answer should have been consumed"
 
     def test_saved_config_is_reusable(self, monkeypatch, run_dir, tmp_path):
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
-            text=["10", "1:1, 2:2, 3:3, 4:4, 5:5, 6:6", "7:7, 8:8, 1:9, 2:10"],
-            confirm=[True],  # save it
+            text=["10", "1-6", "1,2,3,4,5,6", "7-10", "7,8,1,2"],
+            confirm=[True],           # save it
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)
@@ -180,3 +256,59 @@ class TestPromptFlow:
                                                tmp_path):
         assert _prompt(monkeypatch, _Scripted(text=[None]), single_fastq, 6,
                        tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# Re-confirming a saved mapping
+# ---------------------------------------------------------------------------
+
+class TestSavedMapConfirmation:
+    """A saved plate map is last run's answer; this run may load different
+    plates, so it is offered for review rather than applied silently."""
+
+    def _resolve(self, monkeypatch, script, project_dir, fastq, n_plates=10):
+        from usortm.cli.demux_cmd import _resolve_plate_map
+
+        script.install(monkeypatch)
+        return _resolve_plate_map(None, project_dir, fastq, n_plates)
+
+    @pytest.fixture
+    def saved(self, tmp_path, run_dir):
+        from usortm.demux.plate_map import Segment, write_plate_map
+
+        files = sorted(run_dir.glob("*.fastq"))
+        write_plate_map(
+            [Segment(name="run1", path=files[0], plates={i: i for i in range(1, 7)}),
+             Segment(name="run2", path=files[1], plates={7: 7, 8: 8, 1: 9, 2: 10})],
+            tmp_path / "plate_map.toml",
+        )
+        return tmp_path
+
+    def test_confirming_keeps_the_saved_map(self, monkeypatch, saved, run_dir):
+        script = _Scripted(confirm=[True])
+        segments = self._resolve(monkeypatch, script, saved, run_dir)
+
+        assert [s.name for s in segments] == ["run1", "run2"]
+        assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
+
+    def test_declining_re_prompts(self, monkeypatch, saved, run_dir):
+        files = sorted(run_dir.glob("*.fastq"))
+        script = _Scripted(
+            text=["4", "1-2", "1,2", "3-4", "3,4"],
+            confirm=[False, False, False],   # not still correct; not one run; no save
+            select=[files[0], files[1]],
+        )
+        segments = self._resolve(monkeypatch, script, saved, run_dir, n_plates=4)
+
+        covered = sorted(p for s in segments for p in s.sort_plates)
+        assert covered == [1, 2, 3, 4]
+
+    def test_non_interactive_uses_the_saved_map_without_asking(
+        self, monkeypatch, saved, run_dir
+    ):
+        """Scripted and remote runs must not block on a question."""
+        from usortm.cli.demux_cmd import _resolve_plate_map
+
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        segments = _resolve_plate_map(None, saved, run_dir, 10)
+        assert [s.name for s in segments] == ["run1", "run2"]
