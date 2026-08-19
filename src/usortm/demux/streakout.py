@@ -1171,6 +1171,94 @@ def _clear_stale_pileups(pileup_dir: str, keep=None) -> int:
     return removed
 
 
+def _pick_pileup_worker(task: dict) -> bool:
+    """Build and write one picked well's pileup page.
+
+    Defined at module level and given only picklable arguments so it can run
+    in another process.  Building a grid is better than three quarters Python
+    -- one tuple per reference position per read -- so threads serialise it on
+    the interpreter lock and more of them buy almost nothing.  Processes do
+    not share that lock.
+
+    Returns whether a page was written.
+    """
+    from usortm.demux.utils import load_well_reads
+
+    well_pos = task["well_pos"]
+    records = task.get("reads_records")
+    if records is not None:
+        well_reads = pd.DataFrame(records)
+    else:
+        well_reads = load_well_reads(task["well_fastqs_dir"], well_pos)
+
+    if well_reads is None or well_reads.empty:
+        logger.debug("No reads found for well %s", well_pos)
+        return False
+
+    fname = f"well_{task['source_plate']}_{task['source_well']}.html"
+    out_path = os.path.join(task["pileup_dir"], fname)
+    result = _generate_one_pick_pileup(
+        well_pos=well_pos,
+        source_plate=task["source_plate"],
+        source_well=task["source_well"],
+        variant=task["variant"],
+        reads=task["reads"],
+        consensus_fraction=task["consensus_fraction"],
+        cons_check=task.get("cons_check", ""),
+        well_reads=well_reads,
+        single_ref_dir=task["single_ref_dir"],
+        output_path=out_path,
+        minimap2_path=task["minimap2_path"],
+        samtools_path=task["samtools_path"],
+        ref_index=task["ref_index"],
+        flank_5p_len=task["flank_5p_len"],
+        flank_3p_len=task["flank_3p_len"],
+    )
+    return result is not None
+
+
+def _map_pileup_tasks(tasks: list, workers: int):
+    """Run *tasks* across processes, yielding ``(succeeded, task)`` as they land.
+
+    Falls back to threads where a process pool cannot start -- a frozen build,
+    a sandbox without shared memory -- so the stage still completes, just
+    without the speedup.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    if len(tasks) < 2 or workers < 2:
+        for task in tasks:
+            try:
+                yield _pick_pileup_worker(task), task
+            except Exception as exc:
+                logger.warning("Pick pileup failed for %s: %s",
+                               task["well_pos"], exc)
+                yield False, task
+        return
+
+    for pool_cls in (ProcessPoolExecutor, ThreadPoolExecutor):
+        try:
+            with pool_cls(max_workers=workers) as pool:
+                futures = {pool.submit(_pick_pileup_worker, t): t
+                           for t in tasks}
+                for fut in as_completed(futures):
+                    task = futures[fut]
+                    try:
+                        yield fut.result(), task
+                    except Exception as exc:
+                        logger.warning("Pick pileup failed for %s: %s",
+                                       task["well_pos"], exc)
+                        yield False, task
+            return
+        except Exception as exc:
+            if pool_cls is ThreadPoolExecutor:
+                raise
+            logger.warning(
+                "Could not run pileups across processes (%s); falling back to "
+                "threads, which will be slower", exc,
+            )
+
+
 def generate_pick_pileups(
     pick_list: list,
     demux_output_dir: str,
@@ -1290,24 +1378,21 @@ def generate_pick_pileups(
     # sequence — that lives in the per-well FASTQs, so pull the reads for the
     # picked wells from there.  Older demux outputs kept the sequences in the
     # CSV, so those are still used when present.
+    well_fastqs_dir = os.path.join(demux_output_dir, "wells", "fastqs")
     if has_sequences:
         read_df["well_pos"] = read_df["well_pos"].astype(str)
-        well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
-    else:
-        from usortm.demux.utils import load_well_reads
-
-        well_fastqs_dir = os.path.join(demux_output_dir, "wells", "fastqs")
+        grouped = {wp: grp for wp, grp in read_df.groupby("well_pos")}
+        # Records rather than frames: each well's reads cross a process
+        # boundary, and only the picked wells' reads need to.
         well_reads_map = {
-            t["well_pos"]: load_well_reads(well_fastqs_dir, t["well_pos"])
-            for t in tasks
+            t["well_pos"]: grouped[t["well_pos"]].to_dict("records")
+            for t in tasks if t["well_pos"] in grouped
         }
-        missing = [w for w, df in well_reads_map.items() if df.empty]
-        if missing:
-            logger.warning(
-                "generate_pick_pileups: no per-well FASTQ for %d well(s), "
-                "e.g. %s — pileups for those will be skipped",
-                len(missing), ", ".join(missing[:5]),
-            )
+    else:
+        # Left to the workers, which load only their own well.  Loading every
+        # picked well here would hold them all in one process, and do it on
+        # one core.
+        well_reads_map = None
 
     # Pre-build minimap2 .mmi indexes per unique variant (avoids re-indexing per well)
     unique_variants = {t["variant"] for t in tasks}
@@ -1331,53 +1416,32 @@ def generate_pick_pileups(
     # Result: target_plate → {target_well → relative pileup URL}
     url_map: dict[str, dict[str, str]] = {}
 
-    def _run(task: dict):
-        well_pos = task["well_pos"]
-        well_reads = well_reads_map.get(well_pos, pd.DataFrame())
-        if well_reads.empty:
-            logger.debug("No reads found for well %s in read_df", well_pos)
-            return None, task
-
-        fname = f"well_{task['source_plate']}_{task['source_well']}.html"
-        out_path = os.path.join(pileup_dir, fname)
-        result = _generate_one_pick_pileup(
-            well_pos=well_pos,
-            source_plate=task["source_plate"],
-            source_well=task["source_well"],
-            variant=task["variant"],
-            reads=task["reads"],
-            consensus_fraction=task["consensus_fraction"],
-            cons_check=task.get("cons_check", ""),
-            well_reads=well_reads,
+    # Everything a worker needs, packed per task so it can be sent to another
+    # process.  The grid itself never comes back: each worker writes its own
+    # page and returns only whether it managed to.
+    for task in tasks:
+        task.update(
+            reads_records=(well_reads_map or {}).get(task["well_pos"]),
+            well_fastqs_dir=None if has_sequences else well_fastqs_dir,
             single_ref_dir=single_ref_dir,
-            output_path=out_path,
+            pileup_dir=pileup_dir,
             minimap2_path=minimap2_path,
             samtools_path=samtools_path,
             ref_index=variant_mmi.get(task["variant"]),
             flank_5p_len=flank_5p_len,
             flank_3p_len=flank_3p_len,
         )
-        return result, task
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_run, t): t for t in tasks}
-        for fut in as_completed(futures):
-            try:
-                result, task = fut.result()
-            except Exception as exc:
-                logger.warning("Pick pileup failed for %s: %s", futures[fut]["well_pos"], exc)
-                if progress_callback:
-                    progress_callback(futures[fut]["well_pos"], success=False)
-                continue
-            if progress_callback:
-                progress_callback(task["well_pos"], success=result is not None)
-            if result is None:
-                continue
-            tp = task["target_plate"]
-            tw = task["target_well"]
-            if tp and tw:
-                rel_url = f"pileup/well_{task['source_plate']}_{task['source_well']}.html"
-                url_map.setdefault(tp, {})[tw] = rel_url
+    for ok, task in _map_pileup_tasks(tasks, workers):
+        if progress_callback:
+            progress_callback(task["well_pos"], success=ok)
+        if not ok:
+            continue
+        tp = task["target_plate"]
+        tw = task["target_well"]
+        if tp and tw:
+            rel_url = f"pileup/well_{task['source_plate']}_{task['source_well']}.html"
+            url_map.setdefault(tp, {})[tw] = rel_url
 
     # Clean up pre-built indexes
     import shutil
