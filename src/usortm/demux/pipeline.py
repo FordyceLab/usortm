@@ -173,6 +173,21 @@ def _check_barcode_yield(demux_stats: dict) -> Optional[dict]:
             "fbc_frac": fbc / total, "rbc_frac": rbc / total}
 
 
+def _wells_per_plate(well_df) -> dict:
+    """Count wells per plate for the live dashboard.
+
+    Returns an empty dict rather than raising: this feeds a display, and a
+    malformed well table must not stop the run.
+    """
+    if well_df is None or len(well_df) == 0 or "plate" not in well_df.columns:
+        return {}
+    try:
+        return {str(int(p)): int(n)
+                for p, n in well_df["plate"].value_counts().items()}
+    except (TypeError, ValueError):
+        return {}
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -189,6 +204,7 @@ def run_levseq_pipeline(
     vector_fasta: Optional[Path] = None,
     reads_per_well: int = 20,
     plate_map: Optional[dict] = None,
+    live_label: Optional[str] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -238,6 +254,12 @@ def run_levseq_pipeline(
     # status lines off the terminal so they do not interleave with it.
     utils.set_console_quiet(progress_callback is not None)
 
+    # A dashboard that fills in as the run establishes each figure, so a
+    # multi-hour run is inspectable before it ends.
+    from usortm.demux.live import LiveReport
+
+    live = LiveReport(output_dir, label=live_label or "")
+
     def _progress(msg: str):
         """Report progress if a callback was provided."""
         logger.info(msg)
@@ -249,6 +271,7 @@ def run_levseq_pipeline(
     tool_paths = check_all_dependencies()
 
     # --- Stage 2: Generate Dorado barcode config files ---
+    live.set_stage("config")
     _progress("Generating barcode config files...")
     config_dir = output_dir / "dorado_config"
     if plate_map:
@@ -280,6 +303,7 @@ def run_levseq_pipeline(
         logger.info("Subsampled %d reads to %s", n_extracted, sub_path)
 
     # --- Read length histogram (also provides read count) ---
+    live.set_stage("hist")
     _progress("Computing read length histogram...")
     read_len_hist = _compute_read_length_hist(str(fastq))
     if read_len_hist:
@@ -287,6 +311,7 @@ def run_levseq_pipeline(
         if "input_reads" not in pipeline_stats:
             pipeline_stats["input_reads"] = read_len_hist.get("n_reads", 0)
     input_reads = pipeline_stats.get("input_reads", 0)
+    live.update(input_reads=input_reads)
 
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
@@ -350,6 +375,7 @@ def run_levseq_pipeline(
             total_reads=input_reads,
         )
         pipeline_stats["align"] = align_stats
+        live.update(aligned=align_stats.get("mapped"))
         _progress("Strand split complete.")
 
     # --- Stages 4 and 5: Dorado barcode demux (on oriented reads) ---
@@ -387,6 +413,7 @@ def run_levseq_pipeline(
     )
 
     # --- Stage 6: Build read DataFrame ---
+    live.set_stage("readdf")
     _progress("Assembling read DataFrame...")
     read_df = utils.create_read_df(
         base_dir=str(output_dir),
@@ -400,13 +427,17 @@ def run_levseq_pipeline(
         "union_reads": len(read_df),
     }
 
+    live.update(fbc=pipeline_stats["demux"]["fbc_classified"],
+                rbc=pipeline_stats["demux"]["rbc_classified"])
     barcode_warning = _check_barcode_yield(pipeline_stats["demux"])
     if barcode_warning:
         pipeline_stats["barcode_warning"] = barcode_warning
+        live.update(warning=barcode_warning)
         _progress(barcode_warning["headline"])
         logger.warning(barcode_warning["headline"])
 
     # --- Stage 7: Map barcodes to well positions ---
+    live.set_stage("wells")
     _progress("Mapping barcodes to well positions...")
     fbc_df, rbc_df = _build_barcode_name_dfs(n_fbc=96, n_rbc=n_rbc)
     pre_filter = len(read_df)
@@ -424,6 +455,7 @@ def run_levseq_pipeline(
     # --- Stage 8: Per-well summary ---
     _progress("Generating per-well summary...")
     well_df = utils.generate_well_df(read_df)
+    live.update(wells=len(well_df), plates=_wells_per_plate(well_df))
 
     # --- Stage 9: Per-well consensus ---
     if reference is not None:
@@ -537,6 +569,7 @@ def run_levseq_pipeline(
             )
 
         # --- Stage 10: Variant calling ---
+        live.set_stage("variants")
         _progress("Calling variants from consensus...")
         if vector_fasta is not None and flank_5p is not None:
             consensus_dir = str(output_dir / "wells" / "consensus")
@@ -551,6 +584,7 @@ def run_levseq_pipeline(
             well_df = utils.extract_matches(well_df)
 
         # --- Stage 10.5: Streak-out candidate detection ---
+        live.set_stage("streakout")
         _progress("Screening for streak-out candidates...")
         from usortm.demux.streakout import (
             detect_streakout_candidates,
@@ -604,6 +638,7 @@ def run_levseq_pipeline(
         )
         pipeline_stats["consensus_hotspots"] = hotspots
 
+    live.set_stage("done")
     _progress("Finalizing results...")
 
     # Save intermediate DataFrames for debugging / power users

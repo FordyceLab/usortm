@@ -472,6 +472,14 @@ def demux(
             console.print(f"[green]\u2713[/green] {segment.name}: {segment.path}")
     console.print()
 
+    live_page = (demux_output if single_plain_run
+                 else demux_output / "segments" / segments[0].name) / "live.html"
+    console.print(
+        f"[muted]Live dashboard: {live_page}[/muted]\n"
+        "[muted]  Open it in a browser to watch the run fill in.[/muted]"
+    )
+    console.print()
+
     per_segment = []
     with Progress(
         SpinnerColumn(),
@@ -512,6 +520,7 @@ def demux(
                 vector_fasta=vector_fasta,
                 reads_per_well=reads_per_well,
                 plate_map=None if single_plain_run else segment.plates,
+                live_label=None if single_plain_run else segment.name,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -1709,6 +1718,7 @@ def _run_demux(
     vector_fasta: Optional[Path] = None,
     reads_per_well: int = 20,
     plate_map: Optional[dict] = None,
+    live_label: Optional[str] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1762,6 +1772,7 @@ def _run_demux(
             vector_fasta=vector_fasta,
             reads_per_well=reads_per_well,
             plate_map=plate_map,
+            live_label=live_label,
         )
     else:
         raise NotImplementedError(
