@@ -49,6 +49,10 @@ demux = [
     "bionumpy>=1.0",
     "pysam>=0.20",
     "tqdm>=4.60",
+    # Read-pileup rendering, extracted from this package. Its own extras pull
+    # pysam for reading alignments; minimap2 and samtools come from the demux
+    # toolchain, which the pileup paths already require.
+    "seqviewer[align] @ git+https://github.com/micah-olivas/seqviewer@master",
 ]
 remote = [
     "fabric>=3.0",
