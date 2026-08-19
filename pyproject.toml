@@ -52,7 +52,11 @@ demux = [
     # Read-pileup rendering, extracted from this package. Its own extras pull
     # pysam for reading alignments; minimap2 and samtools come from the demux
     # toolchain, which the pileup paths already require.
-    "seqviewer[align] @ git+https://github.com/micah-olivas/seqviewer@master",
+    # Pinned to a commit rather than a branch: the pileups are rendered by
+    # seqviewer, so whatever master holds on the day of an install decides what
+    # a run produces.  Move the pin deliberately, with the pileup tests run
+    # against the new commit.
+    "seqviewer[align] @ git+https://github.com/micah-olivas/seqviewer@a8c8edad211b59a1b32614255bce139ea65380c3",
 ]
 remote = [
     "fabric>=3.0",
