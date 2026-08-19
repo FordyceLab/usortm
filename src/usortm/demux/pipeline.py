@@ -230,6 +230,10 @@ def run_levseq_pipeline(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # When a caller is rendering progress, keep the library's own bars and
+    # status lines off the terminal so they do not interleave with it.
+    utils.set_console_quiet(progress_callback is not None)
+
     def _progress(msg: str):
         """Report progress if a callback was provided."""
         logger.info(msg)
@@ -471,11 +475,23 @@ def run_levseq_pipeline(
 
             _progress("Assigning variants from read alignments...")
             well_fastqs_dir = str(output_dir / "wells" / "fastqs")
+
+            def _assign_progress(n_done, total):
+                """Aligning every well's reads to the whole library is the
+                longest single step, so report it rather than sit silent."""
+                if total:
+                    pct = int(100 * n_done / total)
+                    _progress(
+                        f"Assigning variants from read alignments... "
+                        f"{n_done:,}/{total:,} ({pct}%)"
+                    )
+
             well_df = utils.assign_variants_from_reads(
                 well_df, read_df, str(reference),
                 well_fastqs_dir=well_fastqs_dir,
                 minimap2_path=tool_paths["minimap2"],
                 workers=workers,
+                progress_callback=_assign_progress,
                 full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
                 reads_per_well=reads_per_well,
             )

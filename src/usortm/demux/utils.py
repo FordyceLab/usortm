@@ -19,6 +19,31 @@ import json
 from pathlib import Path
 
 
+# When the CLI drives a progress display, per-stage chatter and nested
+# progress bars fight it for the terminal and bury the parts worth reading.
+# The pipeline sets this so that detail goes to the log instead.
+_QUIET = False
+
+
+def set_console_quiet(quiet: bool) -> None:
+    """Silence this module's own progress bars and status prints."""
+    global _QUIET
+    _QUIET = bool(quiet)
+
+
+def _say(message: str) -> None:
+    """Report a step: to the console when nothing else owns it, else the log."""
+    logger.info(message)
+    if not _QUIET:
+        print(message)
+
+
+def _bar(iterable, **kwargs):
+    """tqdm that stands down when the CLI owns the terminal."""
+    kwargs.setdefault("disable", _QUIET)
+    return tqdm(iterable, **kwargs)
+
+
 def _open_fastq(path: str):
     """Return gzip.open or open based on magic bytes, not file extension."""
     with open(path, "rb") as f:
@@ -674,7 +699,7 @@ def _collect_barcode_calls(base_dir, sub, normalize_id, malformed_counts):
             )
 
     calls = {}
-    for fq in tqdm(glob.glob(f"{base_dir}/{sub}/**/*.fastq*", recursive=True)):
+    for fq in _bar(glob.glob(f"{base_dir}/{sub}/**/*.fastq*", recursive=True)):
         if "unclassified" in fq:
             continue
         m = re.search(r"barcode(\d+)", fq)
@@ -724,26 +749,26 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
         rid = rid.split()[0]
         return re.sub(r"\|ref=.*|\|dir=.*|/[12]$|_pool_plates.*", "", rid)
 
-    print("Collecting FBC demux...")
+    _say("Collecting FBC demux...")
     fbc_map = _collect_barcode_calls(base_dir, "fbc", normalize_id, malformed_counts)
 
-    print("Collecting RBC demux...")
+    _say("Collecting RBC demux...")
     rbc_map = _collect_barcode_calls(base_dir, "rbc", normalize_id, malformed_counts)
 
     # --- Collect reference + sequence data ---
     if ref_map is not None and oriented_fastq is not None:
         # Ref info from align_and_split_by_strand(), sequences from the
         # oriented FASTQ it produced.
-        print("Loading reference assignments from alignment...")
+        _say("Loading reference assignments from alignment...")
         for read_name, info in ref_map.items():
             direction = info["direction"]
             ref_name = info["ref"]
             _ref_map[normalize_id(read_name)] = f"{direction}:{ref_name}"
 
-        print("Collecting read sequences from oriented FASTQ...")
+        _say("Collecting read sequences from oriented FASTQ...")
         open_fn = _open_fastq(oriented_fastq)
         with open_fn(oriented_fastq, 'rt') as fh:
-            for rec in tqdm(SeqIO.parse(fh, "fastq")):
+            for rec in _bar(SeqIO.parse(fh, "fastq")):
                 rid = normalize_id(rec.id)
                 if not rid:
                     continue
@@ -758,7 +783,7 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
             "drop them all.  Run align_and_split_by_strand() first."
         )
 
-    print("Building DataFrame...")
+    _say("Building DataFrame...")
     all_reads = set(fbc_map) | set(rbc_map) | set(_ref_map)
     df = pd.DataFrame([{
         "read_name": rid,
@@ -774,11 +799,11 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     df.attrs["rbc_classified"] = len(rbc_map)
     df.attrs["ref_assigned"] = len(_ref_map)
 
-    print(f"Total reads: {len(df):,}")
-    print(f"  FBC classified: {len(fbc_map):,}")
-    print(f"  RBC classified: {len(rbc_map):,}")
-    print(f"  Ref assigned: {len(_ref_map):,}")
-    print(f"Malformed counts: {malformed_counts}")
+    _say(f"Total reads: {len(df):,}")
+    _say(f"  FBC classified: {len(fbc_map):,}")
+    _say(f"  RBC classified: {len(rbc_map):,}")
+    _say(f"  Ref assigned: {len(_ref_map):,}")
+    _say(f"Malformed counts: {malformed_counts}")
     return df
 
 def barcode_to_well(fbc_name, rbc_name, plate_map=None):
@@ -1046,7 +1071,7 @@ def generate_well_df(read_df):
         ]
     )
 
-    for index, well in tqdm(enumerate(all_wells), total=len(all_wells)):
+    for index, well in _bar(enumerate(all_wells), total=len(all_wells)):
         curr = read_df[read_df['well_pos'] == well]
         depth = len(curr)
         if depth == 0:
@@ -1144,10 +1169,10 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         mm2.stdout.close()
         mm2.wait()
         if sort_result.returncode != 0:
-            print(f"Alignment failed for {well}: samtools sort error: {sort_result.stderr.strip()}")
+            logger.warning(f"Alignment failed for {well}: samtools sort error: {sort_result.stderr.strip()}")
             return well, None, None
     except Exception as e:
-        print(f"Alignment failed for {well}: {e}")
+        logger.warning(f"Alignment failed for {well}: {e}")
         return well, None, None
 
     # 2) Generate consensus
@@ -1159,7 +1184,7 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
                 check=True,
             )
     except Exception as e:
-        print(f"Consensus failed for {well}: {e}")
+        logger.warning(f"Consensus failed for {well}: {e}")
         return well, None, None
 
     # 3) Align consensus back to reference
@@ -1178,7 +1203,7 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         mm2.stdout.close()
         mm2.wait()
         if sort_result2.returncode != 0:
-            print(f"Consensus alignment failed for {well}: samtools sort error: {sort_result2.stderr.strip()}")
+            logger.warning(f"Consensus alignment failed for {well}: samtools sort error: {sort_result2.stderr.strip()}")
             return well, None, None
 
         # Add MD tags (required by _check_flanking_regions)
@@ -1193,7 +1218,7 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         os.replace(calmd_bam, cons_bam)
 
     except Exception as e:
-        print(f"Consensus alignment failed for {well}: {e}")
+        logger.warning(f"Consensus alignment failed for {well}: {e}")
         return well, None, None
 
     # 4) Extract CIGAR + consensus sequence
@@ -1210,7 +1235,7 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
                 lines = f.read().splitlines()
                 cons_seq = "".join(l for l in lines if not l.startswith(">"))
     except Exception as e:
-        print(f"Error processing {well}: {e}")
+        logger.warning(f"Error processing {well}: {e}")
 
     return well, cigar_str, cons_seq
 
@@ -1317,7 +1342,7 @@ def reassign_refs_from_consensus(well_df, ref_fasta,
 def assign_variants_from_reads(
     well_df, read_df, ref_fasta,
     well_fastqs_dir=None,
-    minimap2_path=None, workers=4,
+    minimap2_path=None, workers=4, progress_callback=None,
     reads_per_well=20,
     full_length_ref_dir=None,
     min_read_len=300,
@@ -1436,8 +1461,10 @@ def assign_variants_from_reads(
         if written > 0:
             align_fasta = combined_fl
 
-    print(f"Aligning {n_sampled:,} sampled reads ({reads_per_well}/well) "
-          f"to {len(ref_records)} library variants ({workers} threads)...")
+    _say(f"Aligning {n_sampled:,} sampled reads ({reads_per_well}/well) "
+         f"to {len(ref_records)} library variants ({workers} threads)...")
+    if progress_callback:
+        progress_callback(0, n_sampled)
 
     mm2_log = os.path.join(os.path.dirname(ref_fasta), "minimap2_variant_assign.log")
     mm2_stderr_fh = open(mm2_log, "w")
@@ -1455,10 +1482,14 @@ def assign_variants_from_reads(
     # in single-substitution libraries.
     read_to_ref = {}
     n_low_mapq = 0
+    n_records = 0
     for raw_line in mm2.stdout:
         parts = raw_line.decode("utf-8", errors="replace").split("\t", 13)
         if len(parts) < 12:
             continue
+        n_records += 1
+        if progress_callback and n_records % 500 == 0:
+            progress_callback(n_records, n_sampled)
         try:
             mapq = int(parts[11])
         except (ValueError, IndexError):
@@ -1477,7 +1508,7 @@ def assign_variants_from_reads(
                            mm2.returncode, f.read()[:500])
     tmp_obj.cleanup()
     if n_low_mapq:
-        print(f"  Filtered {n_low_mapq:,} ambiguous read alignments (MAPQ < {min_mapq})")
+        _say(f"  Filtered {n_low_mapq:,} ambiguous read alignments (MAPQ < {min_mapq})")
 
     # Build well_pos lookup from read_df
     read_to_well = dict(zip(read_df["read_name"], read_df["well_pos"]))
@@ -1534,12 +1565,12 @@ def assign_variants_from_reads(
         well_df.loc[unassigned_mask, "major_freq"] = 0.0
         well_df.loc[unassigned_mask, "assignment_confidence"] = 0.0
         n_unassigned = int(unassigned_mask.sum())
-        print(f"  {n_unassigned} wells could not be assigned to any library variant "
+        _say(f"  {n_unassigned} wells could not be assigned to any library variant "
               f"(reads too short or no alignment)")
 
-    print(f"  Assigned variants to {n_assigned:,} / {len(well_df):,} wells")
+    _say(f"  Assigned variants to {n_assigned:,} / {len(well_df):,} wells")
     if n_ambiguous:
-        print(f"  {n_ambiguous} wells have ambiguous assignment "
+        _say(f"  {n_ambiguous} wells have ambiguous assignment "
               f"(2nd variant >30% of reads)")
     return well_df
 
@@ -1556,8 +1587,8 @@ def write_per_well_fastqs(read_df, out_root):
     os.makedirs(well_fastqs_dir, exist_ok=True)
 
     all_wells = read_df["well_pos"].unique()
-    print("Writing per-well fastqs...")
-    for well in tqdm(all_wells):
+    _say("Writing per-well fastqs...")
+    for well in _bar(all_wells):
         current = read_df[read_df["well_pos"] == well]
         out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
         with open(out_path, "w") as f:
@@ -1618,7 +1649,7 @@ def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
         os.replace(calmd_bam, cons_bam)
 
     except Exception as e:
-        print(f"Re-alignment failed for {well}: {e}")
+        logger.warning(f"Re-alignment failed for {well}: {e}")
         return well, None
 
     cigar_str = None
@@ -1629,7 +1660,7 @@ def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
                     cigar_str = read.cigarstring
                     break
     except Exception as e:
-        print(f"CIGAR extraction failed for {well}: {e}")
+        logger.warning(f"CIGAR extraction failed for {well}: {e}")
 
     # Overwrite the old orient-ref BAM so _check_flanking_regions
     # reads the correct per-variant alignment
@@ -1714,7 +1745,7 @@ def realign_consensus_to_assigned_refs(
             for w, c, rf, rm in tasks
         ]
 
-    print(f"Re-aligning {len(tasks)} consensus sequences to assigned refs ({workers} workers)...")
+    _say(f"Re-aligning {len(tasks)} consensus sequences to assigned refs ({workers} workers)...")
     results = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
@@ -1724,7 +1755,7 @@ def realign_consensus_to_assigned_refs(
             ): well
             for well, cons, ref_fa, ref_mmi in tasks
         }
-        for future in tqdm(as_completed(futures), total=len(futures)):
+        for future in _bar(as_completed(futures), total=len(futures)):
             well, cigar = future.result()
             if cigar is not None:
                 results[well] = cigar
@@ -1790,8 +1821,8 @@ def generate_per_well_consensus(
 
     sample_fq = os.path.join(well_fastqs_dir, f"{all_wells[0]}.fastq")
     if not os.path.exists(sample_fq):
-        print("Writing per-well fastqs...")
-        for well in tqdm(all_wells):
+        _say("Writing per-well fastqs...")
+        for well in _bar(all_wells):
             current_per_well_df = read_df[read_df["well_pos"] == well]
             out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
 
@@ -1874,7 +1905,7 @@ def generate_per_well_consensus(
         logger.info("Skipped %d wells with no matching reference FASTA", n_skipped)
 
     # 2) Parallel consensus alignment
-    print(f"Generating consensus alignments ({workers} workers)...")
+    _say(f"Generating consensus alignments ({workers} workers)...")
     results = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
@@ -1884,7 +1915,7 @@ def generate_per_well_consensus(
             ): well
             for well in well_paths
         }
-        for future in tqdm(as_completed(futures), total=len(futures)):
+        for future in _bar(as_completed(futures), total=len(futures)):
             well, cigar, cons = future.result()
             results[well] = (cigar, cons)
 

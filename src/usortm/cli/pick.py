@@ -192,6 +192,8 @@ def pick(
         console.print("[green]\u2713[/green] Excluding wells with consensus errors (use --include-cons-errors to override)")
 
     well_data = _load_well_assignments(well_assignments_file)
+    console.rule("[bold]Selection[/bold]", style=BORDER_STYLE, align="left")
+
     console.print(f"[green]\u2713[/green] Loaded {len(well_data)} wells with data")
 
     # Load target variants if specified
@@ -335,6 +337,8 @@ def pick(
         try:
             from usortm.demux.streakout import generate_pick_pileups
 
+            console.rule("[bold]Pileups[/bold]", style=BORDER_STYLE,
+                          align="left")
             demux_output_dir = demux_output
             n_hits = len([h for h in pick_list if not h.get("empty")])
 
@@ -347,12 +351,18 @@ def pick(
                 transient=False,
             ) as progress:
                 task_id = progress.add_task(
-                    f"Generating pileups ({workers} workers)...", total=n_hits
+                    f"Hit pileups ({n_hits} wells)", total=n_hits
                 )
 
                 def _on_progress(well_pos: str, success: bool):
+                    # Keep the stage in the label; the well is context, not the
+                    # heading, so the bar still says what it is doing at a
+                    # glance once it has scrolled.
                     label = well_pos if success else f"{well_pos} [yellow](skipped)[/yellow]"
-                    progress.update(task_id, advance=1, description=f"Pileup: {label}")
+                    progress.update(
+                        task_id, advance=1,
+                        description=f"Hit pileups ({n_hits} wells) · {label}",
+                    )
 
                 pileup_url_map = generate_pick_pileups(
                     pick_list=pick_list,
@@ -414,12 +424,15 @@ def pick(
                     transient=False,
                 ) as progress:
                     task_id = progress.add_task(
-                        f"Generating mutation pileups ({workers} workers)...", total=n_mut
+                        f"Mutation pileups ({n_mut} wells)", total=n_mut
                     )
 
                     def _on_mut_progress(well_pos: str, success: bool):
                         label = well_pos if success else f"{well_pos} [yellow](skipped)[/yellow]"
-                        progress.update(task_id, advance=1, description=f"Mutation pileup: {label}")
+                        progress.update(
+                            task_id, advance=1,
+                            description=f"Mutation pileups ({n_mut} wells) · {label}",
+                        )
 
                     generate_pick_pileups(
                         pick_list=mutation_list,

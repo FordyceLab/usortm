@@ -18,6 +18,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
+from rich.markup import escape
 
 from usortm.demux.deps import check_all_dependencies
 from usortm.cli.theme import get_console, BORDER_STYLE
@@ -102,9 +103,14 @@ def demux(
         help="Subsample to this many reads before running the pipeline.",
     ),
     workers: int = typer.Option(
-        4,
+        None,
         "--workers", "-w",
-        help="Number of parallel workers for per-well consensus alignment.",
+        help=(
+            "Threads for variant assignment and per-well consensus. Defaults "
+            "to the machine's cores less two, capped at 8 — past that the "
+            "alignment stops getting faster. This is the longest stage, and "
+            "it scales close to linearly."
+        ),
     ),
     orient_ref: Optional[Path] = typer.Option(
         None,
@@ -128,6 +134,18 @@ def demux(
             "conserved backbone, replacing the slow multi-ref alignment "
             "(equivalent to --orient-ref but automatic)."
         ),
+    ),
+    read_template: Optional[Path] = typer.Option(
+        None,
+        "--read-template",
+        help=(
+            "FASTA of one read with three spans masked as N or X, in read "
+            "order: forward barcode, variable region, reverse barcode. The "
+            "barcode masks and the vector flanks are both derived from it, "
+            "replacing --vector-fasta and --mask-config."
+        ),
+        exists=True,
+        dir_okay=False,
     ),
     mask_config_file: Optional[str] = typer.Option(
         None,
@@ -173,6 +191,12 @@ def demux(
 
         usortm demux my_project/ --fastq reads.fastq --reference ref.fasta
     """
+    # Variant assignment is one minimap2 run over every well's reads against
+    # the whole library, and it scales close to linearly: measured 3.7x at 4
+    # threads and 6.4x at 8 against a single thread, flattening after that.
+    if workers is None:
+        workers = max(1, min(8, (os.cpu_count() or 4) - 2))
+
     # Load project state
     state_file = project_dir / PROJECT_STATE_FILE
     if not state_file.exists():
@@ -286,6 +310,40 @@ def demux(
             f"({ref_fasta_path})"
         )
 
+    # A read template describes the whole read, so the barcode masks and the
+    # vector flanks come from one file that cannot disagree with itself.
+    template_mask_config: Optional[Path] = None
+    if read_template is not None:
+        from usortm.demux.read_template import (
+            ReadTemplateError, parse_read_template, write_mask_config,
+            write_vector_fasta,
+        )
+
+        try:
+            parsed = parse_read_template(read_template)
+        except ReadTemplateError as exc:
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
+            raise typer.Exit(1)
+
+        demux_output.mkdir(parents=True, exist_ok=True)
+        derived_dir = demux_output / "read_template"
+        vector_fasta = write_vector_fasta(parsed, derived_dir / "vector.fasta")
+        template_mask_config = write_mask_config(
+            parsed, derived_dir / "mask_config.toml", source=read_template.name
+        )
+        console.print(f"[green]✓[/green] Read template: {parsed.describe()}")
+        console.print(
+            f"  5' flank {len(parsed.flank_5p):,} bp, "
+            f"3' flank {len(parsed.flank_3p):,} bp, "
+            f"masks derived from the barcode spans"
+        )
+        if mask_config_file is not None:
+            console.print(
+                "[yellow]Warning:[/yellow] --mask-config is ignored when "
+                "--read-template is given; the template supplies the masks."
+            )
+            mask_config_file = None
+
     # A reference is required.  Without one the pipeline skips alignment,
     # so no read gets a reference or a sequence and every row is dropped
     # later — producing an empty result that looks like a barcode problem.
@@ -304,6 +362,8 @@ def demux(
         )
         raise typer.Exit(1)
 
+    console.rule("[bold]Inputs[/bold]", style=BORDER_STYLE, align="left")
+
     # Check external tool dependencies before starting
     try:
         tools = check_all_dependencies()
@@ -316,9 +376,19 @@ def demux(
 
     console.print()
 
+
+    console.rule("[bold]Barcode layout[/bold]", style=BORDER_STYLE, align="left")
+
     # Parse mask config if provided
     mask_config = None
-    if mask_config_file is not None:
+    if template_mask_config is not None:
+        # Derived from the read template above, so it describes this construct
+        # by construction — no project default or preset can be more correct.
+        mask_config = _load_mask_config(template_mask_config)
+        console.print(
+            f"[green]✓[/green] Masks derived from {read_template.name}"
+        )
+    elif mask_config_file is not None:
         resolved = _resolve_mask_config(mask_config_file)
         mask_config = _load_mask_config(resolved)
         console.print(f"[green]\u2713[/green] Loaded mask config from {resolved}")
@@ -334,6 +404,9 @@ def demux(
 
     # Create output directory (path already resolved for the correct round above)
     demux_output.mkdir(parents=True, exist_ok=True)
+
+
+    console.rule("[bold]Demultiplexing[/bold]", style=BORDER_STYLE, align="left")
 
     # Resolve how each FASTQ's barcode plates map onto sort plates.  A single
     # FASTQ with matching plate numbers is the ordinary case and runs straight
@@ -361,6 +434,22 @@ def demux(
         )
         effective_params = project
 
+    for segment in segments:
+        if segment.path.is_dir():
+            found = _find_fastqs(segment.path)
+            if not found:
+                console.print(
+                    f"[red]Error:[/red] No FASTQ files found in {segment.path}"
+                )
+                raise typer.Exit(1)
+            console.print(
+                f"[green]\u2713[/green] {segment.name}: {len(found)} FASTQ file(s) "
+                f"in {segment.path}"
+            )
+        else:
+            console.print(f"[green]\u2713[/green] {segment.name}: {segment.path}")
+    console.print()
+
     per_segment = []
     with Progress(
         SpinnerColumn(),
@@ -385,18 +474,6 @@ def demux(
             # A directory is passed through as-is: minimap2 takes many query
             # files and reads gzip natively, so concatenating them into one
             # decompressed staging copy would only cost disk.
-            if segment.path.is_dir():
-                found = _find_fastqs(segment.path)
-                if not found:
-                    console.print(
-                        f"[red]Error:[/red] No FASTQ files found in {segment.path}"
-                    )
-                    raise typer.Exit(1)
-                console.print(
-                    f"[green]✓[/green] {segment.name}: {len(found)} FASTQ file(s) "
-                    f"in {segment.path}"
-                )
-
             results = _run_demux(
                 fastq=segment.path,
                 output_dir=seg_dir,
@@ -434,6 +511,9 @@ def demux(
         )
 
     # Save results (skip recovery-curve simulation for round > 1)
+
+    console.rule("[bold]Results[/bold]", style=BORDER_STYLE, align="left")
+
     _save_demux_results(results, demux_output, project=(None if round_num > 1 else project))
 
     # Build streakout wells set for plate map annotation
@@ -1230,7 +1310,7 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     try:
         _validate_across_segments(segments)
     except PlateMapError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         return None
 
     covered = sorted(p for s in segments for p in s.sort_plates)
@@ -1364,7 +1444,7 @@ def _resolve_plate_map(
         try:
             segments = load_plate_map(plate_map_file)
         except PlateMapError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(1)
         console.print(f"[green]✓[/green] Loaded plate map from {plate_map_file}")
         _describe_segments(segments)
@@ -1375,7 +1455,7 @@ def _resolve_plate_map(
         try:
             segments = load_plate_map(default_map)
         except PlateMapError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(1)
         console.print(f"[green]✓[/green] Found a saved plate map ({default_map})")
         _describe_segments(segments)
