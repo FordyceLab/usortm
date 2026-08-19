@@ -268,6 +268,28 @@ def demux(
     ))
     console.print()
 
+    # A read template handed to --reference or --vector-fasta silently does
+    # the wrong thing: as a reference its masked spans align to nothing, and
+    # as a vector its three masked spans are not one variable region. Either
+    # way the barcode masks go underived, which is the failure that reads as
+    # an empty library rather than a wrong flag. Check what was passed, before
+    # --library-csv rewrites `reference` below.
+    if read_template is None:
+        for flag, candidate in (("--reference", reference),
+                                ("--vector-fasta", vector_fasta)):
+            if candidate is not None and _looks_like_read_template(candidate):
+                console.print(
+                    f"[red]Error:[/red] {candidate} looks like a read template "
+                    "— it has three masked spans (forward barcode, variable "
+                    "region, reverse barcode)."
+                )
+                console.print(
+                    f"  Pass it as [cyan]--read-template[/cyan] rather than "
+                    f"[cyan]{flag}[/cyan]; the barcode masks and the vector "
+                    "flanks are both derived from it."
+                )
+                raise typer.Exit(1)
+
     # Auto-convert CSV passed as --reference (convenience shortcut)
     if (
         reference is not None
@@ -968,6 +990,21 @@ def _prompt_preset_selection() -> Optional[dict]:
     return _load_mask_config(selected["path"])
 
 
+def _looks_like_read_template(path: Path) -> bool:
+    """True when a FASTA has the three masked spans of a read template.
+
+    Used to catch a template handed to the wrong flag.  A library reference
+    has no masked spans and a vector has one, so three is unambiguous.
+    """
+    try:
+        from usortm.demux.read_template import parse_read_template
+
+        parse_read_template(path)
+        return True
+    except Exception:
+        return False
+
+
 def _drop_ghost_plates(read_df):
     """Remove plates carrying too few reads to be real.
 
@@ -1139,8 +1176,7 @@ def _prompt_segment_plates(label: str, n_sort: int) -> Optional[dict]:
     while True:
         try:
             sort_text = questionary.text(
-                f"  {label} — which sort plates does it cover? "
-                f"(e.g. '1-6' or '7,8,9,10')"
+                "    sort plates covered:", instruction="(e.g. 1-6 or 7,8,9,10)"
             ).ask()
         except KeyboardInterrupt:
             return None
@@ -1161,12 +1197,12 @@ def _prompt_segment_plates(label: str, n_sort: int) -> Optional[dict]:
     if all(p <= MAX_BARCODE_PLATES for p in sort_plates):
         default = ", ".join(str(p) for p in sort_plates)
 
-    listed = ", ".join(str(p) for p in sort_plates)
+    listed = ",".join(str(p) for p in sort_plates)
     while True:
         try:
             bc_text = questionary.text(
-                f"  {label} — which barcode plate carried sort plate "
-                f"{listed}, in that order?",
+                "    barcode plates:",
+                instruction=f"(one per sort plate {listed}, in that order)",
                 default=default,
             ).ask()
         except KeyboardInterrupt:
@@ -1251,9 +1287,8 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     elif n_sort > MAX_BARCODE_PLATES:
         console.print(
             f"\n[yellow]{n_sort} sort plates exceeds the {MAX_BARCODE_PLATES} "
-            f"barcode plates the LevSeq kit provides.[/yellow] Barcode plates "
-            "must be reused across separate FASTQs, and each FASTQ needs its "
-            "own mapping."
+            f"barcode plates the kit provides,[/yellow] so plates are reused "
+            "across FASTQs and each needs its own mapping."
         )
 
     # Otherwise collect a mapping per FASTQ.
@@ -1289,20 +1324,17 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
                 console.print(f"  [red]{path} does not exist.[/red]")
                 continue
 
+        console.print(f"  [bold]{path.name}[/bold]")
         plates = _prompt_segment_plates(path.name, n_sort)
         if plates is None:
             return None
 
         segments.append(Segment(name=path.stem or f"segment{idx}", path=path,
                                 plates=plates))
-        console.print(f"  [green]✓[/green] {path.name}: {segments[-1].describe()}")
 
         covered = sorted(p for s in segments for p in s.sort_plates)
         if len(covered) >= n_sort:
             break
-        console.print(
-            f"[muted]{len(covered)} of {n_sort} sort plates mapped so far.[/muted]"
-        )
 
     if not segments:
         return None
@@ -1323,18 +1355,11 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     console.print()
     _describe_segments(segments)
 
-    try:
-        if questionary.confirm(
-            "Save this mapping for future runs?", default=True
-        ).ask():
-            saved = write_plate_map(segments, project_dir / "plate_map.toml")
-            console.print(
-                f"[green]✓[/green] Saved to {saved} — reuse with "
-                f"[cyan]--plate-map {saved}[/cyan]"
-            )
-    except KeyboardInterrupt:
-        pass
-
+    saved = write_plate_map(segments, project_dir / "plate_map.toml")
+    console.print(
+        f"[muted]Recorded in {saved.name}; re-running demux will offer it for "
+        "review.[/muted]"
+    )
     return segments
 
 
