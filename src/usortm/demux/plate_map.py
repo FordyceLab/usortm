@@ -179,7 +179,13 @@ def parse_plate_map(doc: dict, base_dir: Optional[Path] = None) -> list[Segment]
 
         path = Path(raw_path)
         if base_dir is not None and not path.is_absolute():
-            path = Path(base_dir) / path
+            # A relative path here is ambiguous: it may have been written
+            # relative to the directory the run was launched from rather than
+            # to this file. Prefer whichever one exists, and fall back to the
+            # file-relative reading so the error names a definite path.
+            from_config = Path(base_dir) / path
+            path = from_config if from_config.exists() or not path.exists() \
+                else path.resolve()
 
         name = str(entry.get("name") or path.stem or f"segment{i + 1}")
         if name in seen_names:
