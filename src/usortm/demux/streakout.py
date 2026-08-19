@@ -1229,7 +1229,14 @@ def generate_pick_pileups(
         logger.warning("generate_pick_pileups: read_df.csv not found at %s", read_df_path)
         return {}
 
-    read_df = pd.read_csv(read_df_path, dtype={"plate": str})
+    # Only older demux outputs keep read sequences in this table; newer ones
+    # leave them in the per-well FASTQs.  Reading the header settles which,
+    # for the cost of one line rather than the whole file -- which on a real
+    # run is gigabytes that the FASTQ path then never looks at.
+    header = pd.read_csv(read_df_path, nrows=0)
+    has_sequences = "read_seq" in header.columns
+    read_df = (pd.read_csv(read_df_path, dtype={"plate": str})
+               if has_sequences else None)
 
     single_ref_dir = os.path.join(demux_output_dir, "reference_fasta", "single_ref_fastas")
     if not os.path.isdir(single_ref_dir):
@@ -1283,8 +1290,8 @@ def generate_pick_pileups(
     # sequence — that lives in the per-well FASTQs, so pull the reads for the
     # picked wells from there.  Older demux outputs kept the sequences in the
     # CSV, so those are still used when present.
-    read_df["well_pos"] = read_df["well_pos"].astype(str)
-    if "read_seq" in read_df.columns:
+    if has_sequences:
+        read_df["well_pos"] = read_df["well_pos"].astype(str)
         well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
     else:
         from usortm.demux.utils import load_well_reads

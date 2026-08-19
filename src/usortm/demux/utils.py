@@ -862,7 +862,7 @@ def barcode_to_well(fbc_name, rbc_name, plate_map=None):
     row_letter = string.ascii_uppercase[row384 - 1]  # A..P
     return f"{plate_num}{row_letter}{col384}"
 
-READ_DF_HEAVY_COLUMNS = ("read_seq", "read_qual")
+READ_DF_HEAVY_COLUMNS = ("read_seq", "read_qual", "ref_seq")
 
 
 def load_well_reads(well_fastqs_dir, well_pos):
@@ -908,12 +908,15 @@ def load_well_reads(well_fastqs_dir, well_pos):
 
 
 def write_read_df_csv(read_df, path):
-    """Write the per-read table without the sequence and quality columns.
+    """Write the per-read table without the heavy sequence columns.
 
-    Those two columns are most of the file — several gigabytes on a real run —
-    and duplicate what the per-well FASTQs already hold.  Everything the table
-    is read for afterwards (plate maps, per-well grouping, pileup lookup)
-    needs only the identity and assignment columns.
+    Three columns are almost the whole file — better than two gigabytes on a
+    real run — and none of them carry anything the table is read for.
+    ``read_seq`` and ``read_qual`` duplicate the per-well FASTQs.  ``ref_seq``
+    is worse: it repeats one of a few hundred reference sequences on every one
+    of a million rows, and the variant name in ``ref_id`` already says which
+    one.  Everything that reads this table afterwards -- plate maps, per-well
+    grouping, pileup lookup -- needs only the identity and assignment columns.
 
     Args:
         read_df: Per-read DataFrame.
