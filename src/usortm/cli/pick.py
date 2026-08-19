@@ -54,7 +54,15 @@ def pick(
     fill_order: str = typer.Option(
         "row",
         "--fill-order",
-        help="Fill order for target plate (row or column)",
+        help="Fill order for target plate (row or column). Ignored with --layout.",
+    ),
+    layout: Optional[Path] = typer.Option(
+        None,
+        "--layout",
+        help="CSV giving the well each variant is picked into, for a "
+             "destination plate that has already been designed. Needs a well "
+             "column and a variant column; a row naming no variant is left "
+             "blank. Overrides --target-format, --fill-order and --compact.",
     ),
     tier: Optional[str] = typer.Option(
         "A",
@@ -229,6 +237,21 @@ def pick(
                 "Empty placeholders will not be inserted."
             )
 
+    # A designed destination plate, when one was given.
+    layout_rows = None
+    layout_stats: dict = {}
+    if layout is not None:
+        try:
+            layout_rows = _load_layout(layout)
+        except LayoutError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+        plates = {row["plate"] for row in layout_rows}
+        console.print(
+            f"[green]✓[/green] Layout: {len(layout_rows)} wells across "
+            f"{len(plates)} plate(s) from {layout.name}"
+        )
+
     # Generate pick list
     pick_list = _generate_pick_list(
         well_data=well_data,
@@ -241,7 +264,26 @@ def pick(
         compact=compact,
         include_flank_errors=include_flank_errors,
         include_cons_errors=include_cons_errors,
+        layout=layout_rows,
+        layout_stats=layout_stats,
     )
+
+    if layout_stats:
+        console.print(
+            f"  {layout_stats['filled']} of "
+            f"{layout_stats['filled'] + layout_stats['not_recovered']} "
+            f"designed wells filled"
+            + (f", {layout_stats['designed_blank']} left blank by the design"
+               if layout_stats["designed_blank"] else "")
+        )
+        unplaced = layout_stats.get("unplaced") or []
+        if unplaced:
+            shown = ", ".join(unplaced[:6])
+            more = f" (+{len(unplaced) - 6} more)" if len(unplaced) > 6 else ""
+            console.print(
+                f"[yellow]⚠[/yellow] {len(unplaced)} recovered variant(s) have "
+                f"no well in the layout and were dropped: {shown}{more}"
+            )
 
     # Upgrade empty placeholders to Streakout entries where the variant can be
     # recovered by streaking out a mixed well.
@@ -643,6 +685,144 @@ def _load_library_order(
     return (order if order else None), resolved
 
 
+class LayoutError(Exception):
+    """A destination layout that cannot be used as given."""
+
+
+def _load_layout(layout_file: Path) -> list:
+    """Read a destination layout: which well each variant is picked into.
+
+    Ordinarily pick decides where a hit lands, filling a plate in row or
+    column order.  A layout takes that decision instead, which is what you
+    want when the destination plate has already been designed -- the wells
+    were chosen to put the scans in known quadrants, and a hit has to arrive
+    where the design says regardless of how many other variants were
+    recovered.
+
+    Two columns are read: the destination well, and the variant that belongs
+    in it.  A row naming no variant is a well the design leaves blank, and is
+    kept as one.  Any other column is ignored, which matters here: a designed
+    layout often carries its own ``source_plate`` and ``source_well``, meaning
+    where the variant came from in the *synthesis* plates.  Those are not the
+    sorted wells pick draws from, and reading them would put hits in the wrong
+    place.
+
+    Args:
+        layout_file: CSV with a well column (``well`` or ``target_well``) and
+            a variant column (``variant``, ``name`` or ``Name``).  An optional
+            plate column (``plate`` or ``target_plate``) spreads the layout
+            over more than one plate; without it everything is plate 0.
+
+    Returns:
+        One entry per destination well, in file order, as
+        ``{"plate": str, "well": str, "variant": str or None}``.
+
+    Raises:
+        LayoutError: If the file is unreadable, either column is missing,
+            it holds no rows, or a well is named twice on one plate.
+    """
+    try:
+        with open(layout_file, newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError as exc:
+        raise LayoutError(f"could not read {layout_file}: {exc}") from exc
+
+    if not rows:
+        raise LayoutError(f"{layout_file} has no rows")
+
+    field_names = rows[0].keys()
+
+    def _pick_column(*names):
+        for name in names:
+            if name in field_names:
+                return name
+        return None
+
+    well_col = _pick_column("well", "target_well", "Well")
+    variant_col = _pick_column("variant", "name", "Name", "variant_name")
+    plate_col = _pick_column("plate", "target_plate", "Plate")
+
+    if well_col is None or variant_col is None:
+        raise LayoutError(
+            f"{layout_file} needs a well column (well/target_well) and a "
+            f"variant column (variant/name); found: "
+            f"{', '.join(field_names)}"
+        )
+
+    layout = []
+    seen = set()
+    for row in rows:
+        well = (row.get(well_col) or "").strip()
+        if not well:
+            continue
+        plate = (row.get(plate_col) or "0").strip() if plate_col else "0"
+        key = (plate, well)
+        if key in seen:
+            raise LayoutError(
+                f"{layout_file}: plate {plate} well {well} appears twice"
+            )
+        seen.add(key)
+        variant = (row.get(variant_col) or "").strip()
+        layout.append({
+            "plate": plate,
+            "well": well,
+            "variant": variant or None,
+        })
+
+    if not layout:
+        raise LayoutError(f"{layout_file} names no wells")
+    return layout
+
+
+def _apply_layout(pick_list: list, layout: list) -> dict:
+    """Place each hit in the well the layout gives it.
+
+    Returns counts describing what the layout and the run had to say about
+    each other: how many designed wells were filled, how many stay blank
+    because nothing was recovered for them, and which recovered variants the
+    layout has no well for.  The last of those is the one worth acting on --
+    a hit with nowhere to go is dropped, so it is reported rather than
+    silently lost.
+    """
+    hits = {}
+    for hit in pick_list:
+        if hit.get("empty"):
+            continue
+        hits.setdefault(hit["variant"], hit)
+
+    placed, blank, designed_blank = [], 0, 0
+    for slot in layout:
+        variant = slot["variant"]
+        if variant is None:
+            designed_blank += 1
+            continue
+        hit = hits.pop(variant, None)
+        if hit is None:
+            placed.append({
+                "variant": variant,
+                "source_plate": "",
+                "source_well": "",
+                "reads": 0,
+                "consensus_fraction": 0,
+                "empty": True,
+                "target_plate": slot["plate"],
+                "target_well": slot["well"],
+            })
+            blank += 1
+            continue
+        hit["target_plate"] = slot["plate"]
+        hit["target_well"] = slot["well"]
+        placed.append(hit)
+
+    pick_list[:] = placed
+    return {
+        "filled": len(placed) - blank,
+        "not_recovered": blank,
+        "designed_blank": designed_blank,
+        "unplaced": sorted(hits),
+    }
+
+
 def _load_targets(targets_file: Path) -> set:
     """Load target variants from CSV."""
     targets = set()
@@ -667,6 +847,8 @@ def _generate_pick_list(
     compact: bool = False,
     include_flank_errors: bool = False,
     include_cons_errors: bool = False,
+    layout: Optional[list] = None,
+    layout_stats: Optional[dict] = None,
 ) -> list:
     """Generate pick list from well data.
 
@@ -761,6 +943,14 @@ def _generate_pick_list(
         })
 
         seen_variants.add(variant)
+
+    # A layout decides both order and position, so the library ordering and
+    # the placeholder-packing below have nothing left to decide.
+    if layout is not None:
+        stats = _apply_layout(pick_list, layout)
+        if layout_stats is not None:
+            layout_stats.update(stats)
+        return pick_list
 
     # Re-sort by library ordering if available.
     if library_order:
