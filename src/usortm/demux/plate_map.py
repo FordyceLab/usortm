@@ -197,6 +197,11 @@ def parse_plate_map(doc: dict, base_dir: Optional[Path] = None) -> list[Segment]
     return segments
 
 
+def check_segment_paths(segments: list) -> list:
+    """Return the segments whose FASTQ path does not exist."""
+    return [seg for seg in segments if not Path(seg.path).exists()]
+
+
 def _validate_across_segments(segments: list[Segment]) -> None:
     """Check invariants that span segments.
 
@@ -258,7 +263,10 @@ def format_plate_map_toml(segments: list[Segment]) -> str:
         )
         lines.append("[[fastq]]")
         lines.append(f'name = "{seg.name}"')
-        lines.append(f'path = "{seg.path}"')
+        # Absolute, because a relative path in this file resolves against the
+        # file's own directory on reload -- not the directory the run was
+        # launched from, which is where the path was typed.
+        lines.append(f'path = "{Path(seg.path).resolve()}"')
         lines.append(f"plates = {{ {pairs} }}")
         lines.append("")
     return "\n".join(lines)

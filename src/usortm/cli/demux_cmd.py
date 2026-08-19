@@ -1036,16 +1036,22 @@ def _is_identity_map(plates: dict) -> bool:
 
 
 def _describe_segments(segments: list) -> None:
-    """Print a table of the resolved FASTQ-to-sort-plate mapping."""
+    """Print the resolved FASTQ-to-sort-plate mapping as explicit pairs.
+
+    Listing barcode plates and sort plates in separate columns loses the
+    correspondence between them: each column sorts independently, so a
+    mapping of 7->7, 8->8, 1->9, 2->10 reads across as 1->7, 2->8, 7->9,
+    8->10.  This table is what the user is asked to approve, so it states
+    each pair.
+    """
     table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
     table.add_column("FASTQ")
-    table.add_column("Barcode plates")
-    table.add_column("Sort plates")
+    table.add_column("Barcode plate \u2192 sort plate")
     for seg in segments:
+        pairs = sorted(seg.plates.items(), key=lambda kv: kv[1])
         table.add_row(
             seg.name,
-            ", ".join(str(b) for b in seg.barcode_plates),
-            ", ".join(str(s) for s in seg.sort_plates),
+            ", ".join(f"{bc}\u2192{sort}" for bc, sort in pairs),
         )
     console.print(table)
 

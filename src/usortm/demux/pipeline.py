@@ -75,6 +75,10 @@ def _compute_read_length_hist(fastq_path: str) -> dict:
                 for i, line in enumerate(fh):
                     if i % 4 == 1:
                         lengths.append(len(line.rstrip()))
+    except FileNotFoundError as exc:
+        # Distinct from an unreadable file: reporting a missing path as a
+        # possible pod5 sends the reader looking at the wrong thing.
+        raise ValueError(f"FASTQ not found: {exc.filename}") from exc
     except (UnicodeDecodeError, OSError) as exc:
         raise ValueError(
             f"Cannot read FASTQ file '{fastq_path}' as text. "
