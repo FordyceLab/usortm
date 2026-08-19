@@ -472,6 +472,14 @@ def demux(
             console.print(f"[green]\u2713[/green] {segment.name}: {segment.path}")
     console.print()
 
+    live_page = (demux_output if single_plain_run
+                 else demux_output / "segments" / segments[0].name) / "live.html"
+    console.print(
+        f"[muted]Live dashboard: {live_page}[/muted]\n"
+        "[muted]  Open it in a browser to watch the run fill in.[/muted]"
+    )
+    console.print()
+
     per_segment = []
     with Progress(
         SpinnerColumn(),
@@ -512,6 +520,7 @@ def demux(
                 vector_fasta=vector_fasta,
                 reads_per_well=reads_per_well,
                 plate_map=None if single_plain_run else segment.plates,
+                live_label=None if single_plain_run else segment.name,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -523,8 +532,14 @@ def demux(
         results = _merge_segment_results(per_segment, demux_output, min_reads)
         # Per-well artefacts are named by sort plate, which is unique to one
         # segment, so the merged view can link them all into place.
+        merged_subdirs = ("wells", "streakout", "reference_fasta")
+        for sub in merged_subdirs:
+            # Cleared once, before linking: otherwise wells from a previous
+            # run of this project linger in the merged view alongside this
+            # run's, and the two disagree.
+            shutil.rmtree(demux_output / sub, ignore_errors=True)
         for _segment, _results, seg_dir in per_segment:
-            for sub in ("wells", "streakout", "reference_fasta"):
+            for sub in merged_subdirs:
                 _link_or_copy_tree(seg_dir / sub, demux_output / sub)
         console.print(
             f"[green]✓[/green] Merged {len(per_segment)} FASTQ segment(s) "
@@ -1036,16 +1051,22 @@ def _is_identity_map(plates: dict) -> bool:
 
 
 def _describe_segments(segments: list) -> None:
-    """Print a table of the resolved FASTQ-to-sort-plate mapping."""
+    """Print the resolved FASTQ-to-sort-plate mapping as explicit pairs.
+
+    Listing barcode plates and sort plates in separate columns loses the
+    correspondence between them: each column sorts independently, so a
+    mapping of 7->7, 8->8, 1->9, 2->10 reads across as 1->7, 2->8, 7->9,
+    8->10.  This table is what the user is asked to approve, so it states
+    each pair.
+    """
     table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
     table.add_column("FASTQ")
-    table.add_column("Barcode plates")
-    table.add_column("Sort plates")
+    table.add_column("Barcode plate \u2192 sort plate")
     for seg in segments:
+        pairs = sorted(seg.plates.items(), key=lambda kv: kv[1])
         table.add_row(
             seg.name,
-            ", ".join(str(b) for b in seg.barcode_plates),
-            ", ".join(str(s) for s in seg.sort_plates),
+            ", ".join(f"{bc}\u2192{sort}" for bc, sort in pairs),
         )
     console.print(table)
 
@@ -1632,8 +1653,14 @@ def _link_or_copy_tree(src: Path, dest: Path) -> None:
             continue
         target = dest / item.relative_to(src)
         target.parent.mkdir(parents=True, exist_ok=True)
+        # Replace rather than skip: a target left by an earlier run of the
+        # same project is stale, and keeping it means the merged view and the
+        # segment disagree about the same well.
         if target.exists():
-            continue
+            try:
+                target.unlink()
+            except OSError:
+                pass
         try:
             os.link(item, target)
         except OSError:
@@ -1703,6 +1730,7 @@ def _run_demux(
     vector_fasta: Optional[Path] = None,
     reads_per_well: int = 20,
     plate_map: Optional[dict] = None,
+    live_label: Optional[str] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1756,6 +1784,7 @@ def _run_demux(
             vector_fasta=vector_fasta,
             reads_per_well=reads_per_well,
             plate_map=plate_map,
+            live_label=live_label,
         )
     else:
         raise NotImplementedError(

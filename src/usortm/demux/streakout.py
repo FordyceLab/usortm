@@ -430,7 +430,9 @@ def detect_streakout_candidates_orient_ref(
         len(candidate_wells), min_well_reads,
     )
 
-    from tqdm import tqdm
+    # Via utils so this bar stands down when the CLI owns the terminal,
+    # like every other progress bar in the pipeline.
+    from usortm.demux.utils import _bar
 
     def _process(row):
         wp = row["global_well"]
@@ -551,7 +553,7 @@ def detect_streakout_candidates_orient_ref(
             pool.submit(_process, row): row["global_well"]
             for _, row in candidate_wells.iterrows()
         }
-        for future in tqdm(as_completed(futures), total=len(futures)):
+        for future in _bar(as_completed(futures), total=len(futures)):
             try:
                 result = future.result()
                 if result is not None:
