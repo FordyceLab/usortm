@@ -29,7 +29,49 @@ from typing import Optional
 
 from Bio.Seq import Seq
 
-__all__ = ["WellCall", "call_well", "call_wells", "build_wt_reference"]
+__all__ = ["WellCall", "call_well", "call_wells", "build_wt_reference",
+           "derive_wt_insert"]
+
+
+def derive_wt_insert(inserts) -> Optional[str]:
+    """Recover the unmutated sequence a scan library was built from.
+
+    Every member of a substitution scan differs from the parent at one codon
+    and agrees with it everywhere else, so the most common base at each
+    position is the parent's -- even though the parent itself is usually not a
+    member.
+
+    Args:
+        inserts: The library's variable regions, as a sequence or a mapping's
+            values.
+
+    Returns:
+        The derived sequence, or None if the members are not all one length,
+        there are too few to vote, or the result is itself a library member --
+        which means this is not a scan and the vote means nothing.
+    """
+    seqs = list(inserts.values() if hasattr(inserts, "values") else inserts)
+    if len(seqs) < 4:
+        return None
+    lengths = {len(s) for s in seqs}
+    if len(lengths) != 1:
+        return None
+
+    width = lengths.pop()
+    wt = "".join(
+        collections.Counter(s[i] for s in seqs).most_common(1)[0][0]
+        for i in range(width)
+    )
+
+    # In a scan each position is unmutated in almost every member, so the
+    # winning base wins overwhelmingly.  A library whose members genuinely
+    # differ has no such consensus, and the "wild type" would be a chimera of
+    # nothing.
+    for i in range(width):
+        top = collections.Counter(s[i] for s in seqs).most_common(1)[0][1]
+        if top < 0.6 * len(seqs):
+            return None
+    return wt
 
 
 @dataclass
