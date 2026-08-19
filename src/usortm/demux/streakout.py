@@ -1067,6 +1067,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 fraction=g["frac"],
                 status=g["status"],
                 highlighted=g["is_recoverable"],
+                wild_type=g.get("wild_type", ""),
             )
             for g in groups
         ],
@@ -1141,6 +1142,16 @@ def _generate_one_pick_pileup(
         "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
     }
 
+    # The unmutated parent as a row of its own.  The variant reference already
+    # carries its designed change, so reads matching it agree everywhere and
+    # the page says least exactly where the interest is; against the parent the
+    # change is the one column where the two disagree.
+    wild_type = ""
+    if wt_ref_fasta and os.path.exists(wt_ref_fasta):
+        wt_record = next(SeqIO.parse(wt_ref_fasta, "fasta"), None)
+        if wt_record is not None and len(wt_record.seq) == ref_len:
+            wild_type = str(wt_record.seq)
+
     _display_status = cons_check if cons_check else ""
     _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
     group_sections = [{
@@ -1151,29 +1162,8 @@ def _generate_one_pick_pileup(
         "is_recoverable": _is_recoverable,
         "ref_seq": ref_seq,
         "pileup_rows": pileup_rows,
+        "wild_type": wild_type,
     }]
-
-    # The same reads against the unmutated reference, as a second group.  The
-    # assigned variant's reference already carries the change, so a well that
-    # matches it shows nothing there; against wild type the change is the one
-    # column that disagrees, which is what makes it legible.
-    if wt_ref_fasta and os.path.exists(wt_ref_fasta):
-        wt_record = next(SeqIO.parse(wt_ref_fasta, "fasta"), None)
-        if wt_record is not None:
-            wt_seq = str(wt_record.seq)
-            wt_rows = _build_pileup_grid(
-                well_reads, wt_ref_fasta, wt_seq,
-                minimap2_path, samtools_path,
-            )
-            group_sections.append({
-                "ref_id": "wild type",
-                "n_reads": len(wt_rows),
-                "frac": consensus_fraction,
-                "status": "unmutated reference",
-                "is_recoverable": False,
-                "ref_seq": wt_seq,
-                "pileup_rows": wt_rows,
-            })
 
     flank_lengths = None
     if flank_5p_len or flank_3p_len:
