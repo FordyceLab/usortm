@@ -580,15 +580,21 @@ def run_levseq_pipeline(
         _progress("Calling variants from consensus...")
         if vector_fasta is not None and flank_5p is not None:
             consensus_dir = str(output_dir / "wells" / "consensus")
+            def _match_progress(n_done, total):
+                _progress(f"Calling variants from consensus... "
+                          f"{n_done:,}/{total:,}")
+
             well_df = utils.extract_matches(
                 well_df,
                 flank_5p_len=len(flank_5p),
                 flank_3p_len=len(flank_3p),
                 consensus_dir=consensus_dir,
                 frame_offset=frame_offset,
+                workers=workers,
+                progress_callback=_match_progress,
             )
         else:
-            well_df = utils.extract_matches(well_df)
+            well_df = utils.extract_matches(well_df, workers=workers)
 
         # --- Stage 10.5: Streak-out candidate detection ---
         live.set_stage("streakout")

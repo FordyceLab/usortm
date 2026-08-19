@@ -434,6 +434,10 @@ def detect_streakout_candidates_orient_ref(
     # like every other progress bar in the pipeline.
     from usortm.demux.utils import _bar
 
+    # Grouped once: _process runs per candidate and would otherwise rescan the
+    # whole read table each time, which is O(candidates x reads).
+    _by_well = {k: g for k, g in read_df.groupby("well_pos")}
+
     def _process(row):
         wp = row["global_well"]
         bam_path = os.path.join(well_bam_dir, f"{wp}.bam")
@@ -444,8 +448,8 @@ def detect_streakout_candidates_orient_ref(
         if not bimodal:
             return None
 
-        well_reads = read_df[read_df["well_pos"] == wp]
-        if well_reads.empty:
+        well_reads = _by_well.get(wp)
+        if well_reads is None or well_reads.empty:
             return None
 
         split = _split_reads_by_haplotype(bam_path, bimodal, well_reads, min_group_reads)
@@ -726,10 +730,11 @@ def detect_streakout_candidates(
     candidates = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {}
+        _grouped = {k: g for k, g in read_df.groupby("well_pos")}
         for _, row in candidate_wells.iterrows():
             wp = row["global_well"]
-            well_reads = read_df[read_df["well_pos"] == wp]
-            if well_reads.empty:
+            well_reads = _grouped.get(wp)
+            if well_reads is None or well_reads.empty:
                 continue
             fut = pool.submit(
                 _process_well_for_streakout,
