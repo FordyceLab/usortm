@@ -98,6 +98,8 @@ def _build_read(fbc_seq, rbc_seq, amplicon, masks):
 def make_synthetic_demux_run(
     out_dir,
     *,
+    library: Optional[dict] = None,
+    library_weights: Optional[dict] = None,
     library_size: int = 96,
     seq_length: int = 300,
     segments: Optional[dict] = None,
@@ -116,8 +118,22 @@ def make_synthetic_demux_run(
 
     Args:
         out_dir: Directory for the generated files.
-        library_size: Number of distinct variants.
-        seq_length: Length of the variable region.
+        library: ``{name: variable_region}`` to draw wells from.  Random
+            sequences are generated when this is None, which makes every
+            member easy to tell apart.  Pass a real library to reproduce the
+            case that is actually hard -- a single-codon scan, where members
+            differ by one base and alignment has almost nothing to go on.
+            A member included here but withheld from the reference the caller
+            is given models a sequence present in the plate that the library
+            cannot express, such as unmutated parent.
+        library_weights: ``{name: weight}`` giving how often each member is
+            drawn.  Members left out get weight 1.  Use it to hold one member
+            at a realistic share of the plate, such as unmutated parent
+            carried through the prep.
+        library_size: Number of distinct variants.  Ignored when *library*
+            is given.
+        seq_length: Length of the variable region.  Taken from *library*
+            when that is given.
         segments: ``{segment_name: {barcode_plate: sort_plate}}``.  Defaults
             to a single segment covering sort plate 1.
         occupancy: Fraction of wells given reads.
@@ -156,10 +172,20 @@ def make_synthetic_demux_run(
     rng = np.random.default_rng(seed)
 
     # --- Library and vector backbone ---
-    variants = {
-        f"var_{i + 1:04d}": _random_seq(rng, seq_length)
-        for i in range(library_size)
-    }
+    if library:
+        lengths = {len(s) for s in library.values()}
+        if len(lengths) != 1:
+            raise ValueError(
+                f"library members must be one length, got {sorted(lengths)}"
+            )
+        variants = dict(library)
+        seq_length = lengths.pop()
+        library_size = len(variants)
+    else:
+        variants = {
+            f"var_{i + 1:04d}": _random_seq(rng, seq_length)
+            for i in range(library_size)
+        }
     flank_5p = _random_seq(rng, flank_5p_length)
     flank_3p = _random_seq(rng, flank_3p_length)
 
@@ -179,6 +205,13 @@ def make_synthetic_demux_run(
     # --- Reads, well by well ---
     masks = DEFAULT_MASKS["fbc"]
     variant_names = list(variants)
+    if library_weights:
+        w = np.array([float(library_weights.get(n, 1.0)) for n in variant_names])
+        if (w < 0).any() or w.sum() <= 0:
+            raise ValueError("library_weights must be non-negative and not all zero")
+        variant_probs = w / w.sum()
+    else:
+        variant_probs = None
     truth: dict = {}
     fastqs: dict = {}
     total_reads = 0
@@ -192,9 +225,13 @@ def make_synthetic_demux_run(
                     for col in range(1, cols + 1):
                         if rng.random() > occupancy:
                             continue
-                        variant = variant_names[
-                            int(rng.integers(len(variant_names)))
-                        ]
+                        if variant_probs is None:
+                            variant = variant_names[
+                                int(rng.integers(len(variant_names)))
+                            ]
+                        else:
+                            variant = str(rng.choice(variant_names,
+                                                     p=variant_probs))
                         depth = int(np.clip(
                             rng.lognormal(np.log(mean_reads_per_well),
                                           depth_sigma),
