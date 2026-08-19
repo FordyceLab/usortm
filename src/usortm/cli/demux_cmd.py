@@ -1483,8 +1483,27 @@ def _resolve_plate_map(
         List of Segment.
     """
     from usortm.demux.plate_map import (
-        PlateMapError, identity_segment, load_plate_map,
+        PlateMapError, check_segment_paths, identity_segment, load_plate_map,
     )
+
+    def _require_readable(segments, source):
+        """Stop now if a listed FASTQ is not there.
+
+        Otherwise the run reaches the first stage that opens reads and fails
+        there, several steps and one misleading message later.
+        """
+        missing = check_segment_paths(segments)
+        if not missing:
+            return
+        console.print(f"[red]Error:[/red] {source} lists FASTQ(s) that do not exist:")
+        for seg in missing:
+            console.print(f"  {seg.name}: {seg.path}")
+        console.print(
+            "\n  Paths in a plate map are resolved against the file's own "
+            "directory when relative.\n  Delete it to be re-prompted, or edit "
+            "the paths to absolute ones."
+        )
+        raise typer.Exit(1)
 
     if plate_map_file is not None:
         try:
@@ -1493,6 +1512,7 @@ def _resolve_plate_map(
             console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(1)
         console.print(f"[green]✓[/green] Loaded plate map from {plate_map_file}")
+        _require_readable(segments, plate_map_file)
         _describe_segments(segments)
         return segments
 
@@ -1504,6 +1524,7 @@ def _resolve_plate_map(
             console.print(f"[red]Error:[/red] {escape(str(exc))}")
             raise typer.Exit(1)
         console.print(f"[green]✓[/green] Found a saved plate map ({default_map})")
+        _require_readable(segments, default_map)
         _describe_segments(segments)
         # A saved map is an answer from a previous run, and the next run may
         # load different plates.  Offer to redo it rather than silently
