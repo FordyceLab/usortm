@@ -472,10 +472,13 @@ def demux(
             console.print(f"[green]\u2713[/green] {segment.name}: {segment.path}")
     console.print()
 
-    live_page = (demux_output if single_plain_run
-                 else demux_output / "segments" / segments[0].name) / "live.html"
+    # One dashboard for the whole run, at the top of the output directory,
+    # rather than one buried inside each segment.
+    from usortm.demux.live import LiveReport
+
+    live_report = LiveReport(demux_output)
     console.print(
-        f"[muted]Live dashboard: {live_page}[/muted]\n"
+        f"[muted]Live dashboard: {live_report.page}[/muted]\n"
         "[muted]  Open it in a browser to watch the run fill in.[/muted]"
     )
     console.print()
@@ -521,6 +524,7 @@ def demux(
                 reads_per_well=reads_per_well,
                 plate_map=None if single_plain_run else segment.plates,
                 live_label=None if single_plain_run else segment.name,
+                live_report=live_report,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -1266,7 +1270,7 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     import sys
     from usortm.demux.plate_map import (
         MAX_BARCODE_PLATES, PlateMapError, Segment, identity_segment,
-        write_plate_map, _validate_across_segments,
+        segment_name_for, write_plate_map, _validate_across_segments,
     )
 
     if not sys.stdin.isatty():
@@ -1350,7 +1354,8 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
         if plates is None:
             return None
 
-        segments.append(Segment(name=path.stem or f"segment{idx}", path=path,
+        segments.append(Segment(name=segment_name_for(path) or f"segment{idx}",
+                                path=path,
                                 plates=plates))
 
         covered = sorted(p for s in segments for p in s.sort_plates)
@@ -1752,6 +1757,7 @@ def _run_demux(
     reads_per_well: int = 20,
     plate_map: Optional[dict] = None,
     live_label: Optional[str] = None,
+    live_report=None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1806,6 +1812,7 @@ def _run_demux(
             reads_per_well=reads_per_well,
             plate_map=plate_map,
             live_label=live_label,
+            live_report=live_report,
         )
     else:
         raise NotImplementedError(

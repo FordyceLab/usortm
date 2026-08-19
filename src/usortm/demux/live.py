@@ -78,6 +78,25 @@ class LiveReport:
     def page(self) -> Path:
         return self.dir / PAGE_FILE
 
+    def begin_segment(self, label: str) -> None:
+        """Start reporting on another FASTQ, keeping the finished ones listed.
+
+        A run spanning several FASTQs reports to one page; each segment's
+        figures are kept as it completes so the whole run stays visible.
+        """
+        if self.label:
+            self.data.setdefault("finished", []).append(
+                {"label": self.label,
+                 **{k: self.data.get(k) for k in
+                    ("input_reads", "aligned", "fbc", "rbc", "wells")}}
+            )
+        self.label = label
+        for key in ("input_reads", "aligned", "fbc", "rbc", "wells", "plates",
+                    "warning"):
+            self.data.pop(key, None)
+        self.stage = "deps"
+        self.write()
+
     def set_stage(self, stage: str) -> None:
         """Record which stage is running and flush."""
         self.stage = stage
@@ -172,6 +191,7 @@ _PAGE = """<title>uSort-M demux — live</title>
   <div id="warn"></div>
   <ol id="stages"></ol>
   <div id="plates"></div>
+  <div id="finished"></div>
   <p class="foot" id="foot"></p>
 </main>
 <script>
@@ -217,6 +237,15 @@ function render() {
           + `<span style="width:${(100 * n / top).toFixed(1)}%"></span></div></td></tr>`
         ).join("") + "</table>";
   }
+  const fin = D.finished || [];
+  document.getElementById("finished").innerHTML = fin.length
+    ? "<h2>Completed FASTQs</h2><table><tr><th>FASTQ</th><th>Reads</th>"
+      + "<th>Aligned</th><th>Wells</th></tr>"
+      + fin.map(f => `<tr><td>${f.label}</td><td>${fmt(f.input_reads)}</td>`
+          + `<td>${fmt(f.aligned)}</td><td>${fmt(f.wells)}</td></tr>`).join("")
+      + "</table>"
+    : "";
+
   document.getElementById("foot").textContent =
     D.stage === "done" ? "Run complete." : `Refreshing every ${POLL}s.`;
 }

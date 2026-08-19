@@ -205,6 +205,7 @@ def run_levseq_pipeline(
     reads_per_well: int = 20,
     plate_map: Optional[dict] = None,
     live_label: Optional[str] = None,
+    live_report=None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -255,10 +256,16 @@ def run_levseq_pipeline(
     utils.set_console_quiet(progress_callback is not None)
 
     # A dashboard that fills in as the run establishes each figure, so a
-    # multi-hour run is inspectable before it ends.
+    # multi-hour run is inspectable before it ends.  A caller running several
+    # segments passes one in, so the whole run reports to a single page rather
+    # than one buried per segment.
     from usortm.demux.live import LiveReport
 
-    live = LiveReport(output_dir, label=live_label or "")
+    if live_report is not None:
+        live = live_report
+        live.begin_segment(live_label or "")
+    else:
+        live = LiveReport(output_dir, label=live_label or "")
 
     def _progress(msg: str):
         """Report progress if a callback was provided."""

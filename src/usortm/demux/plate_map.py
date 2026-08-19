@@ -40,6 +40,29 @@ MAX_BARCODE_PLATES = 8
 RBC_PER_PLATE = 4
 
 
+FASTQ_SUFFIXES = (".fastq.gz", ".fq.gz", ".fastq", ".fq")
+
+
+def segment_name_for(path) -> str:
+    """Name a segment after its FASTQ, without the extension.
+
+    Path.stem strips one suffix, so a ".fastq.gz" keeps its ".fastq" and the
+    segment's output directory ends up named like a file.
+
+    Args:
+        path: FASTQ file or directory of FASTQs.
+
+    Returns:
+        The name with any FASTQ extension removed.
+    """
+    name = Path(path).name
+    lowered = name.lower()
+    for suffix in FASTQ_SUFFIXES:
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)]
+    return Path(path).stem or name
+
+
 class PlateMapError(ValueError):
     """Raised when a plate-map configuration is invalid."""
 
@@ -187,7 +210,8 @@ def parse_plate_map(doc: dict, base_dir: Optional[Path] = None) -> list[Segment]
             path = from_config if from_config.exists() or not path.exists() \
                 else path.resolve()
 
-        name = str(entry.get("name") or path.stem or f"segment{i + 1}")
+        name = str(entry.get("name") or segment_name_for(path)
+                   or f"segment{i + 1}")
         if name in seen_names:
             raise PlateMapError(
                 f"{where}: duplicate segment name '{name}' — give one of them "
