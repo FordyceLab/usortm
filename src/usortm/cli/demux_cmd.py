@@ -268,6 +268,28 @@ def demux(
     ))
     console.print()
 
+    # A read template handed to --reference or --vector-fasta silently does
+    # the wrong thing: as a reference its masked spans align to nothing, and
+    # as a vector its three masked spans are not one variable region. Either
+    # way the barcode masks go underived, which is the failure that reads as
+    # an empty library rather than a wrong flag. Check what was passed, before
+    # --library-csv rewrites `reference` below.
+    if read_template is None:
+        for flag, candidate in (("--reference", reference),
+                                ("--vector-fasta", vector_fasta)):
+            if candidate is not None and _looks_like_read_template(candidate):
+                console.print(
+                    f"[red]Error:[/red] {candidate} looks like a read template "
+                    "— it has three masked spans (forward barcode, variable "
+                    "region, reverse barcode)."
+                )
+                console.print(
+                    f"  Pass it as [cyan]--read-template[/cyan] rather than "
+                    f"[cyan]{flag}[/cyan]; the barcode masks and the vector "
+                    "flanks are both derived from it."
+                )
+                raise typer.Exit(1)
+
     # Auto-convert CSV passed as --reference (convenience shortcut)
     if (
         reference is not None
@@ -966,6 +988,21 @@ def _prompt_preset_selection() -> Optional[dict]:
     selected = presets[answer - 1]
     console.print(f"[green]\u2713[/green] Using preset: {selected['name']}")
     return _load_mask_config(selected["path"])
+
+
+def _looks_like_read_template(path: Path) -> bool:
+    """True when a FASTA has the three masked spans of a read template.
+
+    Used to catch a template handed to the wrong flag.  A library reference
+    has no masked spans and a vector has one, so three is unambiguous.
+    """
+    try:
+        from usortm.demux.read_template import parse_read_template
+
+        parse_read_template(path)
+        return True
+    except Exception:
+        return False
 
 
 def _drop_ghost_plates(read_df):
