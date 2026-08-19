@@ -192,7 +192,7 @@ class TestPromptFlow:
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
             text=["6", "1-3", "1,2,3", "4-6", "4,5,6"],
-            confirm=[False, False],   # not one run; then decline saving
+            confirm=[False],          # these are separate runs
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 6, tmp_path)
@@ -210,13 +210,14 @@ class TestPromptFlow:
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
             text=["10", "1-6", "1,2,3,4,5,6", "7-10", "7,8,1,2"],
-            confirm=[False],          # only the save question is asked
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)
 
         assert len(segments) == 2
-        assert script.asked["confirm"] == 1
+        # Over the kit's limit, so the one-run shortcut is never offered and
+        # nothing else is asked either — the mapping is simply recorded.
+        assert script.asked["confirm"] == 0
         assert segments[0].plates == {i: i for i in range(1, 7)}
         assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
         covered = sorted(p for s in segments for p in s.sort_plates)
@@ -228,7 +229,6 @@ class TestPromptFlow:
             text=["10",
                   "not-plates", "1-6", "1,2,3,4,5,6",   # bad sort list, retried
                   "7-10", "1,2", "7,8,1,2"],            # wrong length, retried
-            confirm=[False],
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)
@@ -237,11 +237,13 @@ class TestPromptFlow:
         assert segments[1].plates == {7: 7, 8: 8, 1: 9, 2: 10}
         assert not script.text, "every scripted answer should have been consumed"
 
-    def test_saved_config_is_reusable(self, monkeypatch, run_dir, tmp_path):
+    def test_mapping_is_recorded_without_being_asked(self, monkeypatch, run_dir,
+                                                     tmp_path):
+        """The mapping is part of the run's configuration, so it is written to
+        the project rather than offered as an optional export."""
         files = sorted(run_dir.glob("*.fastq"))
         script = _Scripted(
             text=["10", "1-6", "1,2,3,4,5,6", "7-10", "7,8,1,2"],
-            confirm=[True],           # save it
             select=[files[0], files[1]],
         )
         segments = _prompt(monkeypatch, script, run_dir, 10, tmp_path)

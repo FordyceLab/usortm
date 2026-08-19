@@ -1176,8 +1176,7 @@ def _prompt_segment_plates(label: str, n_sort: int) -> Optional[dict]:
     while True:
         try:
             sort_text = questionary.text(
-                f"  {label} — which sort plates does it cover? "
-                f"(e.g. '1-6' or '7,8,9,10')"
+                "    sort plates covered:", instruction="(e.g. 1-6 or 7,8,9,10)"
             ).ask()
         except KeyboardInterrupt:
             return None
@@ -1198,12 +1197,12 @@ def _prompt_segment_plates(label: str, n_sort: int) -> Optional[dict]:
     if all(p <= MAX_BARCODE_PLATES for p in sort_plates):
         default = ", ".join(str(p) for p in sort_plates)
 
-    listed = ", ".join(str(p) for p in sort_plates)
+    listed = ",".join(str(p) for p in sort_plates)
     while True:
         try:
             bc_text = questionary.text(
-                f"  {label} — which barcode plate carried sort plate "
-                f"{listed}, in that order?",
+                "    barcode plates:",
+                instruction=f"(one per sort plate {listed}, in that order)",
                 default=default,
             ).ask()
         except KeyboardInterrupt:
@@ -1288,9 +1287,8 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     elif n_sort > MAX_BARCODE_PLATES:
         console.print(
             f"\n[yellow]{n_sort} sort plates exceeds the {MAX_BARCODE_PLATES} "
-            f"barcode plates the LevSeq kit provides.[/yellow] Barcode plates "
-            "must be reused across separate FASTQs, and each FASTQ needs its "
-            "own mapping."
+            f"barcode plates the kit provides,[/yellow] so plates are reused "
+            "across FASTQs and each needs its own mapping."
         )
 
     # Otherwise collect a mapping per FASTQ.
@@ -1326,20 +1324,17 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
                 console.print(f"  [red]{path} does not exist.[/red]")
                 continue
 
+        console.print(f"  [bold]{path.name}[/bold]")
         plates = _prompt_segment_plates(path.name, n_sort)
         if plates is None:
             return None
 
         segments.append(Segment(name=path.stem or f"segment{idx}", path=path,
                                 plates=plates))
-        console.print(f"  [green]✓[/green] {path.name}: {segments[-1].describe()}")
 
         covered = sorted(p for s in segments for p in s.sort_plates)
         if len(covered) >= n_sort:
             break
-        console.print(
-            f"[muted]{len(covered)} of {n_sort} sort plates mapped so far.[/muted]"
-        )
 
     if not segments:
         return None
@@ -1360,18 +1355,11 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     console.print()
     _describe_segments(segments)
 
-    try:
-        if questionary.confirm(
-            "Save this mapping for future runs?", default=True
-        ).ask():
-            saved = write_plate_map(segments, project_dir / "plate_map.toml")
-            console.print(
-                f"[green]✓[/green] Saved to {saved} — reuse with "
-                f"[cyan]--plate-map {saved}[/cyan]"
-            )
-    except KeyboardInterrupt:
-        pass
-
+    saved = write_plate_map(segments, project_dir / "plate_map.toml")
+    console.print(
+        f"[muted]Recorded in {saved.name}; re-running demux will offer it for "
+        "review.[/muted]"
+    )
     return segments
 
 
