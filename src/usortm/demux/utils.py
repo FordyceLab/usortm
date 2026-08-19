@@ -1071,8 +1071,13 @@ def generate_well_df(read_df):
         ]
     )
 
+    # Grouped once rather than re-scanning the whole table per well: the
+    # scan form is O(wells x reads), which at a few thousand wells over a
+    # million reads costs minutes for a result one pass already has.
+    _by_well = {k: g for k, g in read_df.groupby("well_pos")}
+
     for index, well in _bar(enumerate(all_wells), total=len(all_wells)):
-        curr = read_df[read_df['well_pos'] == well]
+        curr = _by_well.get(well, read_df.iloc[:0])
         depth = len(curr)
         if depth == 0:
             continue
@@ -1588,8 +1593,9 @@ def write_per_well_fastqs(read_df, out_root):
 
     all_wells = read_df["well_pos"].unique()
     _say("Writing per-well fastqs...")
+    _by_well = {k: g for k, g in read_df.groupby("well_pos")}
     for well in _bar(all_wells):
-        current = read_df[read_df["well_pos"] == well]
+        current = _by_well.get(well, read_df.iloc[:0])
         out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
         with open(out_path, "w") as f:
             for _, row in current.iterrows():
@@ -1822,8 +1828,9 @@ def generate_per_well_consensus(
     sample_fq = os.path.join(well_fastqs_dir, f"{all_wells[0]}.fastq")
     if not os.path.exists(sample_fq):
         _say("Writing per-well fastqs...")
+        _by_well = {k: g for k, g in read_df.groupby("well_pos")}
         for well in _bar(all_wells):
-            current_per_well_df = read_df[read_df["well_pos"] == well]
+            current_per_well_df = _by_well.get(well, read_df.iloc[:0])
             out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
 
             with open(out_path, "w") as f:
@@ -2110,8 +2117,92 @@ def _check_column_agreement(
     return result
 
 
+def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
+                         frame_offset, has_flanks):
+    """Work out one well's checks, returning the columns to set.
+
+    Split out of :func:`extract_matches` so wells can be handled in parallel:
+    each opens its own consensus BAM and shares nothing with the others.  The
+    caller writes the results back, keeping DataFrame mutation on one thread.
+    """
+    well = row["global_well"]
+    ref_len = row["ref_len"]
+    ref_seq = row["ref_seq"]
+    cigar = row["CIGAR"]
+    cons_seq = row["cons_seq"]
+
+    out = {}
+    status = ""
+
+    if has_flanks:
+        # Use aligned pairs from consensus BAM for per-position analysis
+        flank_result = _check_flanking_regions(
+            well, ref_len, flank_5p_len, flank_3p_len, consensus_dir,
+            frame_offset=frame_offset,
+        )
+        status = flank_result["cons_check"]
+        out["flank_check"] = flank_result["flank_check"]
+        out["flank_5p_mismatches"] = flank_result["flank_5p_mismatches"]
+        out["flank_3p_mismatches"] = flank_result["flank_3p_mismatches"]
+        # Replace the noisy 5-read sampling fraction with the actual
+        # per-position variable-region match fraction from the consensus BAM.
+        out["major_freq"] = flank_result["var_match_fraction"]
+        out["var_n_count"] = flank_result["var_n_count"]
+    else:
+        # Original CIGAR-based logic
+        if cigar is None or ref_len is None or pd.isna(ref_len):
+            status = "Error"
+        else:
+            # 1) Check for perfect matches
+            if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
+                if int(cigar[:-1]) == int(ref_len):
+                    status = "Perfect Match"
+                else:
+                    status = "Partial Match"
+            else:
+                status = "Other Error"
+
+                # 2) Check for silent mutations
+                # Translate each sequence
+                if len(cons_seq) == ref_len:
+                    if Seq(ref_seq).translate() == Seq(cons_seq).translate():
+                        status = "Silent Mutation"
+                else:
+                    status = "Error"
+
+    out["cons_check"] = status
+
+    # Per-column read agreement check: scan the per-well read BAM for
+    # positions where >10% of reads disagree with the reference.
+    if has_flanks and status in ("Perfect Match", "Silent Mutation") and ref_seq:
+        col_result = _check_column_agreement(
+            well, consensus_dir, ref_seq, flank_5p_len,
+        )
+        out["n_flagged_positions"] = col_result["n_flagged_positions"]
+        out["max_mismatch_frac"] = col_result["max_mismatch_frac"]
+
+    # Protein-level check: compare translation of the variable region
+    # in the consensus against the assigned variant's reference.
+    if status == "Perfect Match":
+        # BAM-based analysis already confirmed 0 mismatches and 0 indels
+        # in the variable region — protein must match.  Skip the less
+        # reliable substring extraction which can fail when flank indels
+        # shift the consensus coordinates.
+        out["protein_check"] = "Match"
+    elif ref_seq and cons_seq and ref_len and not pd.isna(ref_len):
+        cons_var = _extract_variable_region(
+            cons_seq, ref_seq, flank_5p_len, flank_3p_len,
+        )
+        out["protein_check"] = _protein_check(ref_seq, cons_var, frame_offset) or ""
+    else:
+        out["protein_check"] = ""
+
+    return out
+
+
 def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
-                    consensus_dir: str = None, frame_offset: int = 0):
+                    consensus_dir: str = None, frame_offset: int = 0,
+                    workers: int = 4, progress_callback=None):
     """Extract reference matches using consensus CIGAR string.
 
     When flank lengths are provided (from --vector-fasta), also checks
@@ -2121,6 +2212,9 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
     against the assigned variant's reference, stored in a ``protein_check``
     column ("Match", "Silent", "Missense", "Frameshift", or empty).
 
+    Each well opens its own consensus BAM and depends on no other, so wells
+    are processed in parallel; results are written back on one thread.
+
     Args:
         well_df: Per-well DataFrame with CIGAR, ref_len, ref_seq, cons_seq.
         flank_5p_len: Length of the 5' flanking region (0 = no flank check).
@@ -2128,88 +2222,46 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         consensus_dir: Path to consensus BAM directory (required when flanks
             are provided).
         frame_offset: Reading frame offset (0, 1, or 2) for protein translation.
+        workers: Number of parallel threads.
+        progress_callback: Optional ``(n_done, total)`` callback.
 
     Returns:
         Updated well_df with cons_check and protein_check columns (and
         flank_check, flank_5p_mismatches, flank_3p_mismatches when flanks
         are provided).
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     has_flanks = (flank_5p_len > 0 or flank_3p_len > 0) and consensus_dir
+    rows = list(well_df.iterrows())
+    if not rows:
+        return well_df
 
-    for index, row in well_df.iterrows():
-        # Get CIGAR string, reference length
-        well = row['global_well']
-        ref_len = row['ref_len']
-        ref_seq = row['ref_seq']
-        cigar = row['CIGAR']
-        cons_seq = row['cons_seq']
+    _say(f"Checking {len(rows):,} wells against their references "
+         f"({workers} workers)...")
 
-        status = ""
+    n_done = 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {
+            pool.submit(_extract_matches_one, row, flank_5p_len, flank_3p_len,
+                        consensus_dir, frame_offset, has_flanks): index
+            for index, row in rows
+        }
+        for future in _bar(as_completed(futures), total=len(futures)):
+            index = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                logger.warning("Well check failed for row %s: %s", index, exc)
+                continue
+            for column, value in result.items():
+                well_df.at[index, column] = value
+            n_done += 1
+            if progress_callback and n_done % 50 == 0:
+                progress_callback(n_done, len(rows))
 
-        if has_flanks:
-            # Use aligned pairs from consensus BAM for per-position analysis
-            flank_result = _check_flanking_regions(
-                well, ref_len, flank_5p_len, flank_3p_len, consensus_dir,
-                frame_offset=frame_offset,
-            )
-            status = flank_result["cons_check"]
-            well_df.at[index, "flank_check"] = flank_result["flank_check"]
-            well_df.at[index, "flank_5p_mismatches"] = flank_result["flank_5p_mismatches"]
-            well_df.at[index, "flank_3p_mismatches"] = flank_result["flank_3p_mismatches"]
-            # Replace the noisy 5-read sampling fraction with the actual
-            # per-position variable-region match fraction from the consensus BAM.
-            well_df.at[index, "major_freq"] = flank_result["var_match_fraction"]
-            well_df.at[index, "var_n_count"] = flank_result["var_n_count"]
-        else:
-            # Original CIGAR-based logic
-            if cigar is None or ref_len is None or pd.isna(ref_len):
-                status = "Error"
-            else:
-                # 1) Check for perfect matches
-                if ''.join(x for x in cigar if x.isalpha()).lower() == 'm':
-                    if int(cigar[:-1]) == int(ref_len):
-                        status = "Perfect Match"
-                    else:
-                        status = "Partial Match"
-                else:
-                    status = "Other Error"
-
-                    # 2) Check for silent mutations
-                    # Translate each sequence
-                    if len(cons_seq) == ref_len:
-                        if Seq(ref_seq).translate() == Seq(cons_seq).translate():
-                            status = "Silent Mutation"
-                    else:
-                        status = "Error"
-
-        well_df.at[index, "cons_check"] = status
-
-        # Per-column read agreement check: scan the per-well read BAM for
-        # positions where >10% of reads disagree with the reference.
-        if has_flanks and status in ("Perfect Match", "Silent Mutation") and ref_seq:
-            col_result = _check_column_agreement(
-                well, consensus_dir, ref_seq, flank_5p_len,
-            )
-            well_df.at[index, "n_flagged_positions"] = col_result["n_flagged_positions"]
-            well_df.at[index, "max_mismatch_frac"] = col_result["max_mismatch_frac"]
-
-        # Protein-level check: compare translation of the variable region
-        # in the consensus against the assigned variant's reference.
-        if status == "Perfect Match":
-            # BAM-based analysis already confirmed 0 mismatches and 0 indels
-            # in the variable region — protein must match.  Skip the less
-            # reliable substring extraction which can fail when flank indels
-            # shift the consensus coordinates.
-            well_df.at[index, "protein_check"] = "Match"
-        elif ref_seq and cons_seq and ref_len and not pd.isna(ref_len):
-            cons_var = _extract_variable_region(
-                cons_seq, ref_seq, flank_5p_len, flank_3p_len,
-            )
-            pcheck = _protein_check(ref_seq, cons_var, frame_offset)
-            well_df.at[index, "protein_check"] = pcheck or ""
-        else:
-            well_df.at[index, "protein_check"] = ""
-
+    if progress_callback:
+        progress_callback(len(rows), len(rows))
     return well_df
 
 
