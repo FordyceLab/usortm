@@ -532,8 +532,14 @@ def demux(
         results = _merge_segment_results(per_segment, demux_output, min_reads)
         # Per-well artefacts are named by sort plate, which is unique to one
         # segment, so the merged view can link them all into place.
+        merged_subdirs = ("wells", "streakout", "reference_fasta")
+        for sub in merged_subdirs:
+            # Cleared once, before linking: otherwise wells from a previous
+            # run of this project linger in the merged view alongside this
+            # run's, and the two disagree.
+            shutil.rmtree(demux_output / sub, ignore_errors=True)
         for _segment, _results, seg_dir in per_segment:
-            for sub in ("wells", "streakout", "reference_fasta"):
+            for sub in merged_subdirs:
                 _link_or_copy_tree(seg_dir / sub, demux_output / sub)
         console.print(
             f"[green]✓[/green] Merged {len(per_segment)} FASTQ segment(s) "
@@ -1647,8 +1653,14 @@ def _link_or_copy_tree(src: Path, dest: Path) -> None:
             continue
         target = dest / item.relative_to(src)
         target.parent.mkdir(parents=True, exist_ok=True)
+        # Replace rather than skip: a target left by an earlier run of the
+        # same project is stale, and keeping it means the merged view and the
+        # segment disagree about the same well.
         if target.exists():
-            continue
+            try:
+                target.unlink()
+            except OSError:
+                pass
         try:
             os.link(item, target)
         except OSError:
