@@ -195,6 +195,12 @@ def report(
     # Display summary
     console.print()
     console.print("[green]\u2713[/green] Reports generated!")
+    try:
+        from usortm.cli.project_index import write_index
+
+        write_index(project_dir, locals().get("round_num", 1))
+    except Exception:
+        pass
     console.print()
 
     for file_path in generated_files:

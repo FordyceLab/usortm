@@ -78,6 +78,25 @@ class LiveReport:
     def page(self) -> Path:
         return self.dir / PAGE_FILE
 
+    def begin_segment(self, label: str) -> None:
+        """Start reporting on another FASTQ, keeping the finished ones listed.
+
+        A run spanning several FASTQs reports to one page; each segment's
+        figures are kept as it completes so the whole run stays visible.
+        """
+        if self.label:
+            self.data.setdefault("finished", []).append(
+                {"label": self.label,
+                 **{k: self.data.get(k) for k in
+                    ("input_reads", "aligned", "fbc", "rbc", "wells")}}
+            )
+        self.label = label
+        for key in ("input_reads", "aligned", "fbc", "rbc", "wells", "plates",
+                    "warning"):
+            self.data.pop(key, None)
+        self.stage = "deps"
+        self.write()
+
     def set_stage(self, stage: str) -> None:
         """Record which stage is running and flush."""
         self.stage = stage
@@ -96,7 +115,8 @@ class LiveReport:
             "label": self.label,
             "stage": self.stage,
             "stages": [{"key": k, "name": n} for k, n in STAGES],
-            "elapsed": round(time.time() - self.started, 1),
+            "startedEpoch": self.started,
+            "writtenEpoch": time.time(),
             "updated": time.strftime("%H:%M:%S"),
             **self.data,
         }
@@ -172,6 +192,7 @@ _PAGE = """<title>uSort-M demux — live</title>
   <div id="warn"></div>
   <ol id="stages"></ol>
   <div id="plates"></div>
+  <div id="finished"></div>
   <p class="foot" id="foot"></p>
 </main>
 <script>
@@ -182,9 +203,7 @@ function render() {
   const D = window.USORTM_LIVE;
   if (!D) return;
   document.getElementById("label").textContent = D.label ? "\\u2014 " + D.label : "";
-  const mins = Math.floor(D.elapsed / 60), secs = Math.round(D.elapsed % 60);
-  document.getElementById("sub").textContent =
-    `running ${mins}m ${secs}s \\u00b7 updated ${D.updated}`;
+  tick();   // elapsed and data age tick every second, not per reload
 
   const cards = [["Input reads", fmt(D.input_reads), ""]];
   if (D.aligned !== undefined)
@@ -217,9 +236,32 @@ function render() {
           + `<span style="width:${(100 * n / top).toFixed(1)}%"></span></div></td></tr>`
         ).join("") + "</table>";
   }
+  const fin = D.finished || [];
+  document.getElementById("finished").innerHTML = fin.length
+    ? "<h2>Completed FASTQs</h2><table><tr><th>FASTQ</th><th>Reads</th>"
+      + "<th>Aligned</th><th>Wells</th></tr>"
+      + fin.map(f => `<tr><td>${f.label}</td><td>${fmt(f.input_reads)}</td>`
+          + `<td>${fmt(f.aligned)}</td><td>${fmt(f.wells)}</td></tr>`).join("")
+      + "</table>"
+    : "";
+
   document.getElementById("foot").textContent =
     D.stage === "done" ? "Run complete." : `Refreshing every ${POLL}s.`;
 }
+
+function tick() {
+  const D = window.USORTM_LIVE;
+  if (!D) return;
+  const el = Math.max(0, Date.now() / 1000 - D.startedEpoch);
+  const h = Math.floor(el / 3600), m = Math.floor((el % 3600) / 60),
+        s = Math.floor(el % 60);
+  const run = (h ? h + "h " : "") + m + "m " + String(s).padStart(2, "0") + "s";
+  const age = Math.max(0, Math.round(Date.now() / 1000 - D.writtenEpoch));
+  const state = D.stage === "done" ? "finished"
+              : age > POLL * 4 ? `no update for ${age}s` : `updated ${age}s ago`;
+  document.getElementById("sub").textContent = `running ${run} \u00b7 ${state}`;
+}
+setInterval(tick, 1000);
 
 const POLL = __POLL__;
 function reload() {
