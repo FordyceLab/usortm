@@ -166,6 +166,12 @@ def pileups(
            if rendered["skipped"] else "")
     )
     console.print(f"[green]✓[/green] Index: {index_path}")
+    try:
+        from usortm.cli.project_index import write_index
+
+        write_index(project_dir, round_num)
+    except Exception:
+        pass
     if relinked:
         console.print(
             f"[green]✓[/green] Plate map wells now link to their pileups "

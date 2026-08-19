@@ -115,7 +115,8 @@ class LiveReport:
             "label": self.label,
             "stage": self.stage,
             "stages": [{"key": k, "name": n} for k, n in STAGES],
-            "elapsed": round(time.time() - self.started, 1),
+            "startedEpoch": self.started,
+            "writtenEpoch": time.time(),
             "updated": time.strftime("%H:%M:%S"),
             **self.data,
         }
@@ -202,9 +203,7 @@ function render() {
   const D = window.USORTM_LIVE;
   if (!D) return;
   document.getElementById("label").textContent = D.label ? "\\u2014 " + D.label : "";
-  const mins = Math.floor(D.elapsed / 60), secs = Math.round(D.elapsed % 60);
-  document.getElementById("sub").textContent =
-    `running ${mins}m ${secs}s \\u00b7 updated ${D.updated}`;
+  tick();   // elapsed and data age tick every second, not per reload
 
   const cards = [["Input reads", fmt(D.input_reads), ""]];
   if (D.aligned !== undefined)
@@ -249,6 +248,20 @@ function render() {
   document.getElementById("foot").textContent =
     D.stage === "done" ? "Run complete." : `Refreshing every ${POLL}s.`;
 }
+
+function tick() {
+  const D = window.USORTM_LIVE;
+  if (!D) return;
+  const el = Math.max(0, Date.now() / 1000 - D.startedEpoch);
+  const h = Math.floor(el / 3600), m = Math.floor((el % 3600) / 60),
+        s = Math.floor(el % 60);
+  const run = (h ? h + "h " : "") + m + "m " + String(s).padStart(2, "0") + "s";
+  const age = Math.max(0, Math.round(Date.now() / 1000 - D.writtenEpoch));
+  const state = D.stage === "done" ? "finished"
+              : age > POLL * 4 ? `no update for ${age}s` : `updated ${age}s ago`;
+  document.getElementById("sub").textContent = `running ${run} \u00b7 ${state}`;
+}
+setInterval(tick, 1000);
 
 const POLL = __POLL__;
 function reload() {

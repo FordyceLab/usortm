@@ -751,6 +751,7 @@ def demux(
             )
             raise typer.Exit(1)
 
+    _refresh_index(project_dir, round_num)
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
     console.print()
@@ -1022,6 +1023,17 @@ def _looks_like_read_template(path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _refresh_index(project_dir, round_num: int = 1) -> None:
+    """Rewrite the project's front page. Never fails the command."""
+    try:
+        from usortm.cli.project_index import write_index
+
+        out = write_index(project_dir, round_num)
+        console.print(f"[green]\u2713[/green] Project index: {out}")
+    except Exception as exc:
+        console.print(f"[yellow]Warning:[/yellow] could not write index: {exc}")
 
 
 def _drop_ghost_plates(read_df):
