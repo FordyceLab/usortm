@@ -193,6 +193,48 @@ def _wells_per_plate(well_df) -> dict:
         return {}
 
 
+def _run_streakout(well_df, read_df, ref_dir, output_dir, tool_paths,
+                   workers, reference, flank_5p, flank_3p):
+    """Detect mixed wells worth streaking out, and draw a page for each.
+
+    Both halves cost: detection builds a consensus per subpopulation, and the
+    pages are rendered one well at a time.
+    """
+    from usortm.demux.streakout import (
+        detect_streakout_candidates,
+        save_streakout_results,
+        generate_well_pileup_html,
+    )
+
+    candidates = detect_streakout_candidates(
+        well_df, read_df, str(ref_dir), str(output_dir),
+        minimap2_path=tool_paths["minimap2"],
+        samtools_path=tool_paths["samtools"],
+        workers=workers,
+        reference_fasta=str(reference) if reference is not None else None,
+    )
+    if not candidates:
+        return []
+
+    streakout_dir = output_dir / "streakout"
+    streakout_dir.mkdir(exist_ok=True)
+    save_streakout_results(candidates, str(streakout_dir))
+    flank_5p_len = len(flank_5p) if flank_5p is not None else 0
+    flank_3p_len = len(flank_3p) if flank_3p is not None else 0
+    well_bam_dir = output_dir / "wells" / "consensus"
+    for cand in candidates:
+        generate_well_pileup_html(
+            cand["global_well"], read_df, str(ref_dir), cand,
+            str(streakout_dir / f"well_{cand['plate']}_{cand['well']}.html"),
+            minimap2_path=tool_paths["minimap2"],
+            samtools_path=tool_paths["samtools"],
+            flank_5p_len=flank_5p_len,
+            flank_3p_len=flank_3p_len,
+            bam_path=str(well_bam_dir / f"{cand['global_well']}.bam"),
+        )
+    return candidates
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -212,6 +254,7 @@ def run_levseq_pipeline(
     live_label: Optional[str] = None,
     live_report=None,
     resume: bool = False,
+    streakout: bool = False,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -619,40 +662,22 @@ def run_levseq_pipeline(
             well_df = utils.extract_matches(well_df, workers=workers)
 
         # --- Stage 10.5: Streak-out candidate detection ---
+        #
+        # Off unless asked for.  Streaking out a mixed well is a deliberate
+        # decision taken about a handful of wells, not something every run
+        # needs answered, and the stage pays for itself twice over: detection
+        # builds a consensus per subpopulation, and each candidate then gets a
+        # pileup page rendered one at a time.
         live.set_stage("streakout")
-        _progress("Screening for streak-out candidates...")
-        from usortm.demux.streakout import (
-            detect_streakout_candidates,
-            save_streakout_results,
-            generate_well_pileup_html,
-        )
-
-        streakout_dir = output_dir / "streakout"
-        candidates = detect_streakout_candidates(
-            well_df, read_df, str(ref_dir), str(output_dir),
-            minimap2_path=tool_paths["minimap2"],
-            samtools_path=tool_paths["samtools"],
-            workers=workers,
-            reference_fasta=str(reference) if reference is not None else None,
-        )
-
-        if candidates:
-            streakout_dir.mkdir(exist_ok=True)
-            save_streakout_results(candidates, str(streakout_dir))
-            _flank_5p_len = len(flank_5p) if flank_5p is not None else 0
-            _flank_3p_len = len(flank_3p) if flank_3p is not None else 0
-            well_bam_dir = output_dir / "wells" / "consensus"
-            for cand in candidates:
-                _bam = str(well_bam_dir / f"{cand['global_well']}.bam")
-                generate_well_pileup_html(
-                    cand["global_well"], read_df, str(ref_dir), cand,
-                    str(streakout_dir / f"well_{cand['plate']}_{cand['well']}.html"),
-                    minimap2_path=tool_paths["minimap2"],
-                    samtools_path=tool_paths["samtools"],
-                    flank_5p_len=_flank_5p_len,
-                    flank_3p_len=_flank_3p_len,
-                    bam_path=_bam,
-                )
+        candidates = []
+        if not streakout:
+            _progress("Skipping streak-out screening (--streakout to enable)")
+        else:
+            _progress("Screening for streak-out candidates...")
+            candidates = _run_streakout(
+                well_df, read_df, ref_dir, output_dir, tool_paths, workers,
+                reference, flank_5p, flank_3p,
+            )
 
         pipeline_stats["streakout"] = {
             "candidates": len(candidates),
@@ -660,6 +685,7 @@ def run_levseq_pipeline(
                 v for c in candidates for v in c["recoverable_variants"]
             }),
         }
+
 
     # --- Stage 10.6: Consensus hotspot detection ---
     if reference is not None:
