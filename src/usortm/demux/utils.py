@@ -1195,6 +1195,22 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         logger.warning(f"Consensus failed for {well}: {e}")
         return well, None, None
 
+    # Record how many reads the consensus was built from, in its own header.
+    # A consensus carries no trace of its depth otherwise, so one from four
+    # reads and one from four hundred are indistinguishable once the file
+    # leaves the run that made it.
+    try:
+        n_reads = _count_aligned_reads(bam, samtools_path)
+        if n_reads is not None:
+            with open(cons_fa) as fh:
+                body = fh.read()
+            if body.startswith(">"):
+                head, _, rest = body.partition("\n")
+                with open(cons_fa, "w") as fh:
+                    fh.write(f"{head} reads={n_reads}\n{rest}")
+    except Exception as exc:
+        logger.debug("Could not annotate consensus depth for %s: %s", well, exc)
+
     # 3) Align consensus back to reference
     try:
         mm2 = subprocess.Popen(
@@ -2120,6 +2136,18 @@ def _check_column_agreement(
     return result
 
 
+def _count_aligned_reads(bam_path: str, samtools_path: str = "samtools"):
+    """How many mapped reads a BAM holds, or None if it cannot be counted."""
+    try:
+        result = subprocess.run(
+            [samtools_path, "view", "-c", "-F", "4", bam_path],
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+        return int(result.stdout.strip())
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return None
+
+
 def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
                          frame_offset, has_flanks, wt_protein=""):
     """Work out one well's checks, returning the columns to set.
@@ -2466,6 +2494,8 @@ def _check_flanking_regions(
     # Count mismatches in each region
     flank_5p_mm = 0
     flank_3p_mm = 0
+    flank_5p_n = 0
+    flank_3p_n = 0
     var_mismatches = 0
     var_matches = 0
     var_indels = 0
@@ -2488,8 +2518,15 @@ def _check_flanking_regions(
                 # Deletion
                 flank_5p_mm += 1
             elif ref_base is not None and ref_base.islower():
-                # Lowercase ref_base = mismatch in pysam
-                flank_5p_mm += 1
+                # Pysam flags this as a mismatch, but an N is the consensus
+                # declining to call the position, not a base that disagrees.
+                # Counted as a mismatch it makes thin coverage look like a
+                # damaged flank, which is what the variable region already
+                # avoids by tracking them apart.
+                if query_seq[qpos] in ('N', 'n'):
+                    flank_5p_n += 1
+                else:
+                    flank_5p_mm += 1
         elif rpos < flank_5p_len + variable_len:
             # Variable region
             if qpos is None:
@@ -2508,7 +2545,10 @@ def _check_flanking_regions(
             if qpos is None:
                 flank_3p_mm += 1
             elif ref_base is not None and ref_base.islower():
-                flank_3p_mm += 1
+                if query_seq[qpos] in ('N', 'n'):
+                    flank_3p_n += 1
+                else:
+                    flank_3p_mm += 1
 
     # Determine variable region status (same categories as CIGAR logic).
     # N bases in consensus (ambiguous calls) are counted separately from
@@ -2562,6 +2602,10 @@ def _check_flanking_regions(
     result["flank_check"] = flank_check
     result["flank_5p_mismatches"] = flank_5p_mm
     result["flank_3p_mismatches"] = flank_3p_mm
+    # Uncalled flank positions, kept apart from disagreeing ones for the same
+    # reason var_n_count is: they say the consensus was thin there, not wrong.
+    result["flank_5p_n"] = flank_5p_n
+    result["flank_3p_n"] = flank_3p_n
     result["var_match_fraction"] = (var_matches + var_n_count) / variable_len if variable_len else 0.0
     result["var_n_count"] = var_n_count
     return result

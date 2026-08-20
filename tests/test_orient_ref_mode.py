@@ -88,7 +88,10 @@ class TestOrientRefWithoutVector:
         # Every read survives: without flanks there is no amplicon length to
         # filter against.
         assert captured["n_reads"] == 4
-        assert results["wells_with_data"] == 1
+        # The well is reported even though four reads is below the depth at
+        # which it counts as having data -- what is being tested is the
+        # filter, not the depth threshold.
+        assert results["well_assignments"]
 
     def test_no_flank_lengths_reported(self, tmp_path, monkeypatch):
         """flank_5p_len/3p_len are only meaningful with a vector."""

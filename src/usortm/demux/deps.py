@@ -52,6 +52,62 @@ def _search_common_paths(name: str) -> Optional[str]:
     return None
 
 
+def tool_versions(tools: Optional[dict] = None) -> dict:
+    """Record what produced a run: the package, and each external tool.
+
+    Worth storing rather than deriving later, because the answer changes under
+    you.  Which dorado is found depends on PATH, and the layout of its output
+    changed between versions -- a run that demultiplexed nothing looks the same
+    afterwards whichever version did it, unless the version was written down at
+    the time.
+
+    Args:
+        tools: ``{name: path}`` already resolved, so the versions recorded are
+            the binaries actually used rather than whatever is found now.
+            Resolved here when omitted.
+
+    Returns:
+        ``{name: {"path": ..., "version": ...}}`` plus ``usortm`` and
+        ``seqviewer`` entries.  A tool that cannot be queried records its path
+        with a null version rather than being left out, since knowing it was
+        used and unidentifiable beats a silent gap.
+    """
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+    out: dict = {}
+    for name in ("usortm", "seqviewer"):
+        try:
+            out[name] = {"version": _pkg_version(name)}
+        except PackageNotFoundError:
+            out[name] = {"version": None}
+
+    if tools is None:
+        tools = {}
+        for name, finder in (("dorado", find_dorado),
+                             ("minimap2", find_minimap2),
+                             ("samtools", find_samtools)):
+            try:
+                tools[name] = finder()
+            except Exception:
+                continue
+
+    for name, path in tools.items():
+        entry = {"path": str(path), "version": None}
+        try:
+            result = subprocess.run([str(path), "--version"],
+                                    capture_output=True, text=True, timeout=10)
+            text = (result.stdout.strip() or result.stderr.strip())
+            if text:
+                # samtools puts its version on the first line after the name;
+                # dorado and minimap2 print it alone.
+                first = text.splitlines()[0].strip()
+                entry["version"] = first.split()[-1] if " " in first else first
+        except Exception:
+            pass
+        out[name] = entry
+    return out
+
+
 def _version_tuple(version_string: str) -> tuple:
     """Parse a version string like '1.3.1+abc' into (1, 3, 1)."""
     clean = version_string.strip().split("+")[0]

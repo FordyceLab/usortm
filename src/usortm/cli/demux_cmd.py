@@ -21,7 +21,8 @@ from rich import box
 from rich.markup import escape
 
 from usortm.demux.deps import check_all_dependencies
-from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.cli.theme import get_console, BORDER_STYLE, section
+from usortm.demux.pipeline import WELL_DATA_MIN_READS
 from usortm.paths import config_file
 
 console = get_console()
@@ -102,6 +103,11 @@ def demux(
         None,
         "--subsample", "-n",
         help="Subsample to this many reads before running the pipeline.",
+    ),
+    open_live: bool = typer.Option(
+        True,
+        "--open-live/--no-open-live",
+        help="Open the live dashboard in a browser when the run starts.",
     ),
     workers: int = typer.Option(
         None,
@@ -385,7 +391,7 @@ def demux(
         )
         raise typer.Exit(1)
 
-    console.rule("[bold]Inputs[/bold]", style=BORDER_STYLE, align="left")
+    section(console, "Inputs")
 
     # Check external tool dependencies before starting
     try:
@@ -397,10 +403,7 @@ def demux(
         console.print("Install missing tools or add them to your PATH.")
         raise typer.Exit(1)
 
-    console.print()
-
-
-    console.rule("[bold]Barcode layout[/bold]", style=BORDER_STYLE, align="left")
+        section(console, "Barcode layout")
 
     # Parse mask config if provided
     mask_config = None
@@ -429,7 +432,7 @@ def demux(
     demux_output.mkdir(parents=True, exist_ok=True)
 
 
-    console.rule("[bold]Demultiplexing[/bold]", style=BORDER_STYLE, align="left")
+    section(console, "Demultiplexing")
 
     # Resolve how each FASTQ's barcode plates map onto sort plates.  A single
     # FASTQ with matching plate numbers is the ordinary case and runs straight
@@ -478,10 +481,21 @@ def demux(
     from usortm.demux.live import LiveReport
 
     live_report = LiveReport(demux_output)
-    console.print(
-        f"[muted]Live dashboard: {live_report.page}[/muted]\n"
-        "[muted]  Open it in a browser to watch the run fill in.[/muted]"
-    )
+    console.print(f"[muted]Live dashboard: {live_report.page}[/muted]")
+    if open_live:
+        # Opened rather than announced: a run takes long enough that a path
+        # printed once scrolls away before anyone thinks to look at it.
+        try:
+            import webbrowser
+
+            webbrowser.open(live_report.page.resolve().as_uri())
+            console.print("[muted]  Opened in your browser.[/muted]")
+        except Exception:
+            console.print("[muted]  Open it in a browser to watch the run "
+                          "fill in.[/muted]")
+    else:
+        console.print("[muted]  Open it in a browser to watch the run "
+                      "fill in.[/muted]")
     console.print()
 
     per_segment = []
@@ -554,7 +568,7 @@ def demux(
 
     # Save results (skip recovery-curve simulation for round > 1)
 
-    console.rule("[bold]Results[/bold]", style=BORDER_STYLE, align="left")
+    section(console, "Results")
 
     _save_demux_results(results, demux_output, project=(None if round_num > 1 else project))
 
@@ -689,7 +703,8 @@ def demux(
     summary_table.add_row("Demuxed (FBC+RBC)", _pct(demuxed_reads, input_reads))
     summary_table.add_row("Assigned to wells", _pct(assigned_reads, input_reads))
     summary_table.add_row(
-        "Wells with data", f"{results['wells_with_data']:,}"
+        f"Wells ≥{WELL_DATA_MIN_READS} reads",
+        f"{results['wells_with_data']:,}",
     )
     summary_table.add_row(
         f"Wells \u2265{min_reads} reads", f"{results['wells_passing']:,}"
@@ -1932,6 +1947,10 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         "wells_with_data": results["wells_with_data"],
         "wells_passing": results["wells_passing"],
     }
+    # What produced this run, so a result can be traced to the software that
+    # made it after the machine has moved on.
+    if results.get("versions"):
+        summary["versions"] = results["versions"]
     for key in ("seq_len_min", "seq_len_max", "seq_len_median"):
         if key in results:
             summary[key] = results[key]

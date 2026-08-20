@@ -388,7 +388,9 @@ class TestPipelineHelpers:
         assert results["demuxed_reads"] == 50
         assert results["total_reads"] == 1000  # backward compat alias
         assert results["assigned_reads"] == 45  # 50 - 5 with None
-        assert results["wells_with_data"] == 2
+        # Depths are 30 and 15, and a well needs 20 reads before there is a
+        # consensus worth calling, so only one well counts as having data.
+        assert results["wells_with_data"] == 1
         assert results["wells_passing"] == 1   # only depth=30 >= 20
         assert "1_A1" in results["well_assignments"]
         assert "1_A3" in results["well_assignments"]
