@@ -1195,6 +1195,22 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         logger.warning(f"Consensus failed for {well}: {e}")
         return well, None, None
 
+    # Record how many reads the consensus was built from, in its own header.
+    # A consensus carries no trace of its depth otherwise, so one from four
+    # reads and one from four hundred are indistinguishable once the file
+    # leaves the run that made it.
+    try:
+        n_reads = _count_aligned_reads(bam, samtools_path)
+        if n_reads is not None:
+            with open(cons_fa) as fh:
+                body = fh.read()
+            if body.startswith(">"):
+                head, _, rest = body.partition("\n")
+                with open(cons_fa, "w") as fh:
+                    fh.write(f"{head} reads={n_reads}\n{rest}")
+    except Exception as exc:
+        logger.debug("Could not annotate consensus depth for %s: %s", well, exc)
+
     # 3) Align consensus back to reference
     try:
         mm2 = subprocess.Popen(
@@ -2120,15 +2136,27 @@ def _check_column_agreement(
     return result
 
 
+def _count_aligned_reads(bam_path: str, samtools_path: str = "samtools"):
+    """How many mapped reads a BAM holds, or None if it cannot be counted."""
+    try:
+        result = subprocess.run(
+            [samtools_path, "view", "-c", "-F", "4", bam_path],
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+        return int(result.stdout.strip())
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return None
+
+
 def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
-                         frame_offset, has_flanks, wt_protein=""):
+                         frame_offset, has_flanks, parent_protein=""):
     """Work out one well's checks, returning the columns to set.
 
     Split out of :func:`extract_matches` so wells can be handled in parallel:
     each opens its own consensus BAM and shares nothing with the others.  The
     caller writes the results back, keeping DataFrame mutation on one thread.
 
-    *wt_protein* is the unmutated protein the library was built from, when it
+    *parent_protein* is the unmutated protein the library was built from, when it
     could be derived.  A well matching it exactly is reported as ``"Wild
     Type"`` rather than as a mismatch against whatever variant it was assigned.
     """
@@ -2211,7 +2239,7 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
     # variant then reports a mismatch.  Reported as an error it reads as a
     # damaged well; it is an intact one carrying no mutation, which is a
     # different thing to know and a different thing to do about.
-    if wt_protein and status not in ("Perfect Match", "Silent Mutation"):
+    if parent_protein and status not in ("Perfect Match", "Silent Mutation"):
         try:
             assigned_protein = str(Seq(str(ref_seq)[frame_offset:]).translate())
         except Exception:
@@ -2220,7 +2248,7 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
         # not have.  Where the assigned variant encodes the parent's protein
         # anyway, "matches the parent" and "matches the assignment" say the
         # same thing, and the well is not evidence of parental carry-over.
-        if assigned_protein and assigned_protein != wt_protein:
+        if assigned_protein and assigned_protein != parent_protein:
             cons_var = _extract_variable_region(
                 cons_seq, ref_seq, flank_5p_len, flank_3p_len,
             ) if cons_seq else ""
@@ -2229,9 +2257,9 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
                     cons_protein = str(Seq(cons_var[frame_offset:]).translate())
                 except Exception:
                     cons_protein = ""
-                if cons_protein and cons_protein == wt_protein:
-                    out["cons_check"] = "Wild Type"
-                    out["protein_check"] = "WT"
+                if cons_protein and cons_protein == parent_protein:
+                    out["cons_check"] = "Parent"
+                    out["protein_check"] = "Parent"
 
     return out
 
@@ -2263,7 +2291,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         progress_callback: Optional ``(n_done, total)`` callback.
         library_inserts: The library's variable regions, used to recover the
             unmutated parent the library was built from.  A well matching it
-            is reported ``"Wild Type"`` instead of as a mismatch against the
+            is reported ``"Parent"`` instead of as a mismatch against the
             variant it was assigned -- a mutational library does not contain
             its own parent, so such a well is given a variant it never carried
             and every check against that variant then fails.  Omit for a
@@ -2277,16 +2305,16 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    wt_protein = ""
+    parent_protein = ""
     if library_inserts:
-        from usortm.demux.protein_call import derive_wt_insert
+        from usortm.demux.protein_call import derive_parent_insert
 
-        wt_insert = derive_wt_insert(library_inserts)
-        if wt_insert:
+        parent_insert = derive_parent_insert(library_inserts)
+        if parent_insert:
             try:
-                wt_protein = str(Seq(wt_insert[frame_offset:]).translate())
+                parent_protein = str(Seq(parent_insert[frame_offset:]).translate())
             except Exception:
-                wt_protein = ""
+                parent_protein = ""
 
     has_flanks = (flank_5p_len > 0 or flank_3p_len > 0) and consensus_dir
     rows = list(well_df.iterrows())
@@ -2301,7 +2329,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         futures = {
             pool.submit(_extract_matches_one, row, flank_5p_len, flank_3p_len,
                         consensus_dir, frame_offset, has_flanks,
-                        wt_protein): index
+                        parent_protein): index
             for index, row in rows
         }
         for future in _bar(as_completed(futures), total=len(futures)):
@@ -2466,6 +2494,8 @@ def _check_flanking_regions(
     # Count mismatches in each region
     flank_5p_mm = 0
     flank_3p_mm = 0
+    flank_5p_n = 0
+    flank_3p_n = 0
     var_mismatches = 0
     var_matches = 0
     var_indels = 0
@@ -2488,8 +2518,15 @@ def _check_flanking_regions(
                 # Deletion
                 flank_5p_mm += 1
             elif ref_base is not None and ref_base.islower():
-                # Lowercase ref_base = mismatch in pysam
-                flank_5p_mm += 1
+                # Pysam flags this as a mismatch, but an N is the consensus
+                # declining to call the position, not a base that disagrees.
+                # Counted as a mismatch it makes thin coverage look like a
+                # damaged flank, which is what the variable region already
+                # avoids by tracking them apart.
+                if query_seq[qpos] in ('N', 'n'):
+                    flank_5p_n += 1
+                else:
+                    flank_5p_mm += 1
         elif rpos < flank_5p_len + variable_len:
             # Variable region
             if qpos is None:
@@ -2508,7 +2545,10 @@ def _check_flanking_regions(
             if qpos is None:
                 flank_3p_mm += 1
             elif ref_base is not None and ref_base.islower():
-                flank_3p_mm += 1
+                if query_seq[qpos] in ('N', 'n'):
+                    flank_3p_n += 1
+                else:
+                    flank_3p_mm += 1
 
     # Determine variable region status (same categories as CIGAR logic).
     # N bases in consensus (ambiguous calls) are counted separately from
@@ -2562,6 +2602,10 @@ def _check_flanking_regions(
     result["flank_check"] = flank_check
     result["flank_5p_mismatches"] = flank_5p_mm
     result["flank_3p_mismatches"] = flank_3p_mm
+    # Uncalled flank positions, kept apart from disagreeing ones for the same
+    # reason var_n_count is: they say the consensus was thin there, not wrong.
+    result["flank_5p_n"] = flank_5p_n
+    result["flank_3p_n"] = flank_3p_n
     result["var_match_fraction"] = (var_matches + var_n_count) / variable_len if variable_len else 0.0
     result["var_n_count"] = var_n_count
     return result

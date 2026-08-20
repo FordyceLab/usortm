@@ -1067,7 +1067,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 fraction=g["frac"],
                 status=g["status"],
                 highlighted=g["is_recoverable"],
-                wild_type=g.get("wild_type", ""),
+                parent=g.get("parent", ""),
             )
             for g in groups
         ],
@@ -1097,13 +1097,13 @@ def _generate_one_pick_pileup(
     ref_index: str = None,
     flank_5p_len: int = 0,
     flank_3p_len: int = 0,
-    wt_ref_fasta: str = None,
+    parent_ref_fasta: str = None,
     features: list = None,
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
 
     Args:
-        wt_ref_fasta: The unmutated construct.  When given, the well's reads
+        parent_ref_fasta: The unmutated construct.  When given, the well's reads
             are shown against it as a second group, so a change reads as a
             column that disagrees rather than as an absence.
         features: Annotations to draw over the reference bar, in the
@@ -1146,11 +1146,11 @@ def _generate_one_pick_pileup(
     # carries its designed change, so reads matching it agree everywhere and
     # the page says least exactly where the interest is; against the parent the
     # change is the one column where the two disagree.
-    wild_type = ""
-    if wt_ref_fasta and os.path.exists(wt_ref_fasta):
-        wt_record = next(SeqIO.parse(wt_ref_fasta, "fasta"), None)
-        if wt_record is not None and len(wt_record.seq) == ref_len:
-            wild_type = str(wt_record.seq)
+    parent = ""
+    if parent_ref_fasta and os.path.exists(parent_ref_fasta):
+        parent_record = next(SeqIO.parse(parent_ref_fasta, "fasta"), None)
+        if parent_record is not None and len(parent_record.seq) == ref_len:
+            parent = str(parent_record.seq)
 
     _display_status = cons_check if cons_check else ""
     _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
@@ -1162,7 +1162,7 @@ def _generate_one_pick_pileup(
         "is_recoverable": _is_recoverable,
         "ref_seq": ref_seq,
         "pileup_rows": pileup_rows,
-        "wild_type": wild_type,
+        "parent": parent,
     }]
 
     flank_lengths = None
@@ -1204,15 +1204,15 @@ def _clear_stale_pileups(pileup_dir: str, keep=None) -> int:
     return removed
 
 
-def _build_wt_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
+def _build_parent_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
     """Write the unmutated construct the library was built from, if derivable.
 
     Every member of a substitution scan differs from the parent at one codon,
     so the parent can be recovered by vote even though it is not itself a
     member.  A library whose members genuinely differ has no such consensus
-    and gets no wild-type group.
+    and gets no parent group.
     """
-    from usortm.demux.protein_call import derive_wt_insert
+    from usortm.demux.protein_call import derive_parent_insert
 
     fastas = sorted(glob.glob(os.path.join(single_ref_dir, "*.fasta")))
     if len(fastas) < 4:
@@ -1224,17 +1224,17 @@ def _build_wt_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
         if rec is not None:
             seqs.append(str(rec.seq))
 
-    wt = derive_wt_insert(seqs)
-    if wt is None:
+    wt = derive_parent_insert(seqs)
+    if parent is None:
         logger.debug(
-            "No wild-type reference: the library's members are not a "
+            "No parent reference: the library's members are not a "
             "single-substitution scan",
         )
         return None
 
-    path = os.path.join(out_dir, ".wild_type.fasta")
+    path = os.path.join(out_dir, ".parent.fasta")
     with open(path, "w") as fh:
-        fh.write(f">wild type\n{wt}\n")
+        fh.write(f">parent\n{wt}\n")
     return path
 
 
@@ -1299,7 +1299,7 @@ def _pick_pileup_worker(task: dict) -> bool:
         ref_index=task["ref_index"],
         flank_5p_len=task["flank_5p_len"],
         flank_3p_len=task["flank_3p_len"],
-        wt_ref_fasta=task.get("wt_ref_fasta"),
+        parent_ref_fasta=task.get("parent_ref_fasta"),
         features=task.get("features"),
     )
     return result is not None
@@ -1508,12 +1508,12 @@ def generate_pick_pileups(
     # Everything a worker needs, packed per task so it can be sent to another
     # process.  The grid itself never comes back: each worker writes its own
     # page and returns only whether it managed to.
-    wt_ref_fasta = _build_wt_reference(single_ref_dir, pileup_dir)
+    parent_ref_fasta = _build_parent_reference(single_ref_dir, pileup_dir)
     features = _pileup_features(annotation_file, single_ref_dir, tasks)
 
     for task in tasks:
         task.update(
-            wt_ref_fasta=wt_ref_fasta,
+            parent_ref_fasta=parent_ref_fasta,
             features=features,
             reads_records=(well_reads_map or {}).get(task["well_pos"]),
             well_fastqs_dir=None if has_sequences else well_fastqs_dir,

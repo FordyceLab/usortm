@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TextColumn
 from rich import box
 
-from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.cli.theme import get_console, BORDER_STYLE, section
 from usortm.paths import input_file
 
 console = get_console()
@@ -201,7 +201,7 @@ def pick(
         console.print("[green]\u2713[/green] Excluding wells with consensus errors (use --include-cons-errors to override)")
 
     well_data = _load_well_assignments(well_assignments_file)
-    console.rule("[bold]Selection[/bold]", style=BORDER_STYLE, align="left")
+    section(console, "Selection")
 
     console.print(f"[green]\u2713[/green] Loaded {len(well_data)} wells with data")
 
@@ -380,8 +380,7 @@ def pick(
         try:
             from usortm.demux.streakout import generate_pick_pileups
 
-            console.rule("[bold]Pileups[/bold]", style=BORDER_STYLE,
-                          align="left")
+            section(console, "Pileups")
             demux_output_dir = demux_output
             n_hits = len([h for h in pick_list if not h.get("empty")])
 

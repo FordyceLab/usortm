@@ -56,7 +56,7 @@ demux = [
     # seqviewer, so whatever master holds on the day of an install decides what
     # a run produces.  Move the pin deliberately, with the pileup tests run
     # against the new commit.
-    "seqviewer[align] @ git+https://github.com/micah-olivas/seqviewer@345d9dafea14ed129cdb2b7d83e0fb366d27204c",
+    "seqviewer[align] @ git+https://github.com/micah-olivas/seqviewer@4c5898f2405356b309ac365657cdb911a5b4d266",
 ]
 remote = [
     "fabric>=3.0",

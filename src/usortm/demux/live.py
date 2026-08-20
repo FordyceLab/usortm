@@ -64,6 +64,8 @@ class LiveReport:
         self.label = label
         self.started = time.time()
         self.stage = "deps"
+        self._stage_started = self.started
+        self.durations: dict = {}
         self.data: dict = {}
         self.enabled = True
         try:
@@ -98,7 +100,16 @@ class LiveReport:
         self.write()
 
     def set_stage(self, stage: str) -> None:
-        """Record which stage is running and flush."""
+        """Record which stage is running, close off the last one, and flush.
+
+        The stage that just ended gets its elapsed time recorded.  Knowing a
+        run is on stage six says nothing about whether it is going well; the
+        times behind it are what say which stage is the one to wait on.
+        """
+        now = time.time()
+        if self.stage and self.stage != stage:
+            self.durations[self.stage] = round(now - self._stage_started, 1)
+        self._stage_started = now
         self.stage = stage
         self.write()
 
@@ -115,6 +126,7 @@ class LiveReport:
             "label": self.label,
             "stage": self.stage,
             "stages": [{"key": k, "name": n} for k, n in STAGES],
+            "durations": self.durations,
             "startedEpoch": self.started,
             "writtenEpoch": time.time(),
             "updated": time.strftime("%H:%M:%S"),
@@ -155,7 +167,35 @@ _PAGE = """<title>uSort-M demux — live</title>
          font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
   main { max-width:940px; margin:0 auto; padding:2rem; }
   h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
+  /* Which FASTQ this is, set apart from the heading: a run spans several, and
+     the one being worked on is the thing a reader checks first on returning. */
+  .fastq { display:inline-block; margin:.15rem 0 .5rem;
+           padding:.2rem .5rem; border-radius:4px;
+           background:var(--surface-2); color:var(--text-secondary);
+           font-family:SF Mono,Menlo,Consolas,monospace; font-size:.8rem; }
+  .fastq b { color:var(--text-primary); font-weight:600; }
   .sub { color:var(--text-secondary); font-size:.9rem; margin:0 0 1.5rem; }
+  /* The stage list and the histogram sit side by side: the chart is context,
+     not the headline, and given the full row it dominated a page whose point
+     is the run's progress.  It drops below the list when there is no room.
+     The gap below belongs to the row rather than to either column, since
+     which of the two is taller depends on how far the run has got. */
+  .cols { display:flex; gap:2.5rem; align-items:flex-start; flex-wrap:wrap;
+          margin-bottom:1.75rem; }
+  .cols > ol { flex:1 1 20rem; margin:0; }
+  /* One series, so no legend: the caption names it.  Bars carry the value and
+     the axis stays recessive, which is what keeps a bimodal shape readable at
+     this height.  The top margin sets the caption against the first stage. */
+  figure { flex:0 1 17rem; margin:.35rem 0 0; min-width:0; }
+  figcaption { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
+               color:var(--text-muted); margin-bottom:.45rem; }
+  figure .hint { color:var(--text-secondary); font-size:.75rem;
+                 margin-top:.15rem; }
+  #histSvg { width:100%; height:72px; display:block; }
+  #histSvg rect { fill:var(--series-1); }
+  #histSvg line { stroke:var(--rule); stroke-width:1; }
+  .axis { display:flex; justify-content:space-between;
+          font-size:.7rem; color:var(--text-muted); margin-top:.3rem; }
   .stats { display:flex; flex-wrap:wrap; gap:1.75rem; margin-bottom:1.75rem; }
   .k { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
        color:var(--text-muted); }
@@ -167,6 +207,8 @@ _PAGE = """<title>uSort-M demux — live</title>
   li .dot { width:9px; height:9px; border-radius:50%; background:var(--rule);
             flex:none; }
   li.done { color:var(--text-secondary); }
+  .took { color:var(--text-muted); font-size:.78rem; margin-left:.5rem;
+          font-variant-numeric:tabular-nums; }
   li.done .dot { background:var(--good); }
   li.now { color:var(--text-primary); font-weight:600; }
   li.now .dot { background:var(--series-1);
@@ -186,11 +228,20 @@ _PAGE = """<title>uSort-M demux — live</title>
              background:var(--surface-2); margin:1rem 0; font-size:.87rem; }
 </style>
 <main>
-  <h1>Demultiplexing <span id="label"></span></h1>
+  <h1>Demultiplexing</h1>
+  <div class="fastq" id="fastq" hidden></div>
   <p class="sub" id="sub">waiting for the run to report…</p>
   <div class="stats" id="stats"></div>
   <div id="warn"></div>
-  <ol id="stages"></ol>
+  <div class="cols">
+    <ol id="stages"></ol>
+    <figure id="hist" hidden>
+      <figcaption>Read length</figcaption>
+      <svg id="histSvg" viewBox="0 0 640 96" preserveAspectRatio="none"></svg>
+      <div class="axis" id="histAxis"></div>
+      <div class="hint" id="histNote"></div>
+    </figure>
+  </div>
   <div id="plates"></div>
   <div id="finished"></div>
   <p class="foot" id="foot"></p>
@@ -202,7 +253,54 @@ const pct = (a, b) => (b ? (100 * a / b).toFixed(1) + "%" : "\\u2014");
 function render() {
   const D = window.USORTM_LIVE;
   if (!D) return;
-  document.getElementById("label").textContent = D.label ? "\\u2014 " + D.label : "";
+  // Read length. Bars are drawn against the tallest bin rather than the total,
+  // so a distribution with one dominant mode still shows its smaller one.
+  var H = D.read_len_hist;
+  var hist = document.getElementById("hist");
+  if (H && H.counts && H.counts.length) {
+    var counts = H.counts, bin = H.bin_size || 1;
+    var peak = Math.max.apply(null, counts) || 1;
+    var W = 640, HT = 96, gap = 1;
+    var bw = W / counts.length;
+    var parts = [];
+    for (var i = 0; i < counts.length; i++) {
+      var h = Math.round((counts[i] / peak) * (HT - 2));
+      if (h < 1 && counts[i] > 0) h = 1;   // a bin with reads is never invisible
+      if (h > 0) {
+        parts.push('<rect x="' + (i * bw).toFixed(2) + '" y="' + (HT - h) +
+                   '" width="' + Math.max(bw - gap, 0.5).toFixed(2) +
+                   '" height="' + h + '"></rect>');
+      }
+    }
+    parts.push('<line x1="0" y1="' + (HT - 0.5) + '" x2="' + W +
+               '" y2="' + (HT - 0.5) + '"></line>');
+    document.getElementById("histSvg").innerHTML = parts.join("");
+    document.getElementById("histNote").textContent =
+      "median " + (H.median || 0).toLocaleString() + " bp \\u00b7 " +
+      (H.n_reads || 0).toLocaleString() + " reads";
+    var axis = document.getElementById("histAxis");
+    axis.innerHTML = "";
+    // Three ticks, not four: the column is narrow and four crowd into each
+    // other at the width this now sits at.
+    for (var t = 0; t < 3; t++) {
+      var s = document.createElement("span");
+      s.textContent = Math.round(t * counts.length / 2 * bin).toLocaleString() +
+                      (t === 2 ? " bp" : "");
+      axis.appendChild(s);
+    }
+    hist.hidden = false;
+  } else {
+    hist.hidden = true;
+  }
+
+  var fq = document.getElementById("fastq");
+  if (D.label) {
+    fq.innerHTML = "fastq: <b></b>";
+    fq.querySelector("b").textContent = D.label;
+    fq.hidden = false;
+  } else {
+    fq.hidden = true;
+  }
   tick();   // elapsed and data age tick every second, not per reload
 
   const cards = [["Input reads", fmt(D.input_reads), ""]];
@@ -222,9 +320,15 @@ function render() {
     ? `<div class="warnbox"><b>${D.warning.headline}</b><br>${D.warning.detail}</div>` : "";
 
   const at = D.stages.findIndex(s => s.key === D.stage);
-  document.getElementById("stages").innerHTML = D.stages.map((s, i) =>
-    `<li class="${i < at ? "done" : i === at ? "now" : ""}">`
-    + `<span class="dot"></span>${s.name}</li>`).join("");
+  const took = D.durations || {};
+  document.getElementById("stages").innerHTML = D.stages.map((s, i) => {
+    // A finished stage shows what it cost; the running one shows nothing
+    // rather than a number that would keep changing under the eye.
+    const t = took[s.key];
+    const note = (i < at && t != null) ? `<span class="took">${dur(t)}</span>` : "";
+    return `<li class="${i < at ? "done" : i === at ? "now" : ""}">`
+      + `<span class="dot"></span>${s.name}${note}</li>`;
+  }).join("");
 
   if (D.plates && Object.keys(D.plates).length) {
     const rows = Object.entries(D.plates).sort((a, b) => a[0] - b[0]);
@@ -249,13 +353,22 @@ function render() {
     D.stage === "done" ? "Run complete." : `Refreshing every ${POLL}s.`;
 }
 
+function dur(el) {
+  // Minutes pad once hours are shown, so "1h 02m 05s" does not read as
+  // "1h 2m" beside "1h 12m" and invite the wrong comparison.
+  const h = Math.floor(el / 3600), m = Math.floor((el % 3600) / 60),
+        s = Math.floor(el % 60);
+  if (h) return h + "h " + String(m).padStart(2, "0") + "m "
+                + String(s).padStart(2, "0") + "s";
+  if (m) return m + "m " + String(s).padStart(2, "0") + "s";
+  return s + "s";
+}
+
 function tick() {
   const D = window.USORTM_LIVE;
   if (!D) return;
   const el = Math.max(0, Date.now() / 1000 - D.startedEpoch);
-  const h = Math.floor(el / 3600), m = Math.floor((el % 3600) / 60),
-        s = Math.floor(el % 60);
-  const run = (h ? h + "h " : "") + m + "m " + String(s).padStart(2, "0") + "s";
+  const run = dur(el);
   const age = Math.max(0, Math.round(Date.now() / 1000 - D.writtenEpoch));
   const state = D.stage === "done" ? "finished"
               : age > POLL * 4 ? `no update for ${age}s` : `updated ${age}s ago`;

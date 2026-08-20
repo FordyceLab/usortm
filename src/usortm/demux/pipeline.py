@@ -131,6 +131,11 @@ def _extract_reads_gzip_aware(
 BARCODE_YIELD_CRITICAL = 0.02
 BARCODE_YIELD_POOR = 0.20
 
+#: Reads a well needs before it counts as having data.  Below this there is no
+#: consensus worth calling, so counting such wells overstates what a run
+#: recovered.  Matches the floor of the lowest quality tier.
+WELL_DATA_MIN_READS = 20
+
 
 def _check_barcode_yield(demux_stats: dict) -> Optional[dict]:
     """Flag a run where reads aligned but almost none carried a barcode.
@@ -318,7 +323,7 @@ def run_levseq_pipeline(
         if "input_reads" not in pipeline_stats:
             pipeline_stats["input_reads"] = read_len_hist.get("n_reads", 0)
     input_reads = pipeline_stats.get("input_reads", 0)
-    live.update(input_reads=input_reads)
+    live.update(input_reads=input_reads, read_len_hist=read_len_hist or None)
 
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
@@ -684,6 +689,16 @@ def run_levseq_pipeline(
         results["flank_5p_len"] = len(flank_5p)
         results["flank_3p_len"] = len(flank_3p)
 
+    # What produced this run.  Recorded from the binaries actually used, since
+    # which ones get found depends on PATH and can differ between runs on the
+    # same machine.
+    try:
+        from usortm.demux.deps import tool_versions
+
+        results["versions"] = tool_versions(tool_paths)
+    except Exception as exc:
+        logger.warning("Could not record tool versions: %s", exc)
+
     return results
 
 
@@ -837,10 +852,14 @@ def _translate_to_cli_format(
     else:
         assigned_reads = 0
 
-    wells_with_data = len(well_df)
+    # A well with a handful of reads has no usable consensus and nothing can
+    # be called from it, so counting it as having data overstates the run.
+    # Twenty is the floor the quality tiers already use.
     if "depth" in well_df.columns:
+        wells_with_data = int((well_df["depth"] >= WELL_DATA_MIN_READS).sum())
         wells_passing = int((well_df["depth"] >= min_reads).sum())
     else:
+        wells_with_data = len(well_df)
         wells_passing = 0
 
     # Build per-well assignment dict
