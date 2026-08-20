@@ -55,51 +55,6 @@ def _count_fastq_reads(fastq_path: str) -> int:
     return n_lines // 4
 
 
-def _compute_read_length_hist(fastq_path: str) -> dict:
-    """Return a read-length histogram dict for embedding in demux_summary.json.
-
-    Single-pass over the FASTQ sequence lines (line index % 4 == 1).
-
-    Returns:
-        Dict with keys bin_size, counts (50 ints), median (int), n_reads (int),
-        or empty dict if the file has no reads.
-    """
-    import statistics
-    from usortm.demux.utils import resolve_fastq_inputs
-
-    lengths = []
-    try:
-        for path in resolve_fastq_inputs(fastq_path):
-            open_fn = _open_fastq(path)
-            with open_fn(path, "rt") as fh:
-                for i, line in enumerate(fh):
-                    if i % 4 == 1:
-                        lengths.append(len(line.rstrip()))
-    except FileNotFoundError as exc:
-        # Distinct from an unreadable file: reporting a missing path as a
-        # possible pod5 sends the reader looking at the wrong thing.
-        raise ValueError(f"FASTQ not found: {exc.filename}") from exc
-    except (UnicodeDecodeError, OSError) as exc:
-        raise ValueError(
-            f"Cannot read FASTQ file '{fastq_path}' as text. "
-            "The file may be in raw nanopore format (pod5/fast5) rather than "
-            "basecalled FASTQ. Check the download URL from your sequencing provider."
-        ) from exc
-    if not lengths:
-        return {}
-    max_len = max(lengths)
-    bin_size = max(1, (max_len + 49) // 50)
-    bins = [0] * 50
-    for ln in lengths:
-        bins[min(ln // bin_size, 49)] += 1
-    return {
-        "bin_size": bin_size,
-        "counts": bins,
-        "median": int(statistics.median(lengths)),
-        "n_reads": len(lengths),
-    }
-
-
 def _extract_reads_gzip_aware(
     input_fastq: str,
     output_fastq: str,
@@ -235,6 +190,110 @@ def _run_streakout(well_df, read_df, ref_dir, output_dir, tool_paths,
     return candidates
 
 
+def _write_parent_reference(single_ref_dir, parent_insert, flank_5p, flank_3p):
+    """Put the parent among the per-variant references, shaped like them.
+
+    Those files are full-length when the run has a vector and insert-only when
+    it does not, and the consensus stage reads whichever it finds.  The shape
+    is taken from a file already there rather than assumed.
+    """
+    single_ref_dir = Path(single_ref_dir)
+    if not parent_insert or not single_ref_dir.is_dir():
+        return None
+
+    existing = next(iter(sorted(single_ref_dir.glob("*.fasta"))), None)
+    full_length = False
+    if existing is not None:
+        try:
+            body = "".join(l.strip() for l in existing.read_text().splitlines()
+                           if not l.startswith(">"))
+            full_length = len(body) > len(parent_insert)
+        except OSError:
+            pass
+
+    seq = (f"{flank_5p}{parent_insert}{flank_3p}" if full_length
+           else parent_insert)
+    path = single_ref_dir / "Parent.fasta"
+    path.write_text(f">Parent\n{seq}\n")
+    return path
+
+
+def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
+                     output_dir, tool_paths, workers, reads_per_well,
+                     flank_5p, flank_3p, assign_progress, progress):
+    """Give each well its variant, by translation where that is possible.
+
+    Translation aligns every well to one parent reference; the alternative
+    aligns each well's reads against all library members and takes the
+    majority target.  For a substitution scan the second is both slower and
+    weaker.  Slower because the members differ at one base in a construct of
+    two thousand, so every seed matches all of them and the aligner does as
+    much work as there are variants -- measured at 45 ms a read against 376
+    references and 0.2 ms against one, and on a real run that was half an hour
+    against under a minute.  Weaker because a well holding something the
+    library does not contain still gets a variant, there being no way to
+    answer "none of these".
+
+    Falls back to the alignment when translation cannot apply: without the
+    vector there are no flanks to locate the insert by, and a library that is
+    not a scan has no parent to compare against.
+    """
+    from usortm.demux.protein_call import (
+        assign_variants_by_translation,
+        derive_parent_insert,
+    )
+
+    library_inserts = {}
+    if reference is not None:
+        try:
+            library_inserts = {rec.id: str(rec.seq)
+                               for rec in SeqIO.parse(str(reference), "fasta")}
+        except Exception:
+            library_inserts = {}
+
+    can_translate = bool(
+        library_inserts and flank_5p is not None and flank_3p is not None
+        and derive_parent_insert(library_inserts)
+    )
+
+    if can_translate:
+        progress("Assigning variants by translation against the parent...")
+        # A well called Parent still needs a reference to build its consensus
+        # against, and the parent is not a library member, so nothing has
+        # written one.  Written in whatever form the library's own references
+        # take, since the consensus stage reads them all the same way.
+        _write_parent_reference(ref_dir / "single_ref_fastas",
+                                derive_parent_insert(library_inserts),
+                                flank_5p, flank_3p)
+        try:
+            return assign_variants_by_translation(
+                well_df, well_fastqs_dir, library_inserts,
+                flank_5p, flank_3p,
+                out_dir=str(ref_dir),
+                minimap2_path=tool_paths["minimap2"],
+                samtools_path=tool_paths["samtools"],
+                threads=workers,
+                reads_per_well=max(reads_per_well, 40),
+                progress_callback=assign_progress,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Translation assignment failed (%s); falling back to aligning "
+                "against the library", exc,
+            )
+
+    progress("Assigning variants from read alignments...")
+    return utils.assign_variants_from_reads(
+        well_df, read_df, str(reference),
+        well_fastqs_dir=well_fastqs_dir,
+        minimap2_path=tool_paths["minimap2"],
+        workers=workers,
+        progress_callback=assign_progress,
+        full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
+        reads_per_well=reads_per_well,
+    )
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -358,16 +417,12 @@ def run_levseq_pipeline(
         pipeline_stats["input_reads"] = n_extracted
         logger.info("Subsampled %d reads to %s", n_extracted, sub_path)
 
-    # --- Read length histogram (also provides read count) ---
-    live.set_stage("hist")
-    _progress("Computing read length histogram...")
-    read_len_hist = _compute_read_length_hist(str(fastq))
-    if read_len_hist:
-        pipeline_stats["read_len_hist"] = read_len_hist
-        if "input_reads" not in pipeline_stats:
-            pipeline_stats["input_reads"] = read_len_hist.get("n_reads", 0)
+    # Read lengths and the read count both come from the alignment, which has
+    # to touch every read anyway.  Measuring them here instead meant
+    # decompressing the whole input first, minutes before a run starts, and
+    # the count that came out was the same one the aligner produces.
+    read_len_hist = {}
     input_reads = pipeline_stats.get("input_reads", 0)
-    live.update(input_reads=input_reads, read_len_hist=read_len_hist or None)
 
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
@@ -431,7 +486,20 @@ def run_levseq_pipeline(
             total_reads=input_reads,
         )
         pipeline_stats["align"] = align_stats
-        live.update(aligned=align_stats.get("mapped"))
+
+        # The aligner saw every read, so its tallies are the authoritative
+        # count and the exact length distribution.  Both survive the alignment
+        # cache, so a resumed run still reports them without re-reading.
+        read_len_hist = align_stats.get("read_len_hist") or {}
+        if read_len_hist:
+            pipeline_stats["read_len_hist"] = read_len_hist
+        if not pipeline_stats.get("input_reads"):
+            pipeline_stats["input_reads"] = (
+                align_stats.get("mapped", 0) + align_stats.get("unmapped", 0)
+            )
+        input_reads = pipeline_stats.get("input_reads", 0)
+        live.update(input_reads=input_reads, aligned=align_stats.get("mapped"),
+                    read_len_hist=read_len_hist or None)
         _progress("Strand split complete.")
 
     # --- Stages 4 and 5: Dorado barcode demux (on oriented reads) ---
@@ -578,14 +646,10 @@ def run_levseq_pipeline(
                         f"{n_done:,}/{total:,} ({pct}%)"
                     )
 
-            well_df = utils.assign_variants_from_reads(
-                well_df, read_df, str(reference),
-                well_fastqs_dir=well_fastqs_dir,
-                minimap2_path=tool_paths["minimap2"],
-                workers=workers,
-                progress_callback=_assign_progress,
-                full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
-                reads_per_well=reads_per_well,
+            well_df = _assign_variants(
+                well_df, read_df, reference, ref_dir, well_fastqs_dir,
+                output_dir, tool_paths, workers, reads_per_well,
+                flank_5p, flank_3p, _assign_progress, _progress,
             )
 
             _progress("Generating consensus against assigned references...")

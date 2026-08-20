@@ -48,7 +48,7 @@ class TestWritesAsItGoes:
         does not contain would show no active step."""
         live = LiveReport(tmp_path)
         known = {k for k, _ in STAGES}
-        for key in ("config", "hist", "readdf", "wells", "variants",
+        for key in ("config", "align", "readdf", "wells", "variants",
                     "streakout", "done"):
             assert key in known
             live.set_stage(key)
