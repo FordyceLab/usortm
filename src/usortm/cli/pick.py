@@ -13,6 +13,7 @@ from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedCo
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.paths import input_file
 
 console = get_console()
 
@@ -654,7 +655,7 @@ def _load_library_order(
         candidates.append(Path(variants_path_str))
     # Fallback: look for a variants.csv next to the project state file
     if project_dir:
-        candidates.append(project_dir / "variants.csv")
+        candidates.append(input_file(project_dir, "variants.csv"))
 
     tried: Optional[Path] = candidates[0] if candidates else None
     resolved: Optional[Path] = None

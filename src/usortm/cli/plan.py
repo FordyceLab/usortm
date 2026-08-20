@@ -314,8 +314,12 @@ def plan(
     with open(output_dir / PROJECT_STATE_FILE, "w") as f:
         json.dump(project_state, f, indent=2)
     
-    # Copy variants to project
-    _save_variants(variants, output_dir / "variants.csv")
+    # Copy variants to project.  Inputs and configuration go in their own
+    # directories so the top level stays readable as the run fills it; older
+    # projects that kept everything loose are still found, see usortm.paths.
+    inputs_dir = output_dir / "inputs"
+    inputs_dir.mkdir(exist_ok=True)
+    _save_variants(variants, inputs_dir / "variants.csv")
     
     # Generate sorting instructions
     _write_sorting_instructions(output_dir, library_size, n_plates, fold_sampling, skew)
@@ -574,8 +578,8 @@ def _validate_variant_names(variants: list[dict]) -> None:
 
 def _generate_barcode_assignments(n_plates: int, barcode_kit: str, output_dir: Path) -> dict:
     """Generate barcode assignments for plates."""
-    barcode_dir = output_dir / "barcodes"
-    barcode_dir.mkdir(exist_ok=True)
+    barcode_dir = output_dir / "config" / "barcodes"
+    barcode_dir.mkdir(parents=True, exist_ok=True)
     
     if barcode_kit.lower() == "levseq":
         return _generate_levseq_barcodes(n_plates, barcode_dir)
@@ -984,7 +988,9 @@ def _write_default_mask_config(output_dir: Path, preset: Optional[str] = None):
     Only the ``[fbc]`` section is needed; the ``[rbc]`` masks are
     automatically derived (reverse-complement swap) at load time.
     """
-    dest = output_dir / "mask_config.toml"
+    config_dir = output_dir / "config"
+    config_dir.mkdir(exist_ok=True)
+    dest = config_dir / "mask_config.toml"
 
     if preset is not None:
         import shutil
