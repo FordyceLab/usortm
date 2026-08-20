@@ -564,6 +564,43 @@ def write_barcode_fastas(fbc_df,
             f.write(f">LevSeq-rbc-{1+index:02}\n{row['barcode']}\n")
     print("Wrote forward barcodes to:\tdorado_rbcs.fasta")
     
+def _demux_is_reusable(output_dir, data, toml, barcodes) -> bool:
+    """Whether a Dorado demux on disk answers for these inputs.
+
+    Dorado's output is decided by the reads it was given and the barcode
+    arrangement it was given them with, so a sidecar recording both settles
+    whether the run on disk is the run that would happen again.  Hashing the
+    configuration is affordable -- it is a few kilobytes -- while the reads
+    are identified by size and modification time, as the alignment cache does,
+    since they run to gigabytes.
+
+    Absent or mismatched, the answer is no: a false miss costs a re-run, a
+    false hit would carry another run's barcode calls into this one.
+    """
+    summary = os.path.join(output_dir, "sequencing_summary.txt")
+    sidecar = os.path.join(output_dir, "demux_inputs.json")
+    if not (os.path.exists(summary) and os.path.exists(sidecar)):
+        return False
+    try:
+        with open(sidecar) as fh:
+            saved = json.load(fh)
+        return saved == _demux_fingerprint(data, toml, barcodes)
+    except (OSError, ValueError):
+        return False
+
+
+def _demux_fingerprint(data, toml, barcodes) -> dict:
+    """What a Dorado demux depends on: the reads, and the arrangement."""
+    config = hashlib.md5()
+    for path in (toml, barcodes):
+        try:
+            with open(path, "rb") as fh:
+                config.update(fh.read())
+        except OSError:
+            return {}
+    return {"input": _input_fingerprint(data), "config": config.hexdigest()}
+
+
 def demux(
     data,
     output,
@@ -576,6 +613,7 @@ def demux(
     bc_both_ends=False,
     no_trim=False,
     max_reads=None,
+    resume=False,
 ):
     """Run Dorado demux with a custom barcode arrangement and sequences.
 
@@ -619,6 +657,11 @@ def demux(
     if no_trim:
         command.append("--no-trim")
 
+    if resume and _demux_is_reusable(output, data, toml, barcodes):
+        _say(f"  Reusing barcode calls in {os.path.basename(output)} "
+             f"from an earlier run")
+        return None
+
     logger.info("Running dorado demux: %s", " ".join(command))
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -630,6 +673,15 @@ def demux(
         raise subprocess.CalledProcessError(
             result.returncode, command, result.stdout, result.stderr
         )
+    # Record what this output answers for, so a resumed run can tell whether
+    # it still does.  Written only after success, so a failed demux leaves
+    # nothing for a later run to trust.
+    try:
+        with open(os.path.join(output, "demux_inputs.json"), "w") as fh:
+            json.dump(_demux_fingerprint(data, toml, barcodes), fh)
+    except OSError as exc:
+        logger.debug("Could not record demux inputs: %s", exc)
+
     if result.stderr:
         logger.debug("Dorado stderr: %s", result.stderr.strip())
     return result
