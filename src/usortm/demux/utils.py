@@ -200,10 +200,17 @@ def _input_fingerprint(fastq):
     """Identify the input reads cheaply, for cache invalidation.
 
     Hashing the reads themselves is not affordable — a production input runs
-    to several gigabytes — so each file is identified by absolute path, byte
-    size and modification time instead.  The bias is deliberate: a false
-    mismatch costs a re-alignment, while a false match would silently process
-    the wrong reads.
+    to several gigabytes — so each file is identified by name, byte size and
+    modification time instead.  The bias is deliberate: a false mismatch costs
+    a re-alignment, while a false match would silently process the wrong
+    reads.
+
+    The directory is deliberately not part of it.  Moving a project does not
+    change the reads inside it, and keying on the full path meant relocating
+    one — off a synced folder, onto a bigger disk — silently threw away every
+    cached stage and re-ran hours of work on identical input.  Name, size and
+    modification time to the nanosecond still separate any two files a run
+    might plausibly be pointed at.
 
     Args:
         fastq: Path, directory, or list of paths, as accepted by
@@ -225,11 +232,31 @@ def _input_fingerprint(fastq):
         except OSError:
             return None
         prints.append({
-            "path": os.path.abspath(p),
+            "name": os.path.basename(p),
             "size": st.st_size,
             "mtime_ns": st.st_mtime_ns,
         })
     return prints
+
+
+def _fingerprints_match(saved, current) -> bool:
+    """Whether a recorded input fingerprint describes the same reads.
+
+    Compared field by field rather than by equality so a sidecar written
+    before the directory was dropped from the fingerprint still matches: those
+    entries carry ``path`` where new ones carry ``name``, and the basename of
+    the one is the other.  Without this the change that made caches survive a
+    move would itself have discarded every cache that predated it.
+    """
+    if not saved or not current or len(saved) != len(current):
+        return False
+    for old, new in zip(saved, current):
+        name = old.get("name") or os.path.basename(old.get("path", ""))
+        if (name != new.get("name")
+                or old.get("size") != new.get("size")
+                or old.get("mtime_ns") != new.get("mtime_ns")):
+            return False
+    return True
 
 
 def _hist_from_length_counts(length_counts: dict) -> dict:
@@ -330,7 +357,7 @@ def align_and_split_by_strand(
                 saved = json.load(fh)
             if saved.get("ref_hash") != ref_hash:
                 stale_reason = "reference changed"
-            elif saved.get("input") != input_fp:
+            elif not _fingerprints_match(saved.get("input"), input_fp):
                 stale_reason = "input FASTQ changed"
             elif input_fp is None:
                 stale_reason = "input FASTQ could not be identified"
@@ -584,7 +611,11 @@ def _demux_is_reusable(output_dir, data, toml, barcodes) -> bool:
     try:
         with open(sidecar) as fh:
             saved = json.load(fh)
-        return saved == _demux_fingerprint(data, toml, barcodes)
+        current = _demux_fingerprint(data, toml, barcodes)
+        return (bool(current)
+                and saved.get("config") == current.get("config")
+                and _fingerprints_match(saved.get("input"),
+                                        current.get("input")))
     except (OSError, ValueError):
         return False
 

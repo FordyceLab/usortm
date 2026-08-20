@@ -774,7 +774,9 @@ class TestAlignmentCache:
         # One entry per input file — a directory of FASTQs is aligned in place
         # rather than concatenated, so the key covers every file.
         assert len(saved["input"]) == 1
-        assert saved["input"][0]["path"] == str(Path(fake_fastq).resolve())
+        # The name rather than the full path: a project that moves keeps its
+        # caches, and the directory says nothing about the reads inside it.
+        assert saved["input"][0]["name"] == Path(fake_fastq).name
         assert saved["input"][0]["size"] == Path(fake_fastq).stat().st_size
 
     def test_directory_input_fingerprints_every_file(
