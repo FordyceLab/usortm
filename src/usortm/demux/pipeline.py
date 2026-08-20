@@ -578,6 +578,19 @@ def run_levseq_pipeline(
         # --- Stage 10: Variant calling ---
         live.set_stage("variants")
         _progress("Calling variants from consensus...")
+        # The library's own sequences, so a well carrying the unmutated parent
+        # can be told apart from a damaged one.  The parent is not a library
+        # member, so a well holding it is assigned some variant it never had
+        # and fails every check against it.
+        library_inserts = []
+        if reference:
+            try:
+                library_inserts = [
+                    str(rec.seq) for rec in SeqIO.parse(str(reference), "fasta")
+                ]
+            except Exception:
+                pass
+
         if vector_fasta is not None and flank_5p is not None:
             consensus_dir = str(output_dir / "wells" / "consensus")
             def _match_progress(n_done, total):
@@ -592,6 +605,7 @@ def run_levseq_pipeline(
                 frame_offset=frame_offset,
                 workers=workers,
                 progress_callback=_match_progress,
+                library_inserts=library_inserts,
             )
         else:
             well_df = utils.extract_matches(well_df, workers=workers)

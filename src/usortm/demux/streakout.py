@@ -27,6 +27,7 @@ Outputs
 from __future__ import annotations
 
 import csv
+import glob
 import json
 import logging
 import os
@@ -1039,14 +1040,22 @@ def _build_pileup_grid(
 
 def _render_pileup_html(well_pos: str, candidate: dict,
                         groups: list,
-                        flank_lengths: tuple = None) -> str:
+                        flank_lengths: tuple = None,
+                        features: list = None) -> str:
     """Render one well's pileup page.
 
     The page is seqviewer's, which is where this renderer now lives; what is
     left here is the mapping from uSort-M's group dicts onto its model.
+
+    *features* are drawn as a track over the reference bar, which is what puts
+    the tags either side of the variable region in view -- so a change can be
+    read against what it sits next to rather than against a bare coordinate.
+    They are stated in the coordinates of the group references, which is what
+    :mod:`usortm.demux.annotations` produces.
     """
     if flank_lengths and not (flank_lengths[0] or flank_lengths[1]):
         flank_lengths = None
+    ref_len = max((len(g["ref_seq"]) for g in groups), default=0) or None
     view = PileupView(
         title=f"Pileup: Plate {candidate['plate']} Well {candidate['well']}",
         groups=[
@@ -1058,6 +1067,7 @@ def _render_pileup_html(well_pos: str, candidate: dict,
                 fraction=g["frac"],
                 status=g["status"],
                 highlighted=g["is_recoverable"],
+                wild_type=g.get("wild_type", ""),
             )
             for g in groups
         ],
@@ -1065,6 +1075,8 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         highlight_ids=list(candidate.get("recoverable_variants", [])),
         highlight_label="Recoverable",
         flanks=flank_lengths,
+        features=list(features or []),
+        ref_len=ref_len,
     )
     return render(view)
 
@@ -1085,8 +1097,17 @@ def _generate_one_pick_pileup(
     ref_index: str = None,
     flank_5p_len: int = 0,
     flank_3p_len: int = 0,
+    wt_ref_fasta: str = None,
+    features: list = None,
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
+
+    Args:
+        wt_ref_fasta: The unmutated construct.  When given, the well's reads
+            are shown against it as a second group, so a change reads as a
+            column that disagrees rather than as an absence.
+        features: Annotations to draw over the reference bar, in the
+            coordinates of the group references.
 
     Returns *output_path* on success, or None if the reference FASTA is
     missing or alignment produces no rows.
@@ -1121,6 +1142,16 @@ def _generate_one_pick_pileup(
         "groups": [{"variant": variant, "frac": consensus_fraction, "status": ""}],
     }
 
+    # The unmutated parent as a row of its own.  The variant reference already
+    # carries its designed change, so reads matching it agree everywhere and
+    # the page says least exactly where the interest is; against the parent the
+    # change is the one column where the two disagree.
+    wild_type = ""
+    if wt_ref_fasta and os.path.exists(wt_ref_fasta):
+        wt_record = next(SeqIO.parse(wt_ref_fasta, "fasta"), None)
+        if wt_record is not None and len(wt_record.seq) == ref_len:
+            wild_type = str(wt_record.seq)
+
     _display_status = cons_check if cons_check else ""
     _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
     group_sections = [{
@@ -1131,13 +1162,15 @@ def _generate_one_pick_pileup(
         "is_recoverable": _is_recoverable,
         "ref_seq": ref_seq,
         "pileup_rows": pileup_rows,
+        "wild_type": wild_type,
     }]
 
     flank_lengths = None
     if flank_5p_len or flank_3p_len:
         flank_lengths = (flank_5p_len, flank_3p_len)
     html = _render_pileup_html(well_pos, candidate_info, group_sections,
-                               flank_lengths=flank_lengths)
+                               flank_lengths=flank_lengths,
+                               features=features)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as fh:
         fh.write(html)
@@ -1171,6 +1204,149 @@ def _clear_stale_pileups(pileup_dir: str, keep=None) -> int:
     return removed
 
 
+def _build_wt_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
+    """Write the unmutated construct the library was built from, if derivable.
+
+    Every member of a substitution scan differs from the parent at one codon,
+    so the parent can be recovered by vote even though it is not itself a
+    member.  A library whose members genuinely differ has no such consensus
+    and gets no wild-type group.
+    """
+    from usortm.demux.protein_call import derive_wt_insert
+
+    fastas = sorted(glob.glob(os.path.join(single_ref_dir, "*.fasta")))
+    if len(fastas) < 4:
+        return None
+
+    seqs = []
+    for path in fastas:
+        rec = next(SeqIO.parse(path, "fasta"), None)
+        if rec is not None:
+            seqs.append(str(rec.seq))
+
+    wt = derive_wt_insert(seqs)
+    if wt is None:
+        logger.debug(
+            "No wild-type reference: the library's members are not a "
+            "single-substitution scan",
+        )
+        return None
+
+    path = os.path.join(out_dir, ".wild_type.fasta")
+    with open(path, "w") as fh:
+        fh.write(f">wild type\n{wt}\n")
+    return path
+
+
+def _pileup_features(annotation_file, single_ref_dir: str,
+                     tasks: list) -> list:
+    """Annotations placed on the reference the pileups are drawn against."""
+    if not annotation_file or not tasks:
+        return []
+    from usortm.demux.annotations import features_for_reference
+
+    ref_fasta = os.path.join(single_ref_dir, f"{tasks[0]['variant']}.fasta")
+    rec = next(SeqIO.parse(ref_fasta, "fasta"), None) if os.path.exists(
+        ref_fasta) else None
+    if rec is None:
+        return []
+    features = features_for_reference(annotation_file, str(rec.seq))
+    if features:
+        logger.info("Drawing %d annotations from %s",
+                    len(features), annotation_file)
+    return features
+
+
+def _pick_pileup_worker(task: dict) -> bool:
+    """Build and write one picked well's pileup page.
+
+    Defined at module level and given only picklable arguments so it can run
+    in another process.  Building a grid is better than three quarters Python
+    -- one tuple per reference position per read -- so threads serialise it on
+    the interpreter lock and more of them buy almost nothing.  Processes do
+    not share that lock.
+
+    Returns whether a page was written.
+    """
+    from usortm.demux.utils import load_well_reads
+
+    well_pos = task["well_pos"]
+    records = task.get("reads_records")
+    if records is not None:
+        well_reads = pd.DataFrame(records)
+    else:
+        well_reads = load_well_reads(task["well_fastqs_dir"], well_pos)
+
+    if well_reads is None or well_reads.empty:
+        logger.debug("No reads found for well %s", well_pos)
+        return False
+
+    fname = f"well_{task['source_plate']}_{task['source_well']}.html"
+    out_path = os.path.join(task["pileup_dir"], fname)
+    result = _generate_one_pick_pileup(
+        well_pos=well_pos,
+        source_plate=task["source_plate"],
+        source_well=task["source_well"],
+        variant=task["variant"],
+        reads=task["reads"],
+        consensus_fraction=task["consensus_fraction"],
+        cons_check=task.get("cons_check", ""),
+        well_reads=well_reads,
+        single_ref_dir=task["single_ref_dir"],
+        output_path=out_path,
+        minimap2_path=task["minimap2_path"],
+        samtools_path=task["samtools_path"],
+        ref_index=task["ref_index"],
+        flank_5p_len=task["flank_5p_len"],
+        flank_3p_len=task["flank_3p_len"],
+        wt_ref_fasta=task.get("wt_ref_fasta"),
+        features=task.get("features"),
+    )
+    return result is not None
+
+
+def _map_pileup_tasks(tasks: list, workers: int):
+    """Run *tasks* across processes, yielding ``(succeeded, task)`` as they land.
+
+    Falls back to threads where a process pool cannot start -- a frozen build,
+    a sandbox without shared memory -- so the stage still completes, just
+    without the speedup.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    if len(tasks) < 2 or workers < 2:
+        for task in tasks:
+            try:
+                yield _pick_pileup_worker(task), task
+            except Exception as exc:
+                logger.warning("Pick pileup failed for %s: %s",
+                               task["well_pos"], exc)
+                yield False, task
+        return
+
+    for pool_cls in (ProcessPoolExecutor, ThreadPoolExecutor):
+        try:
+            with pool_cls(max_workers=workers) as pool:
+                futures = {pool.submit(_pick_pileup_worker, t): t
+                           for t in tasks}
+                for fut in as_completed(futures):
+                    task = futures[fut]
+                    try:
+                        yield fut.result(), task
+                    except Exception as exc:
+                        logger.warning("Pick pileup failed for %s: %s",
+                                       task["well_pos"], exc)
+                        yield False, task
+            return
+        except Exception as exc:
+            if pool_cls is ThreadPoolExecutor:
+                raise
+            logger.warning(
+                "Could not run pileups across processes (%s); falling back to "
+                "threads, which will be slower", exc,
+            )
+
+
 def generate_pick_pileups(
     pick_list: list,
     demux_output_dir: str,
@@ -1179,6 +1355,7 @@ def generate_pick_pileups(
     minimap2_path: str = None,
     samtools_path: str = None,
     progress_callback=None,
+    annotation_file=None,
 ) -> dict:
     """Generate per-well pileup HTMLs for all picked (non-empty) hits.
 
@@ -1229,7 +1406,14 @@ def generate_pick_pileups(
         logger.warning("generate_pick_pileups: read_df.csv not found at %s", read_df_path)
         return {}
 
-    read_df = pd.read_csv(read_df_path, dtype={"plate": str})
+    # Only older demux outputs keep read sequences in this table; newer ones
+    # leave them in the per-well FASTQs.  Reading the header settles which,
+    # for the cost of one line rather than the whole file -- which on a real
+    # run is gigabytes that the FASTQ path then never looks at.
+    header = pd.read_csv(read_df_path, nrows=0)
+    has_sequences = "read_seq" in header.columns
+    read_df = (pd.read_csv(read_df_path, dtype={"plate": str})
+               if has_sequences else None)
 
     single_ref_dir = os.path.join(demux_output_dir, "reference_fasta", "single_ref_fastas")
     if not os.path.isdir(single_ref_dir):
@@ -1283,24 +1467,21 @@ def generate_pick_pileups(
     # sequence — that lives in the per-well FASTQs, so pull the reads for the
     # picked wells from there.  Older demux outputs kept the sequences in the
     # CSV, so those are still used when present.
-    read_df["well_pos"] = read_df["well_pos"].astype(str)
-    if "read_seq" in read_df.columns:
-        well_reads_map = {wp: grp for wp, grp in read_df.groupby("well_pos")}
-    else:
-        from usortm.demux.utils import load_well_reads
-
-        well_fastqs_dir = os.path.join(demux_output_dir, "wells", "fastqs")
+    well_fastqs_dir = os.path.join(demux_output_dir, "wells", "fastqs")
+    if has_sequences:
+        read_df["well_pos"] = read_df["well_pos"].astype(str)
+        grouped = {wp: grp for wp, grp in read_df.groupby("well_pos")}
+        # Records rather than frames: each well's reads cross a process
+        # boundary, and only the picked wells' reads need to.
         well_reads_map = {
-            t["well_pos"]: load_well_reads(well_fastqs_dir, t["well_pos"])
-            for t in tasks
+            t["well_pos"]: grouped[t["well_pos"]].to_dict("records")
+            for t in tasks if t["well_pos"] in grouped
         }
-        missing = [w for w, df in well_reads_map.items() if df.empty]
-        if missing:
-            logger.warning(
-                "generate_pick_pileups: no per-well FASTQ for %d well(s), "
-                "e.g. %s — pileups for those will be skipped",
-                len(missing), ", ".join(missing[:5]),
-            )
+    else:
+        # Left to the workers, which load only their own well.  Loading every
+        # picked well here would hold them all in one process, and do it on
+        # one core.
+        well_reads_map = None
 
     # Pre-build minimap2 .mmi indexes per unique variant (avoids re-indexing per well)
     unique_variants = {t["variant"] for t in tasks}
@@ -1324,53 +1505,37 @@ def generate_pick_pileups(
     # Result: target_plate → {target_well → relative pileup URL}
     url_map: dict[str, dict[str, str]] = {}
 
-    def _run(task: dict):
-        well_pos = task["well_pos"]
-        well_reads = well_reads_map.get(well_pos, pd.DataFrame())
-        if well_reads.empty:
-            logger.debug("No reads found for well %s in read_df", well_pos)
-            return None, task
+    # Everything a worker needs, packed per task so it can be sent to another
+    # process.  The grid itself never comes back: each worker writes its own
+    # page and returns only whether it managed to.
+    wt_ref_fasta = _build_wt_reference(single_ref_dir, pileup_dir)
+    features = _pileup_features(annotation_file, single_ref_dir, tasks)
 
-        fname = f"well_{task['source_plate']}_{task['source_well']}.html"
-        out_path = os.path.join(pileup_dir, fname)
-        result = _generate_one_pick_pileup(
-            well_pos=well_pos,
-            source_plate=task["source_plate"],
-            source_well=task["source_well"],
-            variant=task["variant"],
-            reads=task["reads"],
-            consensus_fraction=task["consensus_fraction"],
-            cons_check=task.get("cons_check", ""),
-            well_reads=well_reads,
+    for task in tasks:
+        task.update(
+            wt_ref_fasta=wt_ref_fasta,
+            features=features,
+            reads_records=(well_reads_map or {}).get(task["well_pos"]),
+            well_fastqs_dir=None if has_sequences else well_fastqs_dir,
             single_ref_dir=single_ref_dir,
-            output_path=out_path,
+            pileup_dir=pileup_dir,
             minimap2_path=minimap2_path,
             samtools_path=samtools_path,
             ref_index=variant_mmi.get(task["variant"]),
             flank_5p_len=flank_5p_len,
             flank_3p_len=flank_3p_len,
         )
-        return result, task
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_run, t): t for t in tasks}
-        for fut in as_completed(futures):
-            try:
-                result, task = fut.result()
-            except Exception as exc:
-                logger.warning("Pick pileup failed for %s: %s", futures[fut]["well_pos"], exc)
-                if progress_callback:
-                    progress_callback(futures[fut]["well_pos"], success=False)
-                continue
-            if progress_callback:
-                progress_callback(task["well_pos"], success=result is not None)
-            if result is None:
-                continue
-            tp = task["target_plate"]
-            tw = task["target_well"]
-            if tp and tw:
-                rel_url = f"pileup/well_{task['source_plate']}_{task['source_well']}.html"
-                url_map.setdefault(tp, {})[tw] = rel_url
+    for ok, task in _map_pileup_tasks(tasks, workers):
+        if progress_callback:
+            progress_callback(task["well_pos"], success=ok)
+        if not ok:
+            continue
+        tp = task["target_plate"]
+        tw = task["target_well"]
+        if tp and tw:
+            rel_url = f"pileup/well_{task['source_plate']}_{task['source_well']}.html"
+            url_map.setdefault(tp, {})[tw] = rel_url
 
     # Clean up pre-built indexes
     import shutil
