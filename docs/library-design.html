@@ -242,6 +242,35 @@
 
         </p>
 
+        <h3 id="destination-vector">Destination Vector</h3>
+        <p>
+          Parent vector that survives the assembly reaction transforms alongside the assembled
+          products. Each parent-derived colony occupies a sorted well without contributing a
+          library member, which lowers the coverage reached at a given fold-sampling. How that
+          carryover is suppressed depends on the format the destination vector is supplied in.
+        </p>
+
+        <h4>Circular vector</h4>
+        <p>
+          Encode a <em>ccdB</em> cassette in the region excised by BsaI. Digestion removes the
+          cassette from the assembled product; undigested and re-ligated parent retain it and kill
+          the host, selecting against them without a separate purification step. The assembly
+          transformation therefore needs a ccdB-sensitive strain, which includes NEB 5-alpha and
+          other DH5&alpha; derivatives. Propagating the parent vector itself needs a ccdB-resistant
+          strain such as DB3.1 (<em>gyrA462</em>).
+        </p>
+
+        <h4>Linearized vector</h4>
+        <p>
+          When the backbone is linearized by PCR from a circular template, the template is the
+          carryover source. Amplify from a low input mass, on the order of 1 pg, using a
+          high-efficiency, high-fidelity proofreading polymerase. The low input limits how much
+          circular template reaches the assembly reaction, and the polymerase is what yields
+          full-length backbone from that input while keeping the error rate low across the whole
+          amplified vector. Digesting the PCR product with DpnI removes further template: plasmid
+          prepared in a Dam-methylated host is cut, while the unmethylated amplicon is not.
+        </p>
+
         <h3>Transformation Scale</h3>
         <p>
           The number of transformants should exceed your library size to ensure all variants are represented. 
@@ -425,6 +454,12 @@ sfGFP_F64I,F64I</code></pre>
                 <li>Set up 100 µL Golden Gate reaction.</li>
                 <li>Run recommended Golden Gate program (see NEB protocol).</li>
               </ol>
+              <div class="callout">
+                <strong>Destination vector:</strong> Use a vector prepared to keep parent
+                carryover low, either circular with a <em>ccdB</em> cassette in the excised
+                region or linearized from ~1 pg of template. See
+                <a href="#destination-vector">Destination Vector</a>.
+              </div>
             </div>
             <div class="protocol-step-tables">
               <div class="table-wrapper">
