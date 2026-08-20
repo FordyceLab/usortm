@@ -460,6 +460,7 @@ def run_levseq_pipeline(
         # align against that single reference for fast orientation.
         # Otherwise fall back to the full multi-ref library.
         align_ref = str(orient_ref) if orient_ref is not None else str(reference)
+        live.set_stage("align")
         if orient_ref is not None:
             _progress("Orienting reads against single reference...")
         else:
@@ -508,6 +509,7 @@ def run_levseq_pipeline(
     # second and third full copy of the reads — measured at 1.24x the input
     # each, against 0.35x for summary-only — for data nothing reads: the
     # sequences come from the oriented FASTQ, not from here.
+    live.set_stage("fbc")
     _progress("Running forward barcode demultiplexing...")
     fbc_output = output_dir / "fbc"
     fbc_output.mkdir(exist_ok=True)
@@ -523,6 +525,7 @@ def run_levseq_pipeline(
         resume=resume,
     )
 
+    live.set_stage("rbc")
     _progress("Running reverse barcode demultiplexing...")
     rbc_output = output_dir / "rbc"
     rbc_output.mkdir(exist_ok=True)
@@ -654,6 +657,7 @@ def run_levseq_pipeline(
                 flank_5p, flank_3p, _assign_progress, _progress,
             )
 
+            live.set_stage("consensus")
             _progress("Generating consensus against assigned references...")
             well_df = utils.generate_per_well_consensus(
                 well_df,

@@ -269,16 +269,37 @@ def _hist_from_length_counts(length_counts: dict) -> dict:
     if not length_counts:
         return {}
     total = sum(length_counts.values())
-    longest = max(length_counts)
-    bin_size = max(1, (longest + 49) // 50)
 
+    # The axis runs to a high percentile, not to the longest read.  A
+    # nanopore run produces a few concatemers hundreds of times the amplicon
+    # -- one of 375,000 bases against a median of 2,054 -- and scaling to the
+    # longest put every real read in the first bin of fifty, which is a
+    # distribution the chart could not show at all.  Everything past the cap
+    # goes in the last bin rather than being dropped, so the count still adds
+    # up and a run with many long reads still says so.
+    HEADROOM = 0.995
+    cutoff = int(total * HEADROOM)
+    seen, cap = 0, max(length_counts)
+    for length in sorted(length_counts):
+        seen += length_counts[length]
+        if seen >= cutoff:
+            cap = length
+            break
+
+    bin_size = max(1, (cap + 49) // 50)
     bins = [0] * 50
+    n_over = 0
     for length, count in length_counts.items():
-        bins[min(length // bin_size, 49)] += count
+        index = length // bin_size
+        if index > 49:
+            n_over += count
+        bins[min(index, 49)] += count
 
     # The median is the length at the midpoint of the sorted reads, found by
     # accumulating counts in length order.
-    midpoint, seen, median = total // 2, 0, longest
+    # Over every read, not just those under the cap: the median is already
+    # robust to the long tail, so it needs no trimming.
+    midpoint, seen, median = total // 2, 0, max(length_counts)
     for length in sorted(length_counts):
         seen += length_counts[length]
         if seen > midpoint:
@@ -286,7 +307,8 @@ def _hist_from_length_counts(length_counts: dict) -> dict:
             break
 
     return {"bin_size": bin_size, "counts": bins, "median": int(median),
-            "n_reads": total, "sampled": False}
+            "n_reads": total, "sampled": False, "n_over": n_over,
+            "longest": int(max(length_counts))}
 
 
 def align_and_split_by_strand(

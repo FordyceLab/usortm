@@ -274,17 +274,26 @@ function render() {
     parts.push('<line x1="0" y1="' + (HT - 0.5) + '" x2="' + W +
                '" y2="' + (HT - 0.5) + '"></line>');
     document.getElementById("histSvg").innerHTML = parts.join("");
-    document.getElementById("histNote").textContent =
-      "median " + (H.median || 0).toLocaleString() + " bp \\u00b7 " +
-      (H.n_reads || 0).toLocaleString() + " reads";
+    var note = "median " + (H.median || 0).toLocaleString() + " bp \\u00b7 "
+      + (H.n_reads || 0).toLocaleString() + " reads";
+    if (H.n_over) {
+      // Naming the longest read is what makes the cap legible: without it a
+      // reader cannot tell whether the tail is one concatemer or thousands.
+      note += " \\u00b7 " + H.n_over.toLocaleString() + " longer, to "
+        + (H.longest || 0).toLocaleString() + " bp";
+    }
+    document.getElementById("histNote").textContent = note;
     var axis = document.getElementById("histAxis");
     axis.innerHTML = "";
     // Three ticks, not four: the column is narrow and four crowd into each
-    // other at the width this now sits at.
+    // other at the width this now sits at.  The last carries a + when the
+    // axis was capped below the longest read, so a bar at the right edge is
+    // not read as reads of exactly that length.
     for (var t = 0; t < 3; t++) {
       var s = document.createElement("span");
-      s.textContent = Math.round(t * counts.length / 2 * bin).toLocaleString() +
-                      (t === 2 ? " bp" : "");
+      var at = Math.round(t * counts.length / 2 * bin);
+      s.textContent = at.toLocaleString()
+        + (t === 2 ? (H.n_over ? "+ bp" : " bp") : "");
       axis.appendChild(s);
     }
     hist.hidden = false;
