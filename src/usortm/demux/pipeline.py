@@ -520,6 +520,7 @@ def run_levseq_pipeline(
         dorado_path=tool_paths["dorado"],
         output_fastq=False,
         emit_summary=True,
+        resume=resume,
     )
 
     _progress("Running reverse barcode demultiplexing...")
@@ -534,6 +535,7 @@ def run_levseq_pipeline(
         dorado_path=tool_paths["dorado"],
         output_fastq=False,
         emit_summary=True,
+        resume=resume,
     )
 
     # --- Stage 6: Build read DataFrame ---
