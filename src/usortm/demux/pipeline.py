@@ -211,6 +211,7 @@ def run_levseq_pipeline(
     plate_map: Optional[dict] = None,
     live_label: Optional[str] = None,
     live_report=None,
+    resume: bool = False,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -553,6 +554,7 @@ def run_levseq_pipeline(
                 minimap2_path=tool_paths["minimap2"],
                 samtools_path=tool_paths["samtools"],
                 workers=workers,
+                resume=resume,
             )
 
             # Backfill read_df ref_name from well_df so plate map shows
@@ -578,6 +580,7 @@ def run_levseq_pipeline(
                 minimap2_path=tool_paths["minimap2"],
                 samtools_path=tool_paths["samtools"],
                 workers=workers,
+                resume=resume,
             )
 
         # --- Stage 10: Variant calling ---

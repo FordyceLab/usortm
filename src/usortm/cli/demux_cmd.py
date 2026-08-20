@@ -109,6 +109,13 @@ def demux(
         "--open-live/--no-open-live",
         help="Open the live dashboard in a browser when the run starts.",
     ),
+    resume: bool = typer.Option(
+        False,
+        "--resume/--no-resume",
+        help="Reuse per-well consensus from an earlier run of this project "
+             "when it is newer than the reads and reference behind it. Use "
+             "after a run was interrupted; a clean run recomputes everything.",
+    ),
     workers: int = typer.Option(
         None,
         "--workers", "-w",
@@ -540,6 +547,7 @@ def demux(
                 plate_map=None if single_plain_run else segment.plates,
                 live_label=None if single_plain_run else segment.name,
                 live_report=live_report,
+                resume=resume,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -1786,6 +1794,7 @@ def _run_demux(
     plate_map: Optional[dict] = None,
     live_label: Optional[str] = None,
     live_report=None,
+    resume: bool = False,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1841,6 +1850,7 @@ def _run_demux(
             plate_map=plate_map,
             live_label=live_label,
             live_report=live_report,
+            resume=resume,
         )
     else:
         raise NotImplementedError(
