@@ -1,4 +1,4 @@
-"""Call a well's variant by translating its consensus and diffing against WT.
+"""Call a well's variant by translating its consensus and diffing against the parent.
 
 The alternative approach aligns a well's reads against every library member and
 takes the majority target. In a single-codon scan the members differ by one
@@ -6,11 +6,11 @@ base, so the alignment scores are near-identical and the winner is decided by
 noise; a well whose sequence is not in the library at all still gets one, since
 the aligner has no way to answer "none of these".
 
-This module asks a different question. Reads are aligned to a single wild-type
+This module asks a different question. Reads are aligned to a single parent
 reference, a per-position consensus is taken over the well's reads, and the
-consensus is translated and compared to the wild-type protein. The variant is
+consensus is translated and compared to the parent protein. The variant is
 read out of the difference rather than chosen from a list, so an unmutated well
-comes back as WT and a well carrying something undesigned comes back as itself.
+comes back as the parent and a well carrying something undesigned comes back as itself.
 
 Consensus first, then translate: at nanopore error rates a single read carries
 several substitutions across a 294 bp insert, which is far more than the one the
@@ -29,11 +29,11 @@ from typing import Optional
 
 from Bio.Seq import Seq
 
-__all__ = ["WellCall", "call_well", "call_wells", "build_wt_reference",
-           "derive_wt_insert"]
+__all__ = ["WellCall", "call_well", "call_wells", "build_parent_reference",
+           "derive_parent_insert"]
 
 
-def derive_wt_insert(inserts) -> Optional[str]:
+def derive_parent_insert(inserts) -> Optional[str]:
     """Recover the unmutated sequence a scan library was built from.
 
     Every member of a substitution scan differs from the parent at one codon
@@ -58,29 +58,29 @@ def derive_wt_insert(inserts) -> Optional[str]:
         return None
 
     width = lengths.pop()
-    wt = "".join(
+    parent = "".join(
         collections.Counter(s[i] for s in seqs).most_common(1)[0][0]
         for i in range(width)
     )
 
     # In a scan each position is unmutated in almost every member, so the
     # winning base wins overwhelmingly.  A library whose members genuinely
-    # differ has no such consensus, and the "wild type" would be a chimera of
+    # differ has no such consensus, and the "parent" would be a chimera of
     # nothing.
     for i in range(width):
         top = collections.Counter(s[i] for s in seqs).most_common(1)[0][1]
         if top < 0.6 * len(seqs):
             return None
-    return wt
+    return parent
 
 
 @dataclass
 class WellCall:
-    """What a well's reads say, relative to wild type."""
+    """What a well's reads say, relative to parent."""
 
     well: str
     call: str
-    """``"WT"``, a substitution such as ``"Q95*"``, or a description of why
+    """``"Parent"``, a substitution such as ``"Q95*"``, or a description of why
     the insert could not be read (``"deletion(-253)"``, ``"low-coverage"``)."""
 
     n_reads: int = 0
@@ -88,7 +88,7 @@ class WellCall:
     median_depth: int = 0
     support: float = 0.0
     """Fraction of reads carrying the consensus codon at the called position;
-    1.0 for a WT call means every read agreed at every position."""
+    1.0 for a parent call means every read agreed at every position."""
 
     aa_changes: list = field(default_factory=list)
     insert_len: int = 0
@@ -97,13 +97,13 @@ class WellCall:
     @property
     def is_clean(self) -> bool:
         """True when a single amino-acid change, or none, explains the well."""
-        return self.call == "WT" or len(self.aa_changes) == 1
+        return self.call == "Parent" or len(self.aa_changes) == 1
 
 
-def build_wt_reference(wt_insert: str, flank_5p: str, flank_3p: str, path):
+def build_parent_reference(parent_insert: str, flank_5p: str, flank_3p: str, path):
     """Write the single reference every read is aligned against."""
     with open(path, "w") as fh:
-        fh.write(f">wt_construct\n{flank_5p}{wt_insert}{flank_3p}\n")
+        fh.write(f">parent_construct\n{flank_5p}{parent_insert}{flank_3p}\n")
     return path
 
 
@@ -168,18 +168,18 @@ def _consensus_codons(bam_path, ref_start, ref_end, min_depth=3):
     return codons, depths, agreement
 
 
-def _name_change(consensus_aa: str, wt_aa: str):
-    """Describe the protein difference between a consensus and wild type."""
-    changes = [(i + 1, wt_aa[i], consensus_aa[i])
-               for i in range(min(len(consensus_aa), len(wt_aa)))
-               if consensus_aa[i] != wt_aa[i]]
+def _name_change(consensus_aa: str, parent_aa: str):
+    """Describe the protein difference between a consensus and parent."""
+    changes = [(i + 1, parent_aa[i], consensus_aa[i])
+               for i in range(min(len(consensus_aa), len(parent_aa)))
+               if consensus_aa[i] != parent_aa[i]]
     return changes
 
 
-def call_well(well, fastq, wt_ref_fasta, insert_start, insert_len, wt_aa,
+def call_well(well, fastq, parent_ref_fasta, insert_start, insert_len, parent_aa,
               minimap2_path=None, samtools_path="samtools", threads=1,
               min_depth=3, tmp_dir=None):
-    """Align one well's reads to wild type and read its variant off the consensus."""
+    """Align one well's reads to parent and read its variant off the consensus."""
     from usortm.demux.utils import find_minimap2
 
     if minimap2_path is None:
@@ -199,7 +199,7 @@ def call_well(well, fastq, wt_ref_fasta, insert_start, insert_len, wt_aa,
     try:
         sam = subprocess.run(
             [minimap2_path, "-ax", "map-ont", "--secondary=no",
-             "-t", str(threads), wt_ref_fasta, fastq],
+             "-t", str(threads), parent_ref_fasta, fastq],
             capture_output=True, check=False,
         )
         if sam.returncode != 0:
@@ -240,17 +240,17 @@ def call_well(well, fastq, wt_ref_fasta, insert_start, insert_len, wt_aa,
                         consensus_nt=consensus)
 
     aa = str(Seq(consensus).translate())
-    changes = _name_change(aa, wt_aa)
+    changes = _name_change(aa, parent_aa)
 
     if not changes:
-        call = "WT"
+        call = "Parent"
     elif len(changes) == 1:
         pos, ref, alt = changes[0]
         call = f"{ref}{pos}{alt}"
     else:
         call = f"multi({len(changes)})"
 
-    # How cleanly the reads agreed on the codon the call rests on.  For a WT
+    # How cleanly the reads agreed on the codon the call rests on.  For a parent
     # call that is every codon, since any one of them disagreeing would have
     # made it a different call.
     if len(changes) == 1:
@@ -268,25 +268,25 @@ def call_well(well, fastq, wt_ref_fasta, insert_start, insert_len, wt_aa,
                     insert_len=len(consensus), consensus_nt=consensus)
 
 
-def call_wells(well_fastq_dir, wt_insert, flank_5p, flank_3p, out_dir,
+def call_wells(well_fastq_dir, parent_insert, flank_5p, flank_3p, out_dir,
                minimap2_path=None, samtools_path="samtools", workers=4,
                min_depth=3, progress_callback=None):
-    """Call every well in *well_fastq_dir* against a single wild-type reference."""
+    """Call every well in *well_fastq_dir* against a single parent reference."""
     import glob
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     os.makedirs(out_dir, exist_ok=True)
-    ref = build_wt_reference(wt_insert, flank_5p, flank_3p,
+    ref = build_parent_reference(parent_insert, flank_5p, flank_3p,
                              os.path.join(out_dir, "wt_construct.fasta"))
-    wt_aa = str(Seq(wt_insert).translate())
-    insert_start, insert_len = len(flank_5p), len(wt_insert)
+    parent_aa = str(Seq(parent_insert).translate())
+    insert_start, insert_len = len(flank_5p), len(parent_insert)
 
     fastqs = sorted(glob.glob(os.path.join(well_fastq_dir, "*.fastq")))
     results, done = [], 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {
             pool.submit(call_well, os.path.basename(f)[:-6], f, ref,
-                        insert_start, insert_len, wt_aa, minimap2_path,
+                        insert_start, insert_len, parent_aa, minimap2_path,
                         samtools_path, 1, min_depth): f
             for f in fastqs
         }
