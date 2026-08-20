@@ -1655,12 +1655,21 @@ def _merge_segment_results(per_segment: list, output_dir: Path, min_reads: int) 
     if well_frames:
         combined_wells = pd.concat(well_frames, ignore_index=True)
         combined_wells.to_csv(output_dir / "well_df.csv", index=False)
-        merged["wells_with_data"] = len(combined_wells)
+        # Counted the same way a single segment counts them.  Recomputed here
+        # rather than summed, since a merged run is one plate numbering; but
+        # recomputed with the same threshold, which is what this previously
+        # got wrong -- a merged summary reported every well as having data
+        # while each segment's own summary reported only those with twenty
+        # reads, and the two disagreed by a factor of two.
         if "depth" in combined_wells.columns:
+            merged["wells_with_data"] = int(
+                (combined_wells["depth"] >= WELL_DATA_MIN_READS).sum()
+            )
             merged["wells_passing"] = int(
                 (combined_wells["depth"] >= min_reads).sum()
             )
         else:
+            merged["wells_with_data"] = len(combined_wells)
             merged["wells_passing"] = 0
         if "ref_len" in combined_wells.columns:
             ref_lens = combined_wells["ref_len"].dropna().astype(int)
@@ -1675,6 +1684,14 @@ def _merge_segment_results(per_segment: list, output_dir: Path, min_reads: int) 
     hist = _merge_read_len_hists(hists)
     if hist:
         merged["read_len_hist"] = hist
+
+    # The tools are the same for every segment of a run, so the first
+    # segment's record speaks for the merged result.  Carried over rather than
+    # rebuilt, so the versions recorded are the ones that did the work.
+    for _, seg_results, _ in per_segment:
+        if seg_results.get("versions"):
+            merged["versions"] = seg_results["versions"]
+            break
     if streak_candidates or streak_variants:
         merged["streakout"] = {
             "candidates": streak_candidates,

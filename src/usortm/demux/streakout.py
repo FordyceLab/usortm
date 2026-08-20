@@ -1224,7 +1224,7 @@ def _build_parent_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
         if rec is not None:
             seqs.append(str(rec.seq))
 
-    wt = derive_parent_insert(seqs)
+    parent = derive_parent_insert(seqs)
     if parent is None:
         logger.debug(
             "No parent reference: the library's members are not a "
@@ -1234,7 +1234,7 @@ def _build_parent_reference(single_ref_dir: str, out_dir: str) -> Optional[str]:
 
     path = os.path.join(out_dir, ".parent.fasta")
     with open(path, "w") as fh:
-        fh.write(f">parent\n{wt}\n")
+        fh.write(f">parent\n{parent}\n")
     return path
 
 
