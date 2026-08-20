@@ -59,7 +59,7 @@ class TestOrientRefWithoutVector:
 
         captured = {}
 
-        def _fake_write_per_well(df, out_root):
+        def _fake_write_per_well(df, out_root, **kwargs):
             captured["n_reads"] = len(df)
 
         monkeypatch.setattr(pl.utils, "write_per_well_fastqs", _fake_write_per_well)

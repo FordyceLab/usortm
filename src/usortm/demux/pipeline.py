@@ -541,10 +541,22 @@ def run_levseq_pipeline(
     # --- Stage 6: Build read DataFrame ---
     live.set_stage("readdf")
     _progress("Assembling read DataFrame...")
+
+    def _readdf_progress(n_reads):
+        """Reading the oriented FASTQ is a single pass over every read, so
+        report the count against the total the aligner already tallied."""
+        if input_reads:
+            pct = int(100 * n_reads / input_reads)
+            _progress(f"Assembling read DataFrame... "
+                      f"{n_reads:,}/{input_reads:,} reads ({pct}%)")
+        else:
+            _progress(f"Assembling read DataFrame... {n_reads:,} reads")
+
     read_df = utils.create_read_df(
         base_dir=str(output_dir),
         ref_map=ref_map,
         oriented_fastq=oriented_fq,
+        progress_callback=_readdf_progress,
     )
     pipeline_stats["demux"] = {
         "fbc_classified": read_df.attrs.get("fbc_classified", 0),
@@ -633,7 +645,14 @@ def run_levseq_pipeline(
                     )
 
             _progress("Writing per-well FASTQs...")
-            utils.write_per_well_fastqs(read_df, str(output_dir))
+            def _write_progress(n_done, n_wells):
+                pct = int(100 * n_done / n_wells) if n_wells else 0
+                _progress(f"Writing per-well FASTQs... "
+                          f"{n_done:,}/{n_wells:,} wells ({pct}%)")
+
+            utils.write_per_well_fastqs(
+                read_df, str(output_dir), progress_callback=_write_progress,
+            )
 
             _progress("Assigning variants from read alignments...")
             well_fastqs_dir = str(output_dir / "wells" / "fastqs")
