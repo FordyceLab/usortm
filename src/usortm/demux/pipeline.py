@@ -190,6 +190,110 @@ def _run_streakout(well_df, read_df, ref_dir, output_dir, tool_paths,
     return candidates
 
 
+def _write_parent_reference(single_ref_dir, parent_insert, flank_5p, flank_3p):
+    """Put the parent among the per-variant references, shaped like them.
+
+    Those files are full-length when the run has a vector and insert-only when
+    it does not, and the consensus stage reads whichever it finds.  The shape
+    is taken from a file already there rather than assumed.
+    """
+    single_ref_dir = Path(single_ref_dir)
+    if not parent_insert or not single_ref_dir.is_dir():
+        return None
+
+    existing = next(iter(sorted(single_ref_dir.glob("*.fasta"))), None)
+    full_length = False
+    if existing is not None:
+        try:
+            body = "".join(l.strip() for l in existing.read_text().splitlines()
+                           if not l.startswith(">"))
+            full_length = len(body) > len(parent_insert)
+        except OSError:
+            pass
+
+    seq = (f"{flank_5p}{parent_insert}{flank_3p}" if full_length
+           else parent_insert)
+    path = single_ref_dir / "Parent.fasta"
+    path.write_text(f">Parent\n{seq}\n")
+    return path
+
+
+def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
+                     output_dir, tool_paths, workers, reads_per_well,
+                     flank_5p, flank_3p, assign_progress, progress):
+    """Give each well its variant, by translation where that is possible.
+
+    Translation aligns every well to one parent reference; the alternative
+    aligns each well's reads against all library members and takes the
+    majority target.  For a substitution scan the second is both slower and
+    weaker.  Slower because the members differ at one base in a construct of
+    two thousand, so every seed matches all of them and the aligner does as
+    much work as there are variants -- measured at 45 ms a read against 376
+    references and 0.2 ms against one, and on a real run that was half an hour
+    against under a minute.  Weaker because a well holding something the
+    library does not contain still gets a variant, there being no way to
+    answer "none of these".
+
+    Falls back to the alignment when translation cannot apply: without the
+    vector there are no flanks to locate the insert by, and a library that is
+    not a scan has no parent to compare against.
+    """
+    from usortm.demux.protein_call import (
+        assign_variants_by_translation,
+        derive_parent_insert,
+    )
+
+    library_inserts = {}
+    if reference is not None:
+        try:
+            library_inserts = {rec.id: str(rec.seq)
+                               for rec in SeqIO.parse(str(reference), "fasta")}
+        except Exception:
+            library_inserts = {}
+
+    can_translate = bool(
+        library_inserts and flank_5p is not None and flank_3p is not None
+        and derive_parent_insert(library_inserts)
+    )
+
+    if can_translate:
+        progress("Assigning variants by translation against the parent...")
+        # A well called Parent still needs a reference to build its consensus
+        # against, and the parent is not a library member, so nothing has
+        # written one.  Written in whatever form the library's own references
+        # take, since the consensus stage reads them all the same way.
+        _write_parent_reference(ref_dir / "single_ref_fastas",
+                                derive_parent_insert(library_inserts),
+                                flank_5p, flank_3p)
+        try:
+            return assign_variants_by_translation(
+                well_df, well_fastqs_dir, library_inserts,
+                flank_5p, flank_3p,
+                out_dir=str(ref_dir),
+                minimap2_path=tool_paths["minimap2"],
+                samtools_path=tool_paths["samtools"],
+                threads=workers,
+                reads_per_well=max(reads_per_well, 40),
+                progress_callback=assign_progress,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Translation assignment failed (%s); falling back to aligning "
+                "against the library", exc,
+            )
+
+    progress("Assigning variants from read alignments...")
+    return utils.assign_variants_from_reads(
+        well_df, read_df, str(reference),
+        well_fastqs_dir=well_fastqs_dir,
+        minimap2_path=tool_paths["minimap2"],
+        workers=workers,
+        progress_callback=assign_progress,
+        full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
+        reads_per_well=reads_per_well,
+    )
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -542,14 +646,10 @@ def run_levseq_pipeline(
                         f"{n_done:,}/{total:,} ({pct}%)"
                     )
 
-            well_df = utils.assign_variants_from_reads(
-                well_df, read_df, str(reference),
-                well_fastqs_dir=well_fastqs_dir,
-                minimap2_path=tool_paths["minimap2"],
-                workers=workers,
-                progress_callback=_assign_progress,
-                full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
-                reads_per_well=reads_per_well,
+            well_df = _assign_variants(
+                well_df, read_df, reference, ref_dir, well_fastqs_dir,
+                output_dir, tool_paths, workers, reads_per_well,
+                flank_5p, flank_3p, _assign_progress, _progress,
             )
 
             _progress("Generating consensus against assigned references...")
