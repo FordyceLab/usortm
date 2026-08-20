@@ -1112,10 +1112,22 @@ def _generate_one_pick_pileup(
     Returns *output_path* on success, or None if the reference FASTA is
     missing or alignment produces no rows.
     """
+    # Translation names a well's contents from what the reads say, so the name
+    # need not be a library member: a well can read as the parent, as an
+    # off-target change, or as nothing callable at all.  None of those have a
+    # designed FASTA.  The parent is the reference to read them against --
+    # against it an off-target change is a column that disagrees, and an
+    # unreadable insert shows why it could not be called.
+    against_parent = False
     ref_fasta = os.path.join(single_ref_dir, f"{variant}.fasta")
     if not os.path.exists(ref_fasta):
-        logger.warning("Pick pileup: ref FASTA not found for %s (%s)", variant, ref_fasta)
-        return None
+        if not (parent_ref_fasta and os.path.exists(parent_ref_fasta)):
+            logger.warning(
+                "Pick pileup: no reference for %s and no parent to fall back "
+                "on (%s)", variant, ref_fasta)
+            return None
+        ref_fasta = parent_ref_fasta
+        against_parent = True
 
     ref_record = next(SeqIO.parse(ref_fasta, "fasta"), None)
     if ref_record is None:
@@ -1146,8 +1158,10 @@ def _generate_one_pick_pileup(
     # carries its designed change, so reads matching it agree everywhere and
     # the page says least exactly where the interest is; against the parent the
     # change is the one column where the two disagree.
+    # A well already shown against the parent needs no parent row: it would
+    # repeat the reference it is being read against.
     parent = ""
-    if parent_ref_fasta and os.path.exists(parent_ref_fasta):
+    if not against_parent and parent_ref_fasta and os.path.exists(parent_ref_fasta):
         parent_record = next(SeqIO.parse(parent_ref_fasta, "fasta"), None)
         if parent_record is not None and len(parent_record.seq) == ref_len:
             parent = str(parent_record.seq)
@@ -1155,7 +1169,7 @@ def _generate_one_pick_pileup(
     _display_status = cons_check if cons_check else ""
     _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
     group_sections = [{
-        "ref_id": variant,
+        "ref_id": f"{variant} vs parent" if against_parent else variant,
         "n_reads": n_variable_reads,
         "frac": consensus_fraction,
         "status": _display_status,
