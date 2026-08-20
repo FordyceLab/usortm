@@ -1138,7 +1138,50 @@ def generate_well_df(read_df):
 
     return well_df
 
-def _process_single_well(well, paths, minimap2_path, samtools_path):
+def _consensus_is_reusable(paths) -> bool:
+    """Whether a well's consensus can be read back instead of rebuilt.
+
+    True only when both outputs exist, are non-empty, and are newer than the
+    reads and the reference they were made from.  The mtime comparison is the
+    whole guarantee: without it a resumed run would happily reuse a consensus
+    built from different reads, which is the failure this package has already
+    had three times in other forms -- output left in place from an earlier run
+    and silently taken as current.
+    """
+    cons_fa, cons_bam = paths["cons_fa"], paths["cons_bam"]
+    try:
+        if not (os.path.getsize(cons_fa) and os.path.getsize(cons_bam)):
+            return False
+        built = min(os.path.getmtime(cons_fa), os.path.getmtime(cons_bam))
+        for source in (paths["fq"], paths["ref_fa"]):
+            if os.path.getmtime(source) > built:
+                return False
+    except OSError:
+        return False
+    return True
+
+
+def _read_back_consensus(paths):
+    """Recover ``(cigar, consensus)`` from a well's existing outputs."""
+    cigar_str, cons_seq = None, None
+    try:
+        with pysam.AlignmentFile(paths["cons_bam"], "rb") as bamfile:
+            for read in bamfile:
+                if not read.is_unmapped:
+                    cigar_str = read.cigarstring
+                    break
+        with open(paths["cons_fa"]) as fh:
+            cons_seq = "".join(
+                line for line in fh.read().splitlines()
+                if not line.startswith(">")
+            )
+    except Exception:
+        return None, None
+    return cigar_str, cons_seq
+
+
+def _process_single_well(well, paths, minimap2_path, samtools_path,
+                         resume=False):
     """Run alignment → consensus → re-alignment → CIGAR extraction for one well.
 
     Args:
@@ -1146,10 +1189,16 @@ def _process_single_well(well, paths, minimap2_path, samtools_path):
         paths: Dict with keys: ref_fa, fq, bam, cons_fa, cons_bam.
         minimap2_path: Path to minimap2 binary.
         samtools_path: Path to samtools binary.
+        resume: Read back a consensus already on disk when it is newer than
+            the reads and reference behind it, rather than rebuilding it.
 
     Returns:
         Tuple of (well, cigar_str, cons_seq) — values may be None on failure.
     """
+    if resume and _consensus_is_reusable(paths):
+        cigar_str, cons_seq = _read_back_consensus(paths)
+        if cons_seq:
+            return well, cigar_str, cons_seq
     ref_fa = paths["ref_fa"]
     ref_mmi = paths.get("ref_mmi", ref_fa)
     fq = paths["fq"]
@@ -1803,6 +1852,7 @@ def generate_per_well_consensus(
     minimap2_path=None,
     samtools_path=None,
     workers: int = 4,
+    resume: bool = False,
 ):
     """Generate per-well consensus sequences and add alignment info to well_df.
 
@@ -1931,13 +1981,18 @@ def generate_per_well_consensus(
         logger.info("Skipped %d wells with no matching reference FASTA", n_skipped)
 
     # 2) Parallel consensus alignment
-    _say(f"Generating consensus alignments ({workers} workers)...")
+    n_reusable = (sum(_consensus_is_reusable(p) for p in well_paths.values())
+                  if resume else 0)
+    if n_reusable:
+        _say(f"Reusing {n_reusable:,} consensus alignments from an earlier run")
+    _say(f"Generating consensus alignments for "
+         f"{len(well_paths) - n_reusable:,} wells ({workers} workers)...")
     results = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(
                 _process_single_well, well, well_paths[well],
-                minimap2_path, samtools_path
+                minimap2_path, samtools_path, resume
             ): well
             for well in well_paths
         }
