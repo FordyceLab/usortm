@@ -2121,12 +2121,16 @@ def _check_column_agreement(
 
 
 def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
-                         frame_offset, has_flanks):
+                         frame_offset, has_flanks, wt_protein=""):
     """Work out one well's checks, returning the columns to set.
 
     Split out of :func:`extract_matches` so wells can be handled in parallel:
     each opens its own consensus BAM and shares nothing with the others.  The
     caller writes the results back, keeping DataFrame mutation on one thread.
+
+    *wt_protein* is the unmutated protein the library was built from, when it
+    could be derived.  A well matching it exactly is reported as ``"Wild
+    Type"`` rather than as a mismatch against whatever variant it was assigned.
     """
     well = row["global_well"]
     ref_len = row["ref_len"]
@@ -2200,12 +2204,42 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
     else:
         out["protein_check"] = ""
 
+    # A well can disagree with the variant it was assigned because it carries
+    # something else entirely: the unmutated parent.  A mutational library is
+    # built from one sequence and does not contain it, so the assignment step
+    # has to give such a well some variant, and every check against that
+    # variant then reports a mismatch.  Reported as an error it reads as a
+    # damaged well; it is an intact one carrying no mutation, which is a
+    # different thing to know and a different thing to do about.
+    if wt_protein and status not in ("Perfect Match", "Silent Mutation"):
+        try:
+            assigned_protein = str(Seq(str(ref_seq)[frame_offset:]).translate())
+        except Exception:
+            assigned_protein = ""
+        # Only worth asking when the assignment claims a change the parent does
+        # not have.  Where the assigned variant encodes the parent's protein
+        # anyway, "matches the parent" and "matches the assignment" say the
+        # same thing, and the well is not evidence of parental carry-over.
+        if assigned_protein and assigned_protein != wt_protein:
+            cons_var = _extract_variable_region(
+                cons_seq, ref_seq, flank_5p_len, flank_3p_len,
+            ) if cons_seq else ""
+            if cons_var and len(cons_var) % 3 == 0:
+                try:
+                    cons_protein = str(Seq(cons_var[frame_offset:]).translate())
+                except Exception:
+                    cons_protein = ""
+                if cons_protein and cons_protein == wt_protein:
+                    out["cons_check"] = "Wild Type"
+                    out["protein_check"] = "WT"
+
     return out
 
 
 def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
                     consensus_dir: str = None, frame_offset: int = 0,
-                    workers: int = 4, progress_callback=None):
+                    workers: int = 4, progress_callback=None,
+                    library_inserts=None):
     """Extract reference matches using consensus CIGAR string.
 
     When flank lengths are provided (from --vector-fasta), also checks
@@ -2227,6 +2261,14 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         frame_offset: Reading frame offset (0, 1, or 2) for protein translation.
         workers: Number of parallel threads.
         progress_callback: Optional ``(n_done, total)`` callback.
+        library_inserts: The library's variable regions, used to recover the
+            unmutated parent the library was built from.  A well matching it
+            is reported ``"Wild Type"`` instead of as a mismatch against the
+            variant it was assigned -- a mutational library does not contain
+            its own parent, so such a well is given a variant it never carried
+            and every check against that variant then fails.  Omit for a
+            library that is not a scan; the parent cannot be recovered from
+            one and no well is reclassified.
 
     Returns:
         Updated well_df with cons_check and protein_check columns (and
@@ -2234,6 +2276,17 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         are provided).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    wt_protein = ""
+    if library_inserts:
+        from usortm.demux.protein_call import derive_wt_insert
+
+        wt_insert = derive_wt_insert(library_inserts)
+        if wt_insert:
+            try:
+                wt_protein = str(Seq(wt_insert[frame_offset:]).translate())
+            except Exception:
+                wt_protein = ""
 
     has_flanks = (flank_5p_len > 0 or flank_3p_len > 0) and consensus_dir
     rows = list(well_df.iterrows())
@@ -2247,7 +2300,8 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {
             pool.submit(_extract_matches_one, row, flank_5p_len, flank_3p_len,
-                        consensus_dir, frame_offset, has_flanks): index
+                        consensus_dir, frame_offset, has_flanks,
+                        wt_protein): index
             for index, row in rows
         }
         for future in _bar(as_completed(futures), total=len(futures)):
