@@ -168,3 +168,34 @@ def paths_for(project_dir, round_num: int = 1) -> ProjectPaths:
     if round_num < 1:
         raise ValueError(f"round must be 1 or greater, got {round_num}")
     return ProjectPaths(root=Path(project_dir), round_num=round_num)
+
+
+def _resolve(root, subdir: str, name: str) -> Path:
+    """Find *name* under *subdir*, or loose at the top of the project.
+
+    New projects put their inputs and configuration in subdirectories; older
+    ones left everything at the top level.  Looking in both means a project
+    made before the split still runs, without a migration step that would have
+    to be got right on data nobody wants to re-derive.
+
+    Returns the subdirectory path when neither exists, so a caller reporting a
+    missing file names the place it should now be put.
+    """
+    root = Path(root)
+    organised = root / subdir / name
+    if organised.exists():
+        return organised
+    loose = root / name
+    if loose.exists():
+        return loose
+    return organised
+
+
+def input_file(project_dir, name: str) -> Path:
+    """Find one of a project's inputs: the library, the FASTQs, the vector."""
+    return _resolve(project_dir, "inputs", name)
+
+
+def config_file(project_dir, name: str) -> Path:
+    """Find one of a project's configuration files: plate map, masks, barcodes."""
+    return _resolve(project_dir, "config", name)

@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.paths import input_file
 
 console = get_console()
 
@@ -361,7 +362,7 @@ def _load_library_order(project: dict, project_dir: Path) -> Optional[dict]:
     vf = project.get("variants_file")
     if vf:
         candidates.append(Path(vf))
-    candidates.append(project_dir / "variants.csv")
+    candidates.append(input_file(project_dir, "variants.csv"))
 
     for candidate in candidates:
         if not candidate.exists():

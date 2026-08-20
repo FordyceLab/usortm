@@ -22,6 +22,7 @@ from rich.markup import escape
 
 from usortm.demux.deps import check_all_dependencies
 from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.paths import config_file
 
 console = get_console()
 
@@ -416,7 +417,7 @@ def demux(
         console.print(f"[green]\u2713[/green] Loaded mask config from {resolved}")
     else:
         # Check for default mask config in project directory
-        default_mask = project_dir / "mask_config.toml"
+        default_mask = config_file(project_dir, "mask_config.toml")
         if default_mask.exists():
             mask_config = _load_mask_config(default_mask)
             console.print(f"[green]\u2713[/green] Using project mask config ({default_mask})")
@@ -1533,7 +1534,7 @@ def _resolve_plate_map(
         _describe_segments(segments)
         return segments
 
-    default_map = project_dir / "plate_map.toml"
+    default_map = config_file(project_dir, "plate_map.toml")
     if default_map.exists():
         try:
             segments = load_plate_map(default_map)

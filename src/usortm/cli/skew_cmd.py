@@ -26,6 +26,7 @@ from rich.progress import (
 from rich.table import Table
 
 from usortm.cli.theme import BORDER_STYLE, get_console
+from usortm.paths import input_file
 
 console = get_console()
 
@@ -258,7 +259,7 @@ def _resolve_variants(project_dir, variants_file) -> Path:
         )
         raise typer.Exit(1)
 
-    candidate = project_dir / "variants.csv"
+    candidate = input_file(project_dir, "variants.csv")
     if not candidate.exists():
         console.print(
             f"[red]Error:[/red] no variants.csv in {project_dir}. "
