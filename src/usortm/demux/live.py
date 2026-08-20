@@ -175,16 +175,23 @@ _PAGE = """<title>uSort-M demux — live</title>
            font-family:SF Mono,Menlo,Consolas,monospace; font-size:.8rem; }
   .fastq b { color:var(--text-primary); font-weight:600; }
   .sub { color:var(--text-secondary); font-size:.9rem; margin:0 0 1.5rem; }
+  /* The stage list and the histogram sit side by side: the chart is context,
+     not the headline, and given the full row it dominated a page whose point
+     is the run's progress.  It drops below the list when there is no room.
+     The gap below belongs to the row rather than to either column, since
+     which of the two is taller depends on how far the run has got. */
+  .cols { display:flex; gap:2.5rem; align-items:flex-start; flex-wrap:wrap;
+          margin-bottom:1.75rem; }
+  .cols > ol { flex:1 1 20rem; margin:0; }
   /* One series, so no legend: the caption names it.  Bars carry the value and
      the axis stays recessive, which is what keeps a bimodal shape readable at
-     this height. */
-  figure { margin:0 0 1.75rem; }
+     this height.  The top margin sets the caption against the first stage. */
+  figure { flex:0 1 17rem; margin:.35rem 0 0; min-width:0; }
   figcaption { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
                color:var(--text-muted); margin-bottom:.45rem; }
-  figcaption .hint { text-transform:none; letter-spacing:0;
-                     color:var(--text-secondary); font-size:.78rem;
-                     margin-left:.5rem; }
-  #histSvg { width:100%; height:132px; display:block; }
+  figure .hint { color:var(--text-secondary); font-size:.75rem;
+                 margin-top:.15rem; }
+  #histSvg { width:100%; height:72px; display:block; }
   #histSvg rect { fill:var(--series-1); }
   #histSvg line { stroke:var(--rule); stroke-width:1; }
   .axis { display:flex; justify-content:space-between;
@@ -226,12 +233,15 @@ _PAGE = """<title>uSort-M demux — live</title>
   <p class="sub" id="sub">waiting for the run to report…</p>
   <div class="stats" id="stats"></div>
   <div id="warn"></div>
-  <figure id="hist" hidden>
-    <figcaption>Read length <span class="hint" id="histNote"></span></figcaption>
-    <svg id="histSvg" viewBox="0 0 640 132" preserveAspectRatio="none"></svg>
-    <div class="axis" id="histAxis"></div>
-  </figure>
-  <ol id="stages"></ol>
+  <div class="cols">
+    <ol id="stages"></ol>
+    <figure id="hist" hidden>
+      <figcaption>Read length</figcaption>
+      <svg id="histSvg" viewBox="0 0 640 96" preserveAspectRatio="none"></svg>
+      <div class="axis" id="histAxis"></div>
+      <div class="hint" id="histNote"></div>
+    </figure>
+  </div>
   <div id="plates"></div>
   <div id="finished"></div>
   <p class="foot" id="foot"></p>
@@ -250,7 +260,7 @@ function render() {
   if (H && H.counts && H.counts.length) {
     var counts = H.counts, bin = H.bin_size || 1;
     var peak = Math.max.apply(null, counts) || 1;
-    var W = 640, HT = 132, gap = 1;
+    var W = 640, HT = 96, gap = 1;
     var bw = W / counts.length;
     var parts = [];
     for (var i = 0; i < counts.length; i++) {
@@ -270,10 +280,12 @@ function render() {
       (H.n_reads || 0).toLocaleString() + " reads";
     var axis = document.getElementById("histAxis");
     axis.innerHTML = "";
-    for (var t = 0; t < 4; t++) {
+    // Three ticks, not four: the column is narrow and four crowd into each
+    // other at the width this now sits at.
+    for (var t = 0; t < 3; t++) {
       var s = document.createElement("span");
-      s.textContent = Math.round(t * counts.length / 3 * bin).toLocaleString() +
-                      (t === 3 ? " bp" : "");
+      s.textContent = Math.round(t * counts.length / 2 * bin).toLocaleString() +
+                      (t === 2 ? " bp" : "");
       axis.appendChild(s);
     }
     hist.hidden = false;
