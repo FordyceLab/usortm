@@ -109,6 +109,15 @@ def demux(
         "--open-live/--no-open-live",
         help="Open the live dashboard in a browser when the run starts.",
     ),
+    streakout: bool = typer.Option(
+        False,
+        "--streakout/--no-streakout",
+        help="Screen for mixed wells that could be recovered by streaking "
+             "out, and draw a page for each. Off by default: it builds a "
+             "consensus per subpopulation and renders one page per candidate, "
+             "which is a large share of a run for an answer most runs do not "
+             "need.",
+    ),
     resume: bool = typer.Option(
         False,
         "--resume/--no-resume",
@@ -548,6 +557,7 @@ def demux(
                 live_label=None if single_plain_run else segment.name,
                 live_report=live_report,
                 resume=resume,
+                streakout=streakout,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -1795,6 +1805,7 @@ def _run_demux(
     live_label: Optional[str] = None,
     live_report=None,
     resume: bool = False,
+    streakout: bool = False,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1851,6 +1862,7 @@ def _run_demux(
             live_label=live_label,
             live_report=live_report,
             resume=resume,
+            streakout=streakout,
         )
     else:
         raise NotImplementedError(

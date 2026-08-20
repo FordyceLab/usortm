@@ -207,6 +207,66 @@ def find_samtools() -> str:
     return find_tool("samtools", env_var="SAMTOOLS_PATH")
 
 
+#: What this package calls on seqviewer.  Checked by name at startup rather
+#: than by version, because the install that matters is usually editable: a
+#: checkout on disk whose version string says nothing about which commit is
+#: there, and which shadows the pin in pyproject.toml entirely.
+SEQVIEWER_REQUIRED = {
+    "seqviewer": ("PileupGroup", "PileupView", "Read", "grid_from_reads",
+                  "reads_from_alignment", "render"),
+}
+SEQVIEWER_REQUIRED_FIELDS = {"PileupGroup": ("parent",)}
+
+
+def check_seqviewer() -> None:
+    """Fail early when the installed seqviewer is not the one expected.
+
+    The pileups are drawn by seqviewer, and the two packages have to agree on
+    the shape of what is passed between them.  An editable checkout can drift
+    from the pinned commit without anything saying so, and the disagreement
+    then surfaces as a TypeError from the first pileup -- which on a real run
+    is more than an hour in, after the expensive stages have already run.
+
+    Raises:
+        DependencyError: If seqviewer is absent, or is missing something this
+            package uses.
+    """
+    import importlib
+
+    try:
+        module = importlib.import_module("seqviewer")
+    except ImportError as exc:
+        raise DependencyError(
+            "seqviewer is required for pileups but is not installed.\n"
+            "  Install it with: pip install -e '.[demux]'"
+        ) from exc
+
+    missing = [name for name in SEQVIEWER_REQUIRED["seqviewer"]
+               if not hasattr(module, name)]
+    for cls_name, fields in SEQVIEWER_REQUIRED_FIELDS.items():
+        cls = getattr(module, cls_name, None)
+        if cls is None:
+            continue
+        import dataclasses
+
+        try:
+            present = {f.name for f in dataclasses.fields(cls)}
+        except TypeError:
+            continue
+        missing += [f"{cls_name}.{f}" for f in fields if f not in present]
+
+    if missing:
+        raise DependencyError(
+            "The installed seqviewer is not the version uSort-M expects.\n"
+            f"  Missing: {', '.join(missing)}\n"
+            f"  Loaded from: {getattr(module, '__file__', 'unknown')}\n"
+            "  An editable checkout overrides the pin in pyproject.toml, so "
+            "updating one package without the other leaves them disagreeing.\n"
+            "  Fix with: pip install -e '.[demux]' --force-reinstall\n"
+            "  or bring the checkout to the pinned commit."
+        )
+
+
 def check_all_dependencies() -> dict[str, str]:
     """Validate that all required tools are available.
 
@@ -214,8 +274,10 @@ def check_all_dependencies() -> dict[str, str]:
         Dict mapping tool name to its absolute path.
 
     Raises:
-        DependencyError: On the first tool that cannot be found.
+        DependencyError: On the first tool that cannot be found, or when the
+            installed seqviewer does not match what this package calls.
     """
+    check_seqviewer()
     return {
         "dorado": find_dorado(),
         "minimap2": find_minimap2(),
