@@ -232,6 +232,36 @@ def _input_fingerprint(fastq):
     return prints
 
 
+def _hist_from_length_counts(length_counts: dict) -> dict:
+    """Turn a length-to-count map into the 50-bin histogram the report draws.
+
+    Exact rather than sampled: the counts come from every read the aligner
+    saw, and the median is taken by walking the counts rather than a list, so
+    neither costs memory proportional to the run.
+    """
+    if not length_counts:
+        return {}
+    total = sum(length_counts.values())
+    longest = max(length_counts)
+    bin_size = max(1, (longest + 49) // 50)
+
+    bins = [0] * 50
+    for length, count in length_counts.items():
+        bins[min(length // bin_size, 49)] += count
+
+    # The median is the length at the midpoint of the sorted reads, found by
+    # accumulating counts in length order.
+    midpoint, seen, median = total // 2, 0, longest
+    for length in sorted(length_counts):
+        seen += length_counts[length]
+        if seen > midpoint:
+            median = length
+            break
+
+    return {"bin_size": bin_size, "counts": bins, "median": int(median),
+            "n_reads": total, "sampled": False}
+
+
 def align_and_split_by_strand(
     multi_ref_fasta,
     fastq,
@@ -313,6 +343,13 @@ def align_and_split_by_strand(
                 progress_callback(None, None)  # signal: cached
             ref_map, align_stats = _rebuild_ref_map_from_fastq(oriented_fq)
             align_stats["unmapped"] = saved.get("unmapped", 0)
+            # The oriented FASTQ holds only what aligned, so the unmapped
+            # count and the length histogram cannot be rebuilt from it; both
+            # come back from the sidecar.  A sidecar written before the
+            # histogram was recorded simply has none, and the run reports
+            # everything else as usual.
+            if saved.get("read_len_hist"):
+                align_stats["read_len_hist"] = saved["read_len_hist"]
             return oriented_fq, ref_map, align_stats
         else:
             logger.info(
@@ -346,6 +383,12 @@ def align_and_split_by_strand(
 
     ref_map = {}
     n_fwd = n_rev = n_unmapped = n_processed = 0
+    # Read lengths, tallied here because this pass already has every read.
+    # Measuring them separately meant decompressing the whole input a second
+    # time, minutes at the start of a run to draw one chart, and it is counted
+    # as a length-to-count map rather than a list so a million reads cost a few
+    # hundred entries instead of a million integers.
+    length_counts: dict = {}
 
     with open(oriented_fq, "w") as fq_out:
         for raw_line in mm2_proc.stdout:
@@ -369,6 +412,12 @@ def align_and_split_by_strand(
             n_processed += 1
             if progress_callback is not None and n_processed % 5000 == 0:
                 progress_callback(n_processed, total_reads)
+
+            # Before the unmapped check: a read that did not align still has a
+            # length, and dropping those would bias the histogram towards
+            # whatever aligns.
+            if seq != "*":
+                length_counts[len(seq)] = length_counts.get(len(seq), 0) + 1
 
             if flag & _FLAG_UNMAPPED or seq == "*":
                 n_unmapped += 1
@@ -406,6 +455,7 @@ def align_and_split_by_strand(
         "rev": n_rev,
         "mapped": n_fwd + n_rev,
         "unmapped": n_unmapped,
+        "read_len_hist": _hist_from_length_counts(length_counts),
     }
 
     # Write sidecar for unmapped count + cache key (reference and input FASTQ)

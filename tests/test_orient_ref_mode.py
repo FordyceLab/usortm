@@ -56,7 +56,6 @@ class TestOrientRefWithoutVector:
         monkeypatch.setattr(pl.utils, "create_read_df", lambda **kw: read_df)
         monkeypatch.setattr(pl.utils, "format_df", lambda *a, **kw: read_df)
         monkeypatch.setattr(pl.utils, "generate_well_df", lambda *a, **kw: well_df)
-        monkeypatch.setattr(pl, "_compute_read_length_hist", lambda *a: {})
 
         captured = {}
 
@@ -120,7 +119,6 @@ class TestOrientRefWithoutVector:
         monkeypatch.setattr(pl.utils, "create_read_df", lambda **kw: read_df)
         monkeypatch.setattr(pl.utils, "format_df", lambda *a, **kw: read_df)
         monkeypatch.setattr(pl.utils, "generate_well_df", lambda *a, **kw: well_df)
-        monkeypatch.setattr(pl, "_compute_read_length_hist", lambda *a: {})
         monkeypatch.setattr(pl.utils, "write_per_well_fastqs", lambda *a, **kw: None)
         monkeypatch.setattr(pl.utils, "assign_variants_from_reads",
                             lambda wdf, *a, **kw: wdf)

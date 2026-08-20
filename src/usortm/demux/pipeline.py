@@ -55,51 +55,6 @@ def _count_fastq_reads(fastq_path: str) -> int:
     return n_lines // 4
 
 
-def _compute_read_length_hist(fastq_path: str) -> dict:
-    """Return a read-length histogram dict for embedding in demux_summary.json.
-
-    Single-pass over the FASTQ sequence lines (line index % 4 == 1).
-
-    Returns:
-        Dict with keys bin_size, counts (50 ints), median (int), n_reads (int),
-        or empty dict if the file has no reads.
-    """
-    import statistics
-    from usortm.demux.utils import resolve_fastq_inputs
-
-    lengths = []
-    try:
-        for path in resolve_fastq_inputs(fastq_path):
-            open_fn = _open_fastq(path)
-            with open_fn(path, "rt") as fh:
-                for i, line in enumerate(fh):
-                    if i % 4 == 1:
-                        lengths.append(len(line.rstrip()))
-    except FileNotFoundError as exc:
-        # Distinct from an unreadable file: reporting a missing path as a
-        # possible pod5 sends the reader looking at the wrong thing.
-        raise ValueError(f"FASTQ not found: {exc.filename}") from exc
-    except (UnicodeDecodeError, OSError) as exc:
-        raise ValueError(
-            f"Cannot read FASTQ file '{fastq_path}' as text. "
-            "The file may be in raw nanopore format (pod5/fast5) rather than "
-            "basecalled FASTQ. Check the download URL from your sequencing provider."
-        ) from exc
-    if not lengths:
-        return {}
-    max_len = max(lengths)
-    bin_size = max(1, (max_len + 49) // 50)
-    bins = [0] * 50
-    for ln in lengths:
-        bins[min(ln // bin_size, 49)] += 1
-    return {
-        "bin_size": bin_size,
-        "counts": bins,
-        "median": int(statistics.median(lengths)),
-        "n_reads": len(lengths),
-    }
-
-
 def _extract_reads_gzip_aware(
     input_fastq: str,
     output_fastq: str,
@@ -358,16 +313,12 @@ def run_levseq_pipeline(
         pipeline_stats["input_reads"] = n_extracted
         logger.info("Subsampled %d reads to %s", n_extracted, sub_path)
 
-    # --- Read length histogram (also provides read count) ---
-    live.set_stage("hist")
-    _progress("Computing read length histogram...")
-    read_len_hist = _compute_read_length_hist(str(fastq))
-    if read_len_hist:
-        pipeline_stats["read_len_hist"] = read_len_hist
-        if "input_reads" not in pipeline_stats:
-            pipeline_stats["input_reads"] = read_len_hist.get("n_reads", 0)
+    # Read lengths and the read count both come from the alignment, which has
+    # to touch every read anyway.  Measuring them here instead meant
+    # decompressing the whole input first, minutes before a run starts, and
+    # the count that came out was the same one the aligner produces.
+    read_len_hist = {}
     input_reads = pipeline_stats.get("input_reads", 0)
-    live.update(input_reads=input_reads, read_len_hist=read_len_hist or None)
 
     # --- Parse vector FASTA early (needed for Stage 3 auto-orient and Stage 9) ---
     flank_5p = None
@@ -431,7 +382,20 @@ def run_levseq_pipeline(
             total_reads=input_reads,
         )
         pipeline_stats["align"] = align_stats
-        live.update(aligned=align_stats.get("mapped"))
+
+        # The aligner saw every read, so its tallies are the authoritative
+        # count and the exact length distribution.  Both survive the alignment
+        # cache, so a resumed run still reports them without re-reading.
+        read_len_hist = align_stats.get("read_len_hist") or {}
+        if read_len_hist:
+            pipeline_stats["read_len_hist"] = read_len_hist
+        if not pipeline_stats.get("input_reads"):
+            pipeline_stats["input_reads"] = (
+                align_stats.get("mapped", 0) + align_stats.get("unmapped", 0)
+            )
+        input_reads = pipeline_stats.get("input_reads", 0)
+        live.update(input_reads=input_reads, aligned=align_stats.get("mapped"),
+                    read_len_hist=read_len_hist or None)
         _progress("Strand split complete.")
 
     # --- Stages 4 and 5: Dorado barcode demux (on oriented reads) ---

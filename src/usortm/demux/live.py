@@ -38,7 +38,6 @@ POLL_SECONDS = 4
 STAGES = [
     ("deps", "Checking dependencies"),
     ("config", "Generating barcode config"),
-    ("hist", "Reading input"),
     ("align", "Aligning and splitting by strand"),
     ("fbc", "Forward barcode demux"),
     ("rbc", "Reverse barcode demux"),
