@@ -2649,6 +2649,16 @@ def _check_flanking_regions(
         return result
 
     variable_len = int(variable_len)
+    if variable_len <= 0:
+        # No variant was assigned, so there is no variable region to compare
+        # the consensus against.  Left to fall through, the test below reads
+        # zero mismatches over zero positions and calls that a perfect match,
+        # which is how a well with no reference came to report one: on a real
+        # run, 909 of 2,083 wells.
+        result["cons_check"] = "No reference"
+        result["flank_check"] = "No reference"
+        return result
+
     total_ref_len = flank_5p_len + variable_len + flank_3p_len
 
     # Count mismatches in each region
