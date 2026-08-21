@@ -65,7 +65,9 @@ def test_a_pick_older_than_the_demux_is_not_drawn(run):
         {"library_size": 2, "round": 1}, {"input_reads": 100},
         [_well(1, "A1", "V1")], run, library_size=2)
     assert "no current pick" in html
-    assert "filled" not in html.split("Pick plate")[1][:400]
+    # No plate is drawn for it: the counts a plate would carry are absent.
+    assert "not recovered, " not in html
+    assert "blank by design." not in html
 
 
 def test_a_current_pick_is_drawn(run):
@@ -166,3 +168,37 @@ def test_depth_colour_runs_light_to_dark():
     assert cmap_hex(0.0) != cmap_hex(1.0)
     # Deeper wells are darker, so the green channel falls.
     assert int(cmap_hex(1.0)[3:5], 16) < int(cmap_hex(0.2)[3:5], 16)
+
+
+def test_a_watch_well_is_marked_on_the_plate(run):
+    """A well between the two thresholds is drawn, not only counted.
+
+    It was reported in the hover and in the parameter table while looking
+    identical to a clean well on the map, which is where wells are scanned.
+    """
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1", mismatch=0.15),
+         _well(1, "A2", "V2", mismatch=0.02)],
+        run, library_size=2)
+    assert " watch" in html
+    assert "worth checking" in html
+
+
+def test_a_watch_mark_stacks_with_what_the_well_holds(run):
+    """The two corners say different things, so both must be free to appear."""
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "Parent", mismatch=0.15)], run, library_size=2)
+    cells = [c for c in html.split("<") if c.startswith('i class="w parent')]
+    assert cells, "a parent well in the watch band should still be drawn"
+    assert "watch" in cells[0], "and should carry the watch mark as well"
+
+
+def test_a_clean_well_carries_no_mark(run):
+    html = render_summary(
+        {"library_size": 1, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1", mismatch=0.02)], run, library_size=1)
+    cells = [c for c in html.split("<") if c.startswith('i class="w"')
+             or c.startswith('a class="w"')]
+    assert cells, "a clean library well is drawn without a corner"
