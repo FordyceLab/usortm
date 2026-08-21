@@ -221,12 +221,12 @@ def test_report_html_content(mock_project_with_library):
         html_content = f.read()
 
         # Check for key elements
-        assert "uSort-M Workflow Report" in html_content
-        assert "Library Size" in html_content
-        assert "Input Reads" in html_content
-        assert "True Sampling" in html_content
-        assert "5 wells with &gt;20 reads" in html_content
-        assert "Library Recovery" in html_content
+        assert "uSort-M Summary" in html_content
+        assert "Library size" in html_content
+        assert "Input reads" in html_content
+        assert "Wells &ge;20 reads" in html_content
+        assert "Library recovery" in html_content
+        assert "Demux plate maps" in html_content
 
 
 def test_report_invalid_format(mock_project_with_library):
@@ -357,8 +357,10 @@ def test_report_html_has_bar_chart(mock_project_with_library):
     with open(html_file) as f:
         html_content = f.read()
 
+    # Figures are inline SVG, and every plate gets a map of its own.
     assert "<svg" in html_content
-    assert "Plate 1" not in html_content
+    assert 'class="cols24"' in html_content
+    assert 'data-p="1"' in html_content
 
 
 def test_report_html_no_minimum_reads_row(mock_project_with_library):
@@ -484,9 +486,10 @@ def test_report_dark_mode_toggle(mock_project_with_library):
         html_content = f.read()
 
     # CSS custom properties
-    assert "--bg:" in html_content
-    assert "--card-bg:" in html_content
+    assert "--surface-1:" in html_content
+    assert "--text-primary:" in html_content
     assert '[data-theme="dark"]' in html_content
+    assert "prefers-color-scheme" in html_content
 
     # JS toggle
     assert "themeToggle" in html_content
@@ -502,7 +505,7 @@ def test_report_html_library_recovery(mock_project_with_library):
     with open(html_file) as f:
         html_content = f.read()
 
-    assert "Library Recovery" in html_content
+    assert "Library recovery" in html_content
     assert "Tier A" in html_content
     assert "Tier B" in html_content
     assert "Tier C" in html_content
@@ -531,7 +534,11 @@ def test_report_html_selected_tier_indicator(mock_project_with_library):
         html_content = f.read()
 
     assert "Selected tier" in html_content
-    assert html_content.count('class="stat-box selected-tier"') == 1
+    # Exactly one tier is marked, and it is the one the pick used.
+    assert html_content.count("Selected tier") == 1
+    assert html_content.count('<tr class="sel">') == 1
+    row = html_content.split('<tr class="sel">')[1]
+    assert "Tier B" in row.split("</tr>")[0]
 
 
 def test_final_mapping_groups_by_base_variant(tmp_path):

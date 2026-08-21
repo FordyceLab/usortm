@@ -1,0 +1,240 @@
+"""Plate maps for the summary page.
+
+A well is a cell filled by read depth, with a corner triangle carrying what it
+contains -- colour alone cannot say two things about one square.  Where a
+pileup has been rendered the cell is a link to it, so a plate map is the way
+into the reads rather than only a picture of them.
+"""
+from __future__ import annotations
+
+import html
+import os
+from typing import Dict, List, Optional, Sequence
+
+from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
+                                MIXED_TEMPLATE_WATCH, column_agreement_class)
+
+from .charts import TIER_READS, colorbar, depth_colour
+
+ROWS = "ABCDEFGHIJKLMNOP"
+COLS = 24
+
+#: Where pileups are looked for, most specific first: a picked hit, then a
+#: flagged mutation, then a general pass.  Paths are relative to the report
+#: directory, which is where the page is written.
+PILEUP_SOURCES = (
+    ("pick/pileup", "../pick/pileup"),
+    ("demux_output/mutation/pileup", "../demux_output/mutation/pileup"),
+    ("demux_output/pileups/pileup", "../demux_output/pileups/pileup"),
+)
+
+
+def pileup_links(project_dir) -> Dict[str, str]:
+    """Map ``"<plate>_<well>"`` to the page showing that well's reads."""
+    links: Dict[str, str] = {}
+    for disk, rel in PILEUP_SOURCES:
+        directory = os.path.join(str(project_dir), disk)
+        if not os.path.isdir(directory):
+            continue
+        for name in os.listdir(directory):
+            if not (name.startswith("well_") and name.endswith(".html")):
+                continue
+            key = name[len("well_"):-len(".html")]
+            links.setdefault(key, f"{rel}/{name}")
+    return links
+
+
+def _well_tip(plate, label, well, has_pileup) -> str:
+    """The hover block for one well.
+
+    Reports the codon agreement the call rests on rather than the share of
+    reads assigned to a reference: the pipeline assigns a well once and marks
+    every read in it with that call, so the read share is 100% everywhere and
+    says nothing.
+    """
+    if well is None:
+        return html.escape(
+            f'<div style="line-height:1.2">'
+            f'<div style="font-size:13px;">Plate {plate} &middot; '
+            f'<b>{label}</b></div>'
+            f'<div style="margin-top:4px;">no reads</div></div>', quote=True)
+
+    reads = int(well.get("reads") or 0)
+    agree = float(well.get("consensus_fraction") or 0.0)
+    variant = well.get("variant") or "unassigned"
+    cons = well.get("cons_check") or ""
+    klass = column_agreement_class(well.get("max_mismatch_frac"))
+    worst = well.get("max_mismatch_frac")
+
+    lines = [f'<div style="font-size:11px;color:#666;margin-top:4px;">'
+             f'Reads: {reads:,} &nbsp;|&nbsp; Codon agreement: {agree:.1%}</div>']
+    if cons:
+        lines.append(f'<div style="font-size:11px;color:#666;">{cons}</div>')
+    if worst not in (None, ""):
+        tone = {"mixed": "#dc2626", "watch": "#d97706"}.get(klass, "#6b7280")
+        note = {"mixed": "mixed template", "watch": "worth checking"}.get(
+            klass, "clean")
+        lines.append(
+            f'<div style="font-size:11px;color:{tone};margin-top:2px;">'
+            f'Worst column {float(worst):.1%} &mdash; {note}</div>')
+    if has_pileup:
+        lines.append('<div style="font-size:11px;color:#6b7280;margin-top:2px;">'
+                     'Click to view pileup</div>')
+    return html.escape(
+        f'<div style="line-height:1.2">'
+        f'<div style="font-size:13px;">Plate {plate} &middot; <b>{label}</b></div>'
+        f'<div style="margin-top:4px;">{variant}</div>'
+        f'{"".join(lines)}</div>', quote=True)
+
+
+def demux_plate_maps(well_data: Sequence[dict], designed: set,
+                     links: Dict[str, str]) -> str:
+    """One tabbed map per sort plate."""
+    by_plate: Dict[str, Dict[str, dict]] = {}
+    for w in well_data:
+        by_plate.setdefault(str(w["plate"]), {})[w["well"]] = w
+    if not by_plate:
+        return ""
+
+    def plate_key(p):
+        try:
+            return (0, int(p), "")
+        except ValueError:
+            return (1, 0, p)
+
+    plates = sorted(by_plate, key=plate_key)
+    tabs, grids = [], []
+    for i, plate in enumerate(plates):
+        wells = by_plate[plate]
+        cells = []
+        for letter in ROWS:
+            for col in range(1, COLS + 1):
+                label = f"{letter}{col}"
+                w = wells.get(label)
+                depth = int((w or {}).get("reads") or 0)
+                cls = "w"
+                if w is not None and depth >= TIER_READS["C"]:
+                    variant = w.get("variant") or ""
+                    if variant == "Parent":
+                        cls += " parent"
+                    elif variant == "unassigned" or variant not in designed:
+                        cls += " uncalled"
+                    elif column_agreement_class(
+                            w.get("max_mismatch_frac")) == "mixed":
+                        cls += " mut"
+                href = links.get(f"{plate}_{label}")
+                tip = _well_tip(plate, label, w, bool(href))
+                style = f"--f:{depth_colour(depth)}"
+                if href:
+                    cells.append(f'<a class="{cls}" href="{href}" '
+                                 f'style="{style}" data-tip="{tip}"></a>')
+                else:
+                    cells.append(f'<i class="{cls}" style="{style}" '
+                                 f'data-tip="{tip}"></i>')
+        tabs.append(f'<button class="tab{" on" if i == 0 else ""}" '
+                    f'data-p="{plate}">{plate}</button>')
+        grids.append(
+            f'<div class="plate" data-p="{plate}"{"" if i == 0 else " hidden"}>'
+            f'<div class="grid"><div class="cols24">{"".join(cells)}</div></div>'
+            f'{colorbar()}</div>')
+
+    n_linked = sum(1 for k in links if k.split("_")[0] in by_plate)
+    note = (f"Wells link to their pileup; {n_linked:,} have one."
+            if n_linked else
+            "Wells link to their pileup once <code>usortm pick</code> has "
+            "generated them.")
+    return (
+        f'  <h2>Demux plate maps</h2>\n'
+        f'  <p class="note">Read depth per well. A corner marks what the well '
+        f'contains: red a mixed template, amber the parent, grey an insert '
+        f'that could not be called. {note}</p>\n'
+        f'  <div class="tabs">{"".join(tabs)}</div>\n'
+        f'  {"".join(grids)}\n'
+        f'  <div class="legend">'
+        f'<span class="ls"><i class="swatch mut"></i>mixed template</span>'
+        f'<span class="ls"><i class="swatch parent"></i>parent</span>'
+        f'<span class="ls"><i class="swatch uncalled"></i>not in library</span>'
+        f'</div>\n'
+    )
+
+
+def pick_plate(pick_list: Optional[List[dict]],
+               links: Dict[str, str]) -> str:
+    """The destination plate as pick built it, or a note saying why not.
+
+    *pick_list* is None when no pick exists or when the one on disk predates
+    this demux; the section then says so rather than rendering a plate that
+    describes different wells.
+    """
+    if pick_list is None:
+        return (
+            '  <h2>Pick plate</h2>\n'
+            '  <p class="note">Not shown: no current pick for this run. Run '
+            '<code>usortm pick</code> to populate it.</p>\n'
+        )
+
+    by_target = {p["target_well"]: p for p in pick_list if p.get("target_well")}
+    if not by_target:
+        return ""
+
+    filled = empty = blank = 0
+    cells = []
+    for letter in ROWS:
+        for col in range(1, COLS + 1):
+            label = f"{letter}{col}"
+            slot = by_target.get(label)
+            if slot is None:
+                blank += 1
+                cells.append('<i class="w blank" data-tip="blank by design">'
+                             '</i>')
+                continue
+            variant = slot.get("variant") or ""
+            if slot.get("empty"):
+                empty += 1
+                tip = html.escape(
+                    f'<div style="line-height:1.2">'
+                    f'<div style="font-size:13px;"><b>{label}</b></div>'
+                    f'<div style="margin-top:4px;">{variant}</div>'
+                    f'<div style="font-size:11px;color:#666;margin-top:4px;">'
+                    f'not recovered</div></div>', quote=True)
+                cells.append(f'<i class="w none" data-tip="{tip}"></i>')
+                continue
+            filled += 1
+            reads = int(slot.get("reads") or 0)
+            src = f'{slot.get("source_plate")}_{slot.get("source_well")}'
+            klass = column_agreement_class(slot.get("max_mismatch_frac"))
+            extra = ""
+            if klass == "watch":
+                extra = ('<div style="font-size:11px;color:#d97706;'
+                         'margin-top:2px;">worth checking</div>')
+            tip = html.escape(
+                f'<div style="line-height:1.2">'
+                f'<div style="font-size:13px;">{label} &middot; '
+                f'<b>{variant}</b></div>'
+                f'<div style="margin-top:4px;">from plate '
+                f'{slot.get("source_plate")} {slot.get("source_well")}</div>'
+                f'<div style="font-size:11px;color:#666;margin-top:4px;">'
+                f'Reads: {reads:,} &nbsp;|&nbsp; Codon agreement: '
+                f'{float(slot.get("consensus_fraction") or 0):.1%}</div>'
+                f'{extra}</div>', quote=True)
+            href = links.get(src)
+            style = f"--f:{depth_colour(reads)}"
+            if href:
+                cells.append(f'<a class="w" href="{href}" style="{style}" '
+                             f'data-tip="{tip}"></a>')
+            else:
+                cells.append(f'<i class="w" style="{style}" '
+                             f'data-tip="{tip}"></i>')
+
+    return (
+        f'  <h2>Pick plate</h2>\n'
+        f'  <p class="note">The destination plate as picked, filled by the '
+        f'read depth of each source well. {filled} filled, {empty} not '
+        f'recovered, {blank} blank by design.</p>\n'
+        f'  <div class="plate"><div class="grid">'
+        f'<div class="cols24">{"".join(cells)}</div></div>{colorbar()}</div>\n'
+        f'  <div class="legend">'
+        f'<span class="ls"><i class="swatch none"></i>not recovered</span>'
+        f'<span class="ls"><i class="swatch blank"></i>blank by design</span>'
+        f'</div>\n'
+    )

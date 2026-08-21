@@ -77,3 +77,8 @@ Documentation = "https://fordycelab.github.io/usortm"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["usortm*"]
+
+# The summary page's stylesheet is read at render time, so it has to be
+# installed alongside the module rather than left in the source tree.
+[tool.setuptools.package-data]
+usortm = ["report/*.css"]
