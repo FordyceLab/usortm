@@ -100,7 +100,8 @@ def pick(
     include_cons_errors: bool = typer.Option(
         False,
         "--include-cons-errors/--exclude-cons-errors",
-        help="Include wells with consensus mismatches (Other Error/Error/Silent Mutation) in pick list.",
+        help="Include wells whose consensus differs from the designed "
+             "sequence, silent changes among them, in the pick list.",
     ),
     round_num: int = typer.Option(
         1,
@@ -922,10 +923,10 @@ def _generate_pick_list(
                 if not w.get("flank_check") or w["flank_check"] == "OK"
             ]
 
-    # Exclude wells with consensus errors (unless overridden).
-    # Silent Mutations are always accepted — they encode the correct protein
-    # and the demux plate map displays them as mutation-free (green).
-    _ACCEPTABLE_CONS = {"Perfect Match", "Silent Mutation"}
+    # Exclude wells whose consensus is not the designed sequence, unless
+    # overridden.  A synonymous change encodes the right protein but is not the
+    # DNA that was ordered, and uSort-M's product is sequence-verified DNA.
+    _ACCEPTABLE_CONS = {"Perfect Match"}
     if not include_cons_errors:
         has_any_cons_data = any(w.get("cons_check") for w in sorted_wells)
         if has_any_cons_data:
