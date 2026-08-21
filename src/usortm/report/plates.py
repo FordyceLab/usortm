@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
-from .charts import TIER_READS, colorbar, depth_colour
+from .charts import TIER_READS, depth_colour
 
 ROWS = "ABCDEFGHIJKLMNOP"
 COLS = 24
@@ -115,13 +115,19 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                 cls = "w"
                 if w is not None and depth >= TIER_READS["C"]:
                     variant = w.get("variant") or ""
+                    klass = column_agreement_class(
+                        w.get("max_mismatch_frac"))
                     if variant == "Parent":
                         cls += " parent"
                     elif variant == "unassigned" or variant not in designed:
                         cls += " uncalled"
-                    elif column_agreement_class(
-                            w.get("max_mismatch_frac")) == "mixed":
+                    elif klass == "mixed":
                         cls += " mut"
+                    # Independent of what the well holds, and drawn in the
+                    # opposite corner: a parent well can also read uncleanly,
+                    # and one corner cannot say both.
+                    if klass == "watch":
+                        cls += " watch"
                 href = links.get(f"{plate}_{label}")
                 tip = _well_tip(plate, label, w, bool(href))
                 style = f"--f:{depth_colour(depth)}"
@@ -136,8 +142,8 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                     f'data-p="{plate}">{plate}</button>')
         grids.append(
             f'<div class="plate" data-p="{plate}"{"" if i == 0 else " hidden"}>'
-            f'<div class="grid"><div class="cols24">{"".join(cells)}</div></div>'
-            f'{colorbar()}</div>')
+            f'<div class="grid"><div class="cols24">{"".join(cells)}</div>'
+            f'</div></div>')
 
     n_linked = sum(1 for k in links if k.split("_")[0] in by_plate)
     note = (f"Wells link to their pileup; {n_linked:,} have one."
@@ -155,6 +161,7 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
         f'<span class="ls"><i class="swatch mut"></i>mixed template</span>'
         f'<span class="ls"><i class="swatch parent"></i>parent</span>'
         f'<span class="ls"><i class="swatch uncalled"></i>not in library</span>'
+        f'<span class="ls"><i class="swatch watch"></i>worth checking</span>'
         f'</div>\n'
     )
 
@@ -234,7 +241,7 @@ def pick_plate(pick_list: Optional[List[dict]],
         f'read depth of each source well. {filled} filled, {empty} not '
         f'recovered, {blank} blank by design.</p>\n'
         f'  <div class="plate"><div class="grid">'
-        f'<div class="cols24">{"".join(cells)}</div></div>{colorbar()}</div>\n'
+        f'<div class="cols24">{"".join(cells)}</div></div></div>\n'
         f'  <div class="legend">'
         f'<span class="ls"><i class="swatch none"></i>not recovered</span>'
         f'<span class="ls"><i class="swatch blank"></i>blank by design</span>'

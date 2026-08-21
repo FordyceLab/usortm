@@ -71,6 +71,26 @@ def colorbar() -> str:
             f'<div class="ticks">{ticks}</div></div>')
 
 
+def colorbar_h() -> str:
+    """The same ramp laid along the page, for plates that share one.
+
+    Two maps drawn on one scale need one key: a bar beside each invites the
+    reading that they are scaled separately.
+    """
+    ramp = ", ".join(f"{cmap_hex(i / 20)} {i * 5}%" for i in range(21))
+    ticks = "".join(
+        f'<span style="left:{min(d / DEPTH_CEILING, 1) * 100:.0f}%">{lab}</span>'
+        for d, lab in [(0, "0"), (TIER_READS["C"], f"C {TIER_READS['C']}"),
+                       (TIER_READS["B"], f"B {TIER_READS['B']}"),
+                       (TIER_READS["A"], f"A {TIER_READS['A']}"),
+                       (DEPTH_CEILING, f"&ge;{DEPTH_CEILING}")]
+    )
+    return (f'<div class="cbarh"><div class="ramp" style="background:'
+            f'linear-gradient(to right, {ramp})"></div>'
+            f'<div class="ticks">{ticks}</div>'
+            f'<div class="cblab">reads per well</div></div>')
+
+
 def bar(pct: float, tone: str = "") -> str:
     """A share drawn as a bar as well as a number."""
     cls = f"bar {tone}" if tone else "bar"

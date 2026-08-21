@@ -16,8 +16,8 @@ from typing import Dict, List, Optional, Sequence
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
-from .charts import (TIER_READS, bar, read_depth_chart, read_length_chart,
-                     recovery_chart)
+from .charts import (TIER_READS, bar, colorbar_h, read_depth_chart,
+                     read_length_chart, recovery_chart)
 from .plates import demux_plate_maps, pick_plate, pileup_links
 
 #: Parameters the manuscript reports for the hAcyP2 library, drawn beside this
@@ -372,8 +372,14 @@ def render_summary(project: dict, demux_summary: dict,
 
   <div class="stats">{"".join(stats)}</div>
 
-{tables_html}{figures_html}{maps_html}
-{pick_html}
+{tables_html}{figures_html}  <div class="cols plates">
+   <div>
+{maps_html}   </div>
+   <div>
+{pick_html}   </div>
+  </div>
+  <p class="note">Both plates are filled on the same scale.</p>
+  {colorbar_h()}
   <h2>Provenance</h2>
   <table><tr><th>Component</th><th>Version</th></tr>{ver_rows}</table>
 
@@ -433,14 +439,19 @@ document.querySelectorAll(".tab").forEach(function (b) {{
 
 
 def _parameters_panel(project, measured, curves, deep, library_size) -> str:
-    """The conditions the curves were computed under, beside them."""
+    """The conditions the curves were computed under, beside them.
+
+    Two tables rather than prose: these are values to be compared down a
+    column, and a sentence makes the reader pick each one out of it.
+    """
     n_deep = len(deep) or 1
-    counts = {"watch": 0, "mixed": 0}
-    bad_flank = err = low = 0
+    mixed = watch = bad_flank = err = low = 0
     for w in deep:
         klass = column_agreement_class(w.get("max_mismatch_frac"))
-        if klass in counts:
-            counts[klass] += 1
+        if klass == "mixed":
+            mixed += 1
+        elif klass == "watch":
+            watch += 1
         if (w.get("flank_check") or "OK") != "OK":
             bad_flank += 1
         if w.get("cons_check") in ("Error", "Other Error"):
@@ -448,50 +459,60 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
         if (w.get("consensus_fraction") or 0) <= 0.9:
             low += 1
     skew = float(project.get("skew") or 2)
+
+    def row(label, mine, published=""):
+        pub = f"<td>{published}</td>" if published != "" else "<td></td>"
+        return (f'<tr><td class="name">{label}</td>'
+                f'<td>{mine}</td>{pub}</tr>')
+
+    model = "".join([
+        row("Library size", f"{library_size}", "&mdash;"),
+        row("Library skew", f"{skew:g}", f"{PUBLISHED['skew']:g}"),
+        row("Off-target variation", f"{measured['p_incorrect']:.2f}",
+            f"{PUBLISHED['p_incorrect']:.2f}"),
+        row("Sorting efficiency", f"{measured['p_grow']:.2f}",
+            f"{PUBLISHED['p_grow']:.2f}"),
+        row("PCR failure", f"{measured['p_fail']:.3f}",
+            f"{PUBLISHED['p_fail']:.3f}"),
+    ])
+
+    def wrow(label, count, share=""):
+        return (f'<tr><td class="name">{label}</td><td>{count}</td>'
+                f'<td>{share}</td></tr>')
+
+    wells = "".join([
+        wrow(f"Sorted, {measured['n_plates']} plates",
+             f"{measured['n_sorted']:,}"),
+        wrow(f"Grew, &ge;{TIER_READS['C']} reads", f"{measured['n_grown']:,}",
+             f"{100 * measured['p_grow']:.0f}% of sorted"),
+        wrow("On-target", f"{measured['n_on_target']:,}",
+             f"{100 * (1 - measured['p_incorrect']):.0f}% of grown"),
+        wrow(f"Mixed template &gt;{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{mixed:,}",
+             f"{100 * mixed / n_deep:.0f}% of grown"),
+        wrow(f"Worth checking {MIXED_TEMPLATE_WATCH:.0%}&ndash;"
+             f"{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{watch:,}",
+             f"{100 * watch / n_deep:.0f}% of grown"),
+        wrow("Flank failed", f"{bad_flank:,}",
+             f"{100 * bad_flank / n_deep:.0f}% of grown"),
+        wrow("Called an error", f"{err:,}",
+             f"{100 * err / n_deep:.0f}% of grown"),
+        wrow("Agreement &le;90%", f"{low:,}",
+             f"{100 * low / n_deep:.0f}% of grown"),
+    ])
+
     return f"""    <div>
       <h2>Simulation</h2>
-      <p class="note">The five parameters of the recovery model, measured from
-         this run and as published for the hAcyP2 library.</p>
-      <div class="params">
-        <div class="pgroup">
-          <div class="plabel">Model &mdash; this run / published</div>
-          <dl>
-            <dt>Library size</dt><dd>{library_size}</dd>
-            <dt>Library skew</dt><dd>{skew:g} / {PUBLISHED['skew']:g}</dd>
-            <dt>Off-target variation</dt>
-              <dd>{measured['p_incorrect']:.2f} / {PUBLISHED['p_incorrect']:.2f}</dd>
-            <dt>Sorting efficiency</dt>
-              <dd>{measured['p_grow']:.2f} / {PUBLISHED['p_grow']:.2f}</dd>
-            <dt>PCR failure</dt>
-              <dd>{measured['p_fail']:.3f} / {PUBLISHED['p_fail']:.3f}</dd>
-          </dl>
-        </div>
-        <div class="pgroup">
-          <div class="plabel">Where the wells went</div>
-          <dl>
-            <dt>Sorted</dt>
-              <dd>{measured['n_sorted']:,} on {measured['n_plates']} plates</dd>
-            <dt>Grew, &ge;{TIER_READS['C']} reads</dt>
-              <dd>{measured['n_grown']:,} ({100 * measured['p_grow']:.0f}%)</dd>
-            <dt>On-target</dt>
-              <dd>{measured['n_on_target']:,} ({100 * (1 - measured['p_incorrect']):.0f}% of grown)</dd>
-          </dl>
-          <p>Sorting efficiency is measured from read counts, so wells lost to
-             PCR failure sit inside it; the published PCR rate is carried
-             rather than applied a second time.</p>
-        </div>
-        <div class="pgroup">
-          <div class="plabel">Consensus, wells &ge;{TIER_READS['C']} reads</div>
-          <dl>
-            <dt>Mixed template &gt;{MIXED_TEMPLATE_THRESHOLD:.0%}</dt>
-              <dd>{100 * counts['mixed'] / n_deep:.0f}%</dd>
-            <dt>Worth checking {MIXED_TEMPLATE_WATCH:.0%}&ndash;{MIXED_TEMPLATE_THRESHOLD:.0%}</dt>
-              <dd>{100 * counts['watch'] / n_deep:.0f}%</dd>
-            <dt>Flank failed</dt><dd>{100 * bad_flank / n_deep:.0f}%</dd>
-            <dt>Called an error</dt><dd>{100 * err / n_deep:.0f}%</dd>
-            <dt>Agreement &le;90%</dt><dd>{100 * low / n_deep:.0f}%</dd>
-          </dl>
-          <p>These overlap; a well can fail more than one.</p>
-        </div>
-      </div>
+      <p class="note">The parameters behind the curves, measured here and as
+         published for the hAcyP2 library.</p>
+      <table class="params">
+        <tr><th>Parameter</th><th>This run</th><th>Published</th></tr>
+        {model}
+      </table>
+      <table class="params">
+        <tr><th>Wells</th><th>Count</th><th>Share</th></tr>
+        {wells}
+      </table>
+      <p class="hint">Sorting efficiency is measured from read counts, so wells
+         lost to PCR failure sit inside it. The last five rows overlap; a well
+         can fail more than one.</p>
     </div>"""

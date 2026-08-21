@@ -95,8 +95,13 @@ td.name { font-variant-numeric:normal; }
    bounds, so without this the outline on the outer row and column is cut in
    half; the negative margin keeps the plate flush left regardless. */
 .grid { overflow-x:auto; padding:3px; margin:-3px; }
+/* Fluid inside its column, capped where a well stops being square enough to
+   read: the two plate maps sit side by side and each gets half the page. */
 .cols24 { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px;
-          width:32rem; min-width:24rem; }
+          width:100%; max-width:32rem; min-width:19rem; }
+
+/* The demux maps and the pick plate, read against each other. */
+.cols.plates > * { flex:1 1 21rem; }
 
 /* The depth scale as a continuous bar rather than a row of swatches: depth is
    continuous, and the ticks name the tiers a reader actually sorts on. */
@@ -122,6 +127,13 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
   clip-path:polygon(0 0, 100% 0, 0 100%);
 }
 .w.mut::after      { background:#dc2626; }
+/* Worth checking sits in the opposite corner from what the well contains, so a
+   well can say both at once: a library member that reads uncleanly is not the
+   same as one that is not a library member. */
+.w.watch::before { content:""; position:absolute; inset:0; border-radius:1px;
+                   clip-path:polygon(100% 100%, 100% 35%, 35% 100%);
+                   background:var(--series-1); }
+.swatch.watch { background:var(--series-1); }
 .w.parent::after   { background:#d97706; }
 .w.uncalled::after { background:var(--text-muted); }
 .w.none  { background:var(--surface-2); border-style:dashed;
@@ -169,21 +181,16 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
 @media (max-width: 620px) { .quad { grid-template-columns:1fr; } }
 
 /* The parameters a curve was computed under, kept with the curve so the
-   figure and its conditions cannot be separated.  Values sit in their own
-   column so they can be read down without picking them out of a sentence. */
-/* Two compact columns rather than one stacked block: these are conditions
-   attached to a figure, not a section of their own. */
-.params { margin-top:.6rem; font-size:.68rem; color:var(--text-secondary); }
-.pgroup + .pgroup { margin-top:.6rem; }
-
-.plabel { text-transform:uppercase; letter-spacing:.04em; font-size:.66rem;
-          color:var(--text-muted); margin-bottom:.25rem; }
-.params dl { display:grid; grid-template-columns:auto max-content;
-             gap:.05rem .5rem; margin:0; }
-.params dt { color:var(--text-secondary); }
-.params dd { margin:0; text-align:right; font-variant-numeric:tabular-nums;
-             color:var(--text-primary); font-weight:600; }
-.params p { margin:.35rem 0 0; color:var(--text-muted); line-height:1.4; }
+   figure and its conditions cannot be separated.  A table rather than a
+   paragraph: these are values compared down a column, and a sentence makes the
+   reader pick each one out of it. */
+table.params { font-size:.72rem; margin:.5rem 0 0; }
+table.params th { font-size:.62rem; padding:.2rem .5rem .2rem 0; }
+table.params td { padding:.2rem .5rem .2rem 0; }
+table.params td:not(.name) { text-align:right; font-weight:600;
+                             color:var(--text-primary); }
+table.params td.name { font-weight:400; color:var(--text-secondary); }
+table.params th:not(:first-child) { text-align:right; }
 
 /* A square plot, with its scale in HTML beside it rather than inside it. */
 .plotwrap { display:flex; gap:.5rem; align-items:stretch; margin-top:.2rem; }
@@ -237,3 +244,14 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
                color:var(--text-secondary); font-size:.95rem; line-height:1; }
 .themeToggle:hover { color:var(--text-primary); }
 tr.sel td { background:var(--surface-2); }
+
+/* One depth scale for both plate maps, laid along the page beneath them. */
+.cbarh { max-width:32rem; margin:.2rem 0 1.25rem; }
+.cbarh .ramp { height:11px; border-radius:2px; border:1px solid var(--rule); }
+.cbarh .ticks { position:relative; height:1rem; }
+.cbarh .ticks span { position:absolute; transform:translateX(-50%);
+                     font-size:.66rem; color:var(--text-muted);
+                     line-height:1.6; white-space:nowrap; }
+.cbarh .ticks span:first-child { transform:none; }
+.cbarh .ticks span:last-child { transform:translateX(-100%); }
+.cblab { font-size:.66rem; color:var(--text-muted); margin-top:.9rem; }
