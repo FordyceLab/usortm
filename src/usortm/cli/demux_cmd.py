@@ -11,6 +11,7 @@ import gzip
 import json
 import os
 import shutil
+import sys
 from datetime import datetime
 
 import typer
@@ -498,9 +499,11 @@ def demux(
 
     live_report = LiveReport(demux_output)
     console.print(f"[muted]Live dashboard: {live_report.page}[/muted]")
-    if open_live:
-        # Opened rather than announced: a run takes long enough that a path
-        # printed once scrolls away before anyone thinks to look at it.
+    # Only when someone is at a terminal to see it.  The dashboard is opened
+    # rather than announced because a run takes long enough that a path printed
+    # once scrolls away; but a test suite, a cron job or a redirected run has
+    # nobody watching, and opening a tab per invocation there is just noise.
+    if open_live and sys.stdout.isatty():
         try:
             import webbrowser
 

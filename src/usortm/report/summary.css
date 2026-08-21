@@ -1,0 +1,239 @@
+/* Same tokens as live.html, so the two pages read as one product. */
+:root {
+  color-scheme: light;
+  --surface-1:#fcfcfb; --surface-2:#f3f3f0; --rule:#dedcd5;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#75736c;
+  --series-1:#2a78d6; --good:#1baf7a; --warn:#eb6834; --bad:#d1495b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
+    --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
+    --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
+  --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
+  --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+}
+body { margin:0; background:var(--surface-1); color:var(--text-primary);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:940px; margin:0 auto; padding:2rem; }
+h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
+.meta { display:inline-block; margin:.15rem 0 .5rem; padding:.2rem .5rem;
+        border-radius:4px; background:var(--surface-2);
+        color:var(--text-secondary);
+        font-family:SF Mono,Menlo,Consolas,monospace; font-size:.8rem; }
+.meta b { color:var(--text-primary); font-weight:600; }
+.sub { color:var(--text-secondary); font-size:.9rem; margin:0 0 1.75rem; }
+
+.stats { display:flex; flex-wrap:wrap; gap:1.75rem; margin-bottom:2rem; }
+.k { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
+     color:var(--text-muted); }
+.v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.u { font-size:.8rem; color:var(--text-secondary); font-weight:400; }
+
+h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
+.note { color:var(--text-secondary); font-size:.85rem; margin:0 0 .9rem; }
+
+table { border-collapse:collapse; font-size:.85rem; width:100%;
+        margin-bottom:.5rem; }
+th { text-align:left; font-weight:600; color:var(--text-muted);
+     font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
+     padding:.35rem .6rem .35rem 0; border-bottom:1px solid var(--rule); }
+td { padding:.35rem .6rem .35rem 0; border-bottom:1px solid var(--rule);
+     font-variant-numeric:tabular-nums; }
+td.name { font-variant-numeric:normal; }
+
+/* A share shown as a bar as well as a number: comparing rows is the point,
+   and the eye does that faster than arithmetic. */
+.bar { display:block; height:6px; border-radius:3px; background:var(--rule);
+       min-width:60px; }
+.bar > i { display:block; height:100%; border-radius:3px;
+           background:var(--series-1); }
+.bar.good > i { background:var(--good); }
+.bar.warn > i { background:var(--warn); }
+.bar.bad  > i { background:var(--bad); }
+
+.cols { display:flex; gap:2.5rem; align-items:flex-start; flex-wrap:wrap; }
+.cols > * { flex:1 1 20rem; min-width:0; }
+.chart { width:100%; height:76px; display:block; }
+.axis { display:flex; justify-content:space-between; font-size:.7rem;
+        color:var(--text-muted); margin-top:.3rem; }
+.hint { color:var(--text-secondary); font-size:.75rem; margin-top:.15rem; }
+
+.chip { display:inline-block; padding:.05rem .45rem; border-radius:10px;
+        font-size:.72rem; font-weight:600; background:var(--surface-2);
+        color:var(--text-secondary); }
+.chip.a { color:var(--good); }
+.chip.b { color:var(--series-1); }
+.chip.c { color:var(--warn); }
+
+/* Plate maps, in the colours the interactive ones use, sampled from the same
+   colormap so the two cannot disagree.  A well is a cell filled by read
+   depth; a corner triangle carries a status, since colour alone cannot say
+   two things about one square.
+
+   Held to the width a 384-well plate wants rather than the page's: stretched
+   across a full column the wells become rectangles and the plate stops
+   looking like a plate. */
+.tabs { display:flex; flex-wrap:wrap; gap:.3rem; margin:.2rem 0 .8rem; }
+.tab { font:inherit; font-size:.8rem; padding:.2rem .6rem; cursor:pointer;
+       border:1px solid var(--rule); border-radius:4px;
+       background:var(--surface-1); color:var(--text-secondary); }
+.tab.on { background:var(--surface-2); color:var(--text-primary);
+          font-weight:600; }
+.plate { display:flex; align-items:stretch; gap:.6rem;
+          margin-bottom:.6rem; }
+/* An author display rule beats the hidden attribute's UA style, so hiding an
+   unselected plate has to be said here or every plate stacks up at once. */
+.plate[hidden] { display:none; }
+/* Padded by the width of a hover outline.  The scroll box clips at its own
+   bounds, so without this the outline on the outer row and column is cut in
+   half; the negative margin keeps the plate flush left regardless. */
+.grid { overflow-x:auto; padding:3px; margin:-3px; }
+.cols24 { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px;
+          width:32rem; min-width:24rem; }
+
+/* The depth scale as a continuous bar rather than a row of swatches: depth is
+   continuous, and the ticks name the tiers a reader actually sorts on. */
+.cbar { display:flex; gap:.4rem; align-items:stretch; font-size:.68rem;
+        color:var(--text-muted); }
+.cbar .ramp { width:11px; border-radius:2px; border:1px solid var(--rule); }
+/* Each tick sits at the depth it names, not at an even interval: the tiers
+   are 20, 50 and 100 of a 200-read ramp, so evenly spaced labels would point
+   at colours that are not theirs. */
+.cbar .ticks { position:relative; width:2.4rem; }
+.cbar .ticks span { position:absolute; left:0; line-height:1;
+                    transform:translateY(50%); white-space:nowrap; }
+.w { position:relative; aspect-ratio:1; border-radius:2px;
+     background:var(--f); border:1px solid var(--rule); display:block; }
+/* A well that has a pileup is a link to it; one that does not simply is not,
+   so a dead click never happens. */
+a.w { cursor:pointer; }
+/* Lifted while hovered: cells paint in document order, so without this the
+   next well's background covers the half of the outline that overlaps it. */
+a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
+.w.mut::after, .w.parent::after, .w.uncalled::after {
+  content:""; position:absolute; inset:0; border-radius:1px;
+  clip-path:polygon(0 0, 100% 0, 0 100%);
+}
+.w.mut::after      { background:#dc2626; }
+.w.parent::after   { background:#d97706; }
+.w.uncalled::after { background:var(--text-muted); }
+.w.none  { background:var(--surface-2); border-style:dashed;
+           border-color:var(--text-muted); }
+.w.blank { background:repeating-linear-gradient(45deg,
+             var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
+
+.legend { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem;
+          font-size:.72rem; color:var(--text-muted); margin-bottom:1rem; }
+.lk { text-transform:uppercase; letter-spacing:.04em; }
+.ls { display:inline-flex; align-items:center; gap:.25rem; }
+.ls i { width:11px; height:11px; border-radius:2px;
+        border:1px solid var(--rule); display:inline-block; }
+.swatch.mut      { background:#dc2626; }
+.swatch.parent   { background:#d97706; }
+.swatch.uncalled { background:var(--text-muted); }
+.swatch.none     { background:var(--surface-2); border-style:dashed; }
+.swatch.blank    { background:repeating-linear-gradient(45deg,
+                     var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
+
+footer { margin-top:2.5rem; padding-top:1rem; border-top:1px solid var(--rule);
+         color:var(--text-muted); font-size:.78rem; }
+footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
+
+/* The plate-map hover, positioned by script: a pale card with a thin border
+   and dark text in either theme, since the hover markup carries its own
+   colours and would otherwise fight the surface behind it. */
+.tip { position:absolute; z-index:50; display:none; max-width:22rem;
+       padding:.45rem .6rem; border-radius:5px; pointer-events:none;
+       background:#fff; color:#111; border:1px solid #c8c8c8;
+       box-shadow:0 2px 8px rgba(0,0,0,.16);
+       font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif; }
+.tip.on { display:block; }
+
+/* Charts that carry their own text: unlike the sparklines these keep their
+   aspect ratio, or the labels stretch with the box. */
+.chart2 { width:100%; height:auto; display:block; margin-top:.2rem; }
+
+/* Four plots on one grid rather than stacked in two columns: they are read
+   against each other, and a 2-up block keeps each one at a size where its
+   axis labels still fit. */
+.quad { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
+        gap:0 1.8rem; align-items:start; }
+@media (max-width: 900px) { .quad { grid-template-columns:repeat(2, 1fr); } }
+@media (max-width: 620px) { .quad { grid-template-columns:1fr; } }
+
+/* The parameters a curve was computed under, kept with the curve so the
+   figure and its conditions cannot be separated.  Values sit in their own
+   column so they can be read down without picking them out of a sentence. */
+/* Two compact columns rather than one stacked block: these are conditions
+   attached to a figure, not a section of their own. */
+.params { margin-top:.6rem; font-size:.68rem; color:var(--text-secondary); }
+.pgroup + .pgroup { margin-top:.6rem; }
+
+.plabel { text-transform:uppercase; letter-spacing:.04em; font-size:.66rem;
+          color:var(--text-muted); margin-bottom:.25rem; }
+.params dl { display:grid; grid-template-columns:auto max-content;
+             gap:.05rem .5rem; margin:0; }
+.params dt { color:var(--text-secondary); }
+.params dd { margin:0; text-align:right; font-variant-numeric:tabular-nums;
+             color:var(--text-primary); font-weight:600; }
+.params p { margin:.35rem 0 0; color:var(--text-muted); line-height:1.4; }
+
+/* A square plot, with its scale in HTML beside it rather than inside it. */
+.plotwrap { display:flex; gap:.5rem; align-items:stretch; margin-top:.2rem; }
+.plotbox { position:relative; flex:1; aspect-ratio:1; max-width:13rem; }
+.plotbox .sq { width:100%; height:100%; display:block; }
+.yaxis { display:flex; flex-direction:column; justify-content:space-between;
+         text-align:right; font-size:.66rem; color:var(--text-muted);
+         padding-bottom:.1rem; }
+.yaxis span { line-height:1; }
+.obs { position:absolute; width:9px; height:9px; border-radius:50%;
+       background:var(--bad); border:2px solid var(--surface-1);
+       transform:translate(-50%, -50%); }
+.obslab { position:absolute; transform:translate(8px, -170%);
+          font-size:.66rem; color:var(--bad); white-space:nowrap; }
+.axis.inset { max-width:13rem; margin-left:2.3rem; font-size:.66rem; }
+
+/* Plate ticks carry a number and its value, stacked. */
+.axis.plates { justify-content:space-around; align-items:flex-start; }
+.axis.plates span { display:flex; flex-direction:column; align-items:center;
+                    line-height:1.25; }
+.axis.plates b { color:var(--text-secondary); font-weight:600; }
+
+/* Small-to-medium: the four panels are read side by side, so each plot is
+   held well short of its column rather than stretched across it. */
+.quad .chart, .quad .axis, .quad .hint { max-width:19rem; }
+.quad .plotbox { max-width:12rem; }
+.quad .axis.inset { max-width:12rem; }
+
+/* Fold-sampling ticks under the square, positioned to the gridlines they
+   name rather than spaced evenly. */
+.xticks { position:absolute; left:0; right:0; top:100%; height:1rem; }
+.xticks span { position:absolute; transform:translateX(-50%);
+               font-size:.66rem; color:var(--text-muted); line-height:1.6; }
+.xlab { margin-left:2.3rem; font-size:.66rem; color:var(--text-muted);
+        margin-top:1rem; }
+
+/* Which line is which, since there are now two. */
+.key { display:flex; flex-wrap:wrap; gap:.15rem .7rem; margin-top:.45rem;
+       font-size:.66rem; color:var(--text-muted); }
+.key span { display:inline-flex; align-items:center; gap:.28rem; }
+.key i { width:13px; height:0; border-top:2px solid var(--series-1);
+         display:inline-block; }
+.key i.k2 { border-top:2px dashed var(--text-muted); }
+.key i.k3 { width:8px; height:8px; border:0; border-radius:50%;
+            background:var(--bad); }
+
+/* The palette switch, and the row a pick was taken from. */
+.themeToggle { position:fixed; top:1rem; right:1rem; z-index:60;
+               width:2rem; height:2rem; border-radius:50%; cursor:pointer;
+               border:1px solid var(--rule); background:var(--surface-2);
+               color:var(--text-secondary); font-size:.95rem; line-height:1; }
+.themeToggle:hover { color:var(--text-primary); }
+tr.sel td { background:var(--surface-2); }

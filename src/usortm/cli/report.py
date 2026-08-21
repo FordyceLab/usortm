@@ -1356,6 +1356,26 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
     import html as _html
     import os as _os
 
+    # A single-round run renders the current page, which draws its figures
+    # from the run's own output and needs no plotting library.  A merged
+    # report still goes through the older path below: it reads per-round
+    # context the new renderer has no model for, and rendering it as though it
+    # were one run would misreport which round each well came from.
+    if merged_context is None:
+        from usortm.report import render_summary
+
+        library_size = project.get("library_size", 0)
+        bins = _compute_quality_bins(well_data, library_size) if library_size \
+            else None
+        with open(output_file, "w") as fh:
+            fh.write(render_summary(
+                project, demux_summary, well_data,
+                project_dir or output_file.parent.parent,
+                tiers=(bins or {}).get("recovery_tiers"),
+                library_size=library_size,
+            ))
+        return
+
     # Calculate statistics — strip |cons_check suffix before counting
     unique_variants = _count_unique_variants(well_data)
 
