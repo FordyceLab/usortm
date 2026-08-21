@@ -348,11 +348,14 @@ def render_summary(project: dict, demux_summary: dict,
             f'   <div><h2>Pick plate</h2>'
             f'<p class="note">{pick["note"]}</p></div>\n'
             f'  </div>\n')
+        # The ramp stands between the two plates: it belongs to both, and in
+        # the middle it separates them without a rule that would say they are
+        # measured differently.
         row = (
             f'  <div class="platerow">\n'
+            f'    <div class="pcol">{maps["grids"]}{maps["legend"]}</div>\n'
             f'    <div class="cbcol">{colorbar()}<div class="cblab">reads'
             f'<br>per well</div></div>\n'
-            f'    <div class="pcol">{maps["grids"]}{maps["legend"]}</div>\n'
             f'    <div class="pcol">{pick["grid"]}{pick["legend"]}</div>\n'
             f'  </div>\n')
         plates_html = heads + row
