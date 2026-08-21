@@ -13,7 +13,8 @@ from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedCo
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE, section
-from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
+from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD, MIXED_TEMPLATE_WATCH,
+                                column_agreement_class)
 from usortm.paths import input_file
 
 console = get_console()
@@ -632,6 +633,11 @@ def _load_well_assignments(assignments_file: Path) -> list:
             nfp = row.get("n_flagged_positions", "")
             if nfp:
                 entry["n_flagged_positions"] = int(nfp)
+            # Carried because the mixed-template test reads it; without it the
+            # test has nothing to fail on and every well passes silently.
+            mmf = row.get("max_mismatch_frac", "")
+            if mmf not in ("", None):
+                entry["max_mismatch_frac"] = float(mmf)
             well_data.append(entry)
 
     return well_data
@@ -921,11 +927,31 @@ def _generate_pick_list(
     has_mismatch_data = any(w.get("max_mismatch_frac") is not None
                             for w in sorted_wells)
     if has_mismatch_data:
-        sorted_wells = [
-            w for w in sorted_wells
-            if float(w.get("max_mismatch_frac") or 0.0)
-            <= MIXED_TEMPLATE_THRESHOLD
-        ]
+        classes = [column_agreement_class(w.get("max_mismatch_frac"))
+                   for w in sorted_wells]
+        n_mixed = sum(1 for c in classes if c == "mixed")
+        sorted_wells = [w for w, c in zip(sorted_wells, classes)
+                        if c != "mixed"]
+        # The two populations overlap between the watch and mixed thresholds,
+        # so these wells are picked but named: a well there may hold a minor
+        # second template rather than the base-caller's error, and the pileup
+        # is the only way to tell.
+        n_watch = sum(1 for w in sorted_wells
+                      if column_agreement_class(w.get("max_mismatch_frac"))
+                      == "watch")
+        if n_mixed:
+            console.print(
+                f"[green]✓[/green] Excluded {n_mixed} well(s) whose worst "
+                f"column disagrees by more than "
+                f"{MIXED_TEMPLATE_THRESHOLD:.0%} (mixed template)"
+            )
+        if n_watch:
+            console.print(
+                f"[yellow]⚠[/yellow] {n_watch} picked well(s) between "
+                f"{MIXED_TEMPLATE_WATCH:.0%} and "
+                f"{MIXED_TEMPLATE_THRESHOLD:.0%} — kept, worth checking "
+                f"in the pileup"
+            )
 
     for well in sorted_wells:
         variant = well["variant"]

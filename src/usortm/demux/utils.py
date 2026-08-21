@@ -2340,6 +2340,38 @@ MIXED_TEMPLATE_THRESHOLD = 0.25
 #: is what two templates in one well look like.
 MIXED_TEMPLATE_CLEAR = 0.40
 
+#: Below this a column is where the base-caller's own error sits, and says
+#: nothing about the well.  Between here and MIXED_TEMPLATE_THRESHOLD a well is
+#: kept but worth looking at: the two populations overlap in that span, so a
+#: well there may hold a minor second template rather than noise.
+MIXED_TEMPLATE_WATCH = 0.10
+
+
+def column_agreement_class(max_mismatch_frac) -> str:
+    """Classify a well by how far its worst ORF column disagrees.
+
+    Args:
+        max_mismatch_frac: The well's ``max_mismatch_frac``, or None when the
+            run recorded none.
+
+    Returns:
+        ``"clean"`` below :data:`MIXED_TEMPLATE_WATCH`, ``"watch"`` up to
+        :data:`MIXED_TEMPLATE_THRESHOLD`, ``"mixed"`` above it, and
+        ``"unknown"`` when there is no value to judge.  Only ``"mixed"`` is
+        excluded from a tier; ``"watch"`` marks a well for inspection.
+    """
+    if max_mismatch_frac is None or max_mismatch_frac == "":
+        return "unknown"
+    try:
+        frac = float(max_mismatch_frac)
+    except (TypeError, ValueError):
+        return "unknown"
+    if frac > MIXED_TEMPLATE_THRESHOLD:
+        return "mixed"
+    if frac > MIXED_TEMPLATE_WATCH:
+        return "watch"
+    return "clean"
+
 
 def _check_column_agreement(
     well: str,

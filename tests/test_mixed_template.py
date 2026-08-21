@@ -86,3 +86,38 @@ def test_a_run_without_the_column_is_not_silently_filtered(tmp_path):
         w.writerow([1, "A1", 200, "V1", 1.0, "Perfect Match", "OK"])
     bins = _compute_quality_bins(_load_well_assignments(path), 1)
     assert bins["recovery_tiers"]["C"]["count"] == 1
+
+
+def test_classes_partition_the_range():
+    """Every well falls in exactly one band, with no gap at a boundary."""
+    from usortm.demux.utils import (MIXED_TEMPLATE_WATCH,
+                                    column_agreement_class)
+    assert column_agreement_class(MIXED_TEMPLATE_WATCH) == "clean"
+    assert column_agreement_class(MIXED_TEMPLATE_WATCH + 0.001) == "watch"
+    assert column_agreement_class(MIXED_TEMPLATE_THRESHOLD) == "watch"
+    assert column_agreement_class(MIXED_TEMPLATE_THRESHOLD + 0.001) == "mixed"
+
+
+def test_a_missing_value_is_not_treated_as_clean():
+    """An unjudgeable well must be distinguishable from one measured clean."""
+    from usortm.demux.utils import column_agreement_class
+    assert column_agreement_class(None) == "unknown"
+    assert column_agreement_class("") == "unknown"
+    assert column_agreement_class("not a number") == "unknown"
+
+
+def test_watch_band_is_kept_by_the_tiers(tmp_path):
+    """A watch well is marked, not rejected."""
+    from usortm.demux.utils import column_agreement_class
+    path = _write(tmp_path / "wa.csv", [_well(1, "A1", "V1", 0.15)])
+    loaded = _load_well_assignments(path)
+    assert column_agreement_class(loaded[0]["max_mismatch_frac"]) == "watch"
+    bins = _compute_quality_bins(loaded, 1)
+    assert bins["recovery_tiers"]["C"]["count"] == 1
+
+
+def test_pick_loader_carries_the_column(tmp_path):
+    """pick has its own reader; it must carry what its filter reads."""
+    from usortm.cli.pick import _load_well_assignments as pick_load
+    path = _write(tmp_path / "wa.csv", [_well(1, "A1", "V1", 0.5)])
+    assert pick_load(path)[0]["max_mismatch_frac"] == 0.5
