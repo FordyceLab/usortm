@@ -22,8 +22,10 @@ TIER_READS = {"A": 100, "B": 50, "C": 20}
 def cmap_hex(t: float) -> str:
     """Sample the white-yellow-green ramp the plate maps use, at *t* in [0, 1].
 
-    The same stops as ``get_custom_cmap()``, without requiring matplotlib to
-    render a page.
+    The same stops as ``get_custom_cmap()``, interpolated here rather than
+    through matplotlib, which is an optional extra and cannot be required to
+    render a report.  The duplication is checked against the original by
+    test_summary_page, since a ramp copied by hand is a ramp that can drift.
     """
     t = max(0.0, min(1.0, t))
 

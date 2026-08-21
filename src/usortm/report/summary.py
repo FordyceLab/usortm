@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Sequence
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
-from .charts import (TIER_READS, bar, colorbar_h, read_depth_chart,
+from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
                      read_length_chart, recovery_chart)
 from .plates import demux_plate_maps, pick_plate, pileup_links
 
@@ -229,8 +229,8 @@ def render_summary(project: dict, demux_summary: dict,
             f'   <div>\n  <h2>Library recovery</h2>\n'
             f'  <p class="note">Variants with at least one well at the tier\'s '
             f'depth whose consensus exceeds 90% agreement, carries no error '
-            f'call, has intact flanks, and whose worst column disagrees by no '
-            f'more than {MIXED_TEMPLATE_THRESHOLD:.0%}. Tiers are '
+            f'call, has intact flanks, and no position where more than '
+            f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
             f'cumulative.</p>\n'
             f'  <table><tr><th>Tier</th><th>Threshold</th><th>Variants</th>'
             f'<th style="width:34%"></th></tr>{"".join(rows)}</table>\n'
@@ -332,8 +332,30 @@ def render_summary(project: dict, demux_summary: dict,
         figures_html = f'  <div class="quad">\n{"".join(panels)}\n  </div>\n'
 
     # --- plates ---
-    maps_html = demux_plate_maps(well_data, designed, links)
-    pick_html = pick_plate(_current_pick(project_dir), links)
+    maps = demux_plate_maps(well_data, designed, links)
+    pick = pick_plate(_current_pick(project_dir), links)
+
+    # Headings, notes and the plate tabs sit above the row so the two grids
+    # start on the same line: the demux map carries a row of tabs and the pick
+    # plate does not, which otherwise drops one grid below the other.  The
+    # depth ramp stands to the left of both, once, since they share a scale.
+    plates_html = ""
+    if maps:
+        heads = (
+            f'  <div class="cols contain">\n'
+            f'   <div><h2>Demux plate maps</h2>'
+            f'<p class="note">{maps["note"]}</p>{maps["tabs"]}</div>\n'
+            f'   <div><h2>Pick plate</h2>'
+            f'<p class="note">{pick["note"]}</p></div>\n'
+            f'  </div>\n')
+        row = (
+            f'  <div class="platerow">\n'
+            f'    <div class="cbcol">{colorbar()}<div class="cblab">reads'
+            f'<br>per well</div></div>\n'
+            f'    <div class="pcol">{maps["grids"]}{maps["legend"]}</div>\n'
+            f'    <div class="pcol">{pick["grid"]}{pick["legend"]}</div>\n'
+            f'  </div>\n')
+        plates_html = heads + row
 
     versions = demux_summary.get("versions") or {}
     ver_rows = "".join(
@@ -372,14 +394,7 @@ def render_summary(project: dict, demux_summary: dict,
 
   <div class="stats">{"".join(stats)}</div>
 
-{tables_html}{figures_html}  <div class="cols plates">
-   <div>
-{maps_html}   </div>
-   <div>
-{pick_html}   </div>
-  </div>
-  <p class="note">Both plates are filled on the same scale.</p>
-  {colorbar_h()}
+{tables_html}{figures_html}{plates_html}
   <h2>Provenance</h2>
   <table><tr><th>Component</th><th>Version</th></tr>{ver_rows}</table>
 
@@ -487,9 +502,10 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
              f"{100 * measured['p_grow']:.0f}% of sorted"),
         wrow("On-target", f"{measured['n_on_target']:,}",
              f"{100 * (1 - measured['p_incorrect']):.0f}% of grown"),
-        wrow(f"Mixed template &gt;{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{mixed:,}",
+        wrow(f"A position past {MIXED_TEMPLATE_THRESHOLD:.0%} disagreement",
+             f"{mixed:,}",
              f"{100 * mixed / n_deep:.0f}% of grown"),
-        wrow(f"Worth checking {MIXED_TEMPLATE_WATCH:.0%}&ndash;"
+        wrow(f"A position at {MIXED_TEMPLATE_WATCH:.0%}&ndash;"
              f"{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{watch:,}",
              f"{100 * watch / n_deep:.0f}% of grown"),
         wrow("Flank failed", f"{bad_flank:,}",
