@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from usortm.cli.report import NOT_THE_DESIGNED_SEQUENCE
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
@@ -82,7 +83,7 @@ def measured_parameters(well_data: Sequence[dict], designed: set,
         w for w in grown
         if w.get("variant") in designed
         and (w.get("consensus_fraction") or 0) > 0.9
-        and w.get("cons_check", "") not in ("Other Error", "Error")
+        and w.get("cons_check", "") not in NOT_THE_DESIGNED_SEQUENCE
         and (w.get("flank_check", "OK") or "OK") == "OK"
         and column_agreement_class(w.get("max_mismatch_frac")) != "mixed"
     ]
@@ -239,8 +240,7 @@ def render_summary(project: dict, demux_summary: dict,
     # --- what the wells contain ---
     contents_html = ""
     if deep:
-        buckets = {"designed": 0, "silent": 0, "parent": 0, "uncalled": 0,
-                   "other": 0}
+        buckets = {"designed": 0, "parent": 0, "uncalled": 0, "other": 0}
         for w in deep:
             variant = w.get("variant") or ""
             cons = w.get("cons_check") or ""
@@ -248,17 +248,16 @@ def render_summary(project: dict, demux_summary: dict,
                 buckets["parent"] += 1
             elif variant == "unassigned" or variant not in designed:
                 buckets["uncalled"] += 1
-            elif cons == "Silent Mutation":
-                buckets["silent"] += 1
             elif cons in ("Perfect Match", "Match", ""):
                 buckets["designed"] += 1
             else:
+                # A silent change lands here with the rest: it is not the
+                # sequence that was designed, whatever it encodes.
                 buckets["other"] += 1
         labels = [("designed", "Variant in library", "good"),
-                  ("silent", "Silent mutation", "good"),
                   ("parent", "Parent (unmutated)", "warn"),
                   ("uncalled", "Insert not readable", "bad"),
-                  ("other", "Other mismatch", "bad")]
+                  ("other", "Sequence differs from design", "bad")]
         rows = []
         for key, label, tone in labels:
             n = buckets[key]
@@ -333,7 +332,14 @@ def render_summary(project: dict, demux_summary: dict,
 
     # --- plates ---
     maps = demux_plate_maps(well_data, designed, links)
-    pick = pick_plate(_current_pick(project_dir), links)
+    # How cleanly each well reads, so a pick carries the mark its source well
+    # has on the demux map.
+    well_class = {
+        f'{w["plate"]}_{w["well"]}':
+            column_agreement_class(w.get("max_mismatch_frac"))
+        for w in well_data
+    }
+    pick = pick_plate(_current_pick(project_dir), links, well_class)
 
     # Headings, notes and the plate tabs sit above the row so the two grids
     # start on the same line: the demux map carries a row of tabs and the pick

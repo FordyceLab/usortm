@@ -16,6 +16,11 @@ from rich import box
 from usortm.cli.theme import get_console, BORDER_STYLE
 from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
 
+#: Consensus outcomes that are not the sequence that was designed.  A silent
+#: change is among them: it encodes the right protein through a different
+#: codon, and the thing being delivered is the DNA.
+NOT_THE_DESIGNED_SEQUENCE = ("Other Error", "Error", "Silent Mutation")
+
 console = get_console()
 
 PROJECT_STATE_FILE = "usortm_project.json"
@@ -766,7 +771,7 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
             _norm_variant(w["variant"]) for w in well_data
             if w["reads"] >= min_reads
             and w["consensus_fraction"] > 0.9
-            and w.get("cons_check", "") not in ("Other Error", "Error")
+            and w.get("cons_check", "") not in NOT_THE_DESIGNED_SEQUENCE
             and (not has_flank_data or w.get("flank_check", "") == "OK")
             and (not has_mismatch_data
                  or float(w.get("max_mismatch_frac") or 0.0)

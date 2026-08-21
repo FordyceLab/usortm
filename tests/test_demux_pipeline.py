@@ -1227,8 +1227,13 @@ class TestMutationWellFiltering:
             "Well 1C3 (cons_check='Error') should be excluded from pick list"
         )
 
-    def test_perfect_match_and_silent_mutation_included(self):
-        """Wells with 'Perfect Match' or 'Silent Mutation' cons_check must be picked."""
+    def test_only_the_designed_sequence_is_picked(self):
+        """A perfect match is picked; a synonymous change is not.
+
+        uSort-M delivers sequence-verified DNA, so a well encoding the right
+        protein through a different codon is not the construct that was
+        ordered.  It used to be picked on the grounds that the protein matches.
+        """
         from usortm.cli.pick import _generate_pick_list
 
         well_data = self._make_well_data()
@@ -1245,4 +1250,5 @@ class TestMutationWellFiltering:
 
         picked_wells = {(h["source_plate"], h["source_well"]) for h in pick_list if not h.get("empty")}
         assert ("1", "A1") in picked_wells, "1A1 (Perfect Match) should be picked"
-        assert ("1", "B2") in picked_wells, "1B2 (Silent Mutation) should be picked"
+        assert ("1", "B2") not in picked_wells, \
+            "1B2 (Silent Mutation) is not the designed sequence"

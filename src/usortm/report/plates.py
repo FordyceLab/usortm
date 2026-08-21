@@ -170,13 +170,19 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
 
 
 def pick_plate(pick_list: Optional[List[dict]],
-               links: Dict[str, str]) -> str:
+               links: Dict[str, str],
+               well_class: Optional[Dict[str, str]] = None) -> str:
     """The destination plate as pick built it, or a note saying why not.
 
     *pick_list* is None when no pick exists or when the one on disk predates
     this demux; the section then says so rather than rendering a plate that
     describes different wells.
+
+    *well_class* maps ``"<plate>_<well>"`` to how cleanly that well reads, so a
+    picked well carries the same mark it has on the demux map.  Taken from the
+    wells rather than from the pick list, which need not carry the fraction.
     """
+    well_class = well_class or {}
     if pick_list is None:
         return {"note": ("Not shown: no current pick for this run. Run "
                          "<code>usortm pick</code> to populate it."),
@@ -211,10 +217,11 @@ def pick_plate(pick_list: Optional[List[dict]],
             filled += 1
             reads = int(slot.get("reads") or 0)
             src = f'{slot.get("source_plate")}_{slot.get("source_well")}'
-            klass = column_agreement_class(slot.get("max_mismatch_frac"))
+            klass = well_class.get(src) or column_agreement_class(
+                slot.get("max_mismatch_frac"))
             extra = ""
             if klass == "watch":
-                extra = ('<div style="font-size:11px;color:#d97706;'
+                extra = ('<div style="font-size:11px;color:#2a78d6;'
                          'margin-top:2px;">worth checking</div>')
             tip = html.escape(
                 f'<div style="line-height:1.2">'
@@ -228,12 +235,13 @@ def pick_plate(pick_list: Optional[List[dict]],
                 f'{extra}</div>', quote=True)
             href = links.get(src)
             style = f"--f:{depth_colour(reads)}"
+            cls = "w watch" if klass == "watch" else "w"
             if href:
-                cells.append(f'<a class="w" href="{href}" target="_blank" '
+                cells.append(f'<a class="{cls}" href="{href}" target="_blank" '
                              f'rel="noopener" style="{style}" '
                              f'data-tip="{tip}"></a>')
             else:
-                cells.append(f'<i class="w" style="{style}" '
+                cells.append(f'<i class="{cls}" style="{style}" '
                              f'data-tip="{tip}"></i>')
 
     return {
@@ -246,5 +254,7 @@ def pick_plate(pick_list: Optional[List[dict]],
             '<div class="legend">'
             '<span class="ls"><i class="swatch none"></i>not recovered</span>'
             '<span class="ls"><i class="swatch blank"></i>blank by design'
-            '</span></div>'),
+            '</span>'
+            '<span class="ls"><i class="swatch watch"></i>worth checking</span>'
+            '</div>'),
     }

@@ -230,3 +230,58 @@ def test_the_ramp_matches_the_one_the_plate_maps_use():
     assert cmap_hex(0.0) == mcolors.rgb2hex(reference(0.0)[:3])
     assert cmap_hex(1.0) == mcolors.rgb2hex(reference(1.0)[:3])
     assert worst <= 4, f"ramp drifted by {worst}/255 from get_custom_cmap()"
+
+
+def test_a_silent_change_is_not_the_designed_sequence(run):
+    """Synonymous is still different DNA, and DNA is the deliverable."""
+    from usortm.cli.report import _compute_quality_bins
+    wells = [{"plate": "1", "well": "A1", "variant": "V1", "reads": 200,
+              "consensus_fraction": 0.99, "cons_check": "Silent Mutation",
+              "flank_check": "OK", "max_mismatch_frac": 0.02}]
+    bins = _compute_quality_bins(wells, 1)
+    assert bins["recovery_tiers"]["C"]["count"] == 0
+
+
+def test_a_silent_change_is_not_its_own_category(run):
+    """It is counted with the rest of what differs from the design."""
+    html = render_summary(
+        {"library_size": 1, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1", cons="Silent Mutation")], run, library_size=1)
+    assert "Silent mutation" not in html
+    assert "Sequence differs from design" in html
+
+
+def test_pick_does_not_take_a_silent_change(run):
+    import csv
+
+    from usortm.cli.pick import _generate_pick_list
+    from usortm.cli.pick import _load_well_assignments as pick_load
+    path = run / "wa2.csv"
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["plate", "well", "reads", "variant",
+                    "consensus_fraction", "cons_check", "flank_check",
+                    "n_flagged_positions", "max_mismatch_frac"])
+        w.writerow([1, "A1", 200, "V1", 1.0, "Silent Mutation", "OK", 0, 0.02])
+    picks = _generate_pick_list(pick_load(path), None, True, 384, "row",
+                                library_order={"V1": 0})
+    assert not [p for p in picks if not p.get("empty")]
+
+
+def test_the_pick_plate_carries_the_watch_mark(run):
+    """A picked well shows the mark its source well has on the demux map.
+
+    Resolved from the wells rather than the pick list: a list written before
+    picks carried the fraction has no field to read.
+    """
+    pick_dir = run / "pick"
+    pick_dir.mkdir()
+    (pick_dir / "pick_list.json").write_text(json.dumps(
+        [{"variant": "V1", "target_well": "A1", "source_plate": "1",
+          "source_well": "A1", "reads": 100, "consensus_fraction": 0.99}]))
+
+    html = render_summary(
+        {"library_size": 1, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1", mismatch=0.15)], run, library_size=1)
+    pick_section = html.split('<div class="pcol">')[-1]
+    assert "w watch" in pick_section
