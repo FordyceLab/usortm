@@ -121,3 +121,32 @@ def test_pick_loader_carries_the_column(tmp_path):
     from usortm.cli.pick import _load_well_assignments as pick_load
     path = _write(tmp_path / "wa.csv", [_well(1, "A1", "V1", 0.5)])
     assert pick_load(path)[0]["max_mismatch_frac"] == 0.5
+
+
+def test_pick_carries_the_band_onto_each_pick(tmp_path):
+    """A pick keeps the fraction, so the count reported is of picks.
+
+    Counted over eligible wells instead the number is several times larger --
+    one variant is picked from however many wells hold it -- and reads as if
+    most of the plate needed checking.
+    """
+    from usortm.cli.pick import _generate_pick_list
+    from usortm.cli.pick import _load_well_assignments as pick_load
+    from usortm.demux.utils import column_agreement_class
+
+    path = _write(tmp_path / "wa.csv", [
+        _well(1, "A1", "V1", 0.15, reads=300),
+        _well(1, "A2", "V1", 0.16, reads=200),   # same variant, not picked
+        _well(1, "A3", "V1", 0.17, reads=100),   # same variant, not picked
+        _well(1, "B1", "V2", 0.02, reads=300),
+    ])
+    picks = _generate_pick_list(
+        pick_load(path), None, True, 384, "row",
+        library_order={"V1": 0, "V2": 1},
+    )
+    filled = [p for p in picks if not p.get("empty")]
+    assert len(filled) == 2, "one well per variant"
+    assert all("max_mismatch_frac" in p for p in filled)
+    watch = [p for p in filled
+             if column_agreement_class(p["max_mismatch_frac"]) == "watch"]
+    assert len(watch) == 1, "V1 is picked once, not three times"

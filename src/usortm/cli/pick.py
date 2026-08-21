@@ -288,6 +288,22 @@ def pick(
                 f"no well in the layout and were dropped: {shown}{more}"
             )
 
+    # Counted over the wells that were picked, not the wells that were eligible
+    # to be: one variant is picked from however many wells hold it, so the
+    # eligible count is several times larger and says nothing about the plate
+    # that comes out.
+    n_watch = sum(
+        1 for h in pick_list
+        if not h.get("empty")
+        and column_agreement_class(h.get("max_mismatch_frac")) == "watch"
+    )
+    if n_watch:
+        console.print(
+            f"[yellow]⚠[/yellow] {n_watch} picked well(s) sit between "
+            f"{MIXED_TEMPLATE_WATCH:.0%} and {MIXED_TEMPLATE_THRESHOLD:.0%} "
+            f"disagreement — kept, worth checking in the pileup"
+        )
+
     # Upgrade empty placeholders to Streakout entries where the variant can be
     # recovered by streaking out a mixed well.
     streakout_csv = demux_output / "streakout" / "streakout_candidates.csv"
@@ -932,25 +948,11 @@ def _generate_pick_list(
         n_mixed = sum(1 for c in classes if c == "mixed")
         sorted_wells = [w for w, c in zip(sorted_wells, classes)
                         if c != "mixed"]
-        # The two populations overlap between the watch and mixed thresholds,
-        # so these wells are picked but named: a well there may hold a minor
-        # second template rather than the base-caller's error, and the pileup
-        # is the only way to tell.
-        n_watch = sum(1 for w in sorted_wells
-                      if column_agreement_class(w.get("max_mismatch_frac"))
-                      == "watch")
         if n_mixed:
             console.print(
                 f"[green]✓[/green] Excluded {n_mixed} well(s) whose worst "
                 f"column disagrees by more than "
                 f"{MIXED_TEMPLATE_THRESHOLD:.0%} (mixed template)"
-            )
-        if n_watch:
-            console.print(
-                f"[yellow]⚠[/yellow] {n_watch} picked well(s) between "
-                f"{MIXED_TEMPLATE_WATCH:.0%} and "
-                f"{MIXED_TEMPLATE_THRESHOLD:.0%} — kept, worth checking "
-                f"in the pileup"
             )
 
     for well in sorted_wells:
@@ -972,6 +974,11 @@ def _generate_pick_list(
             "consensus_fraction": well["consensus_fraction"],
             "cons_check": well.get("cons_check", ""),
             "assignment_confidence": well.get("assignment_confidence", 0),
+            # Carried so the count reported below is of wells actually picked.
+            # Counting over the eligible wells instead reports a number several
+            # times larger, since one variant is picked from however many wells
+            # hold it.
+            "max_mismatch_frac": well.get("max_mismatch_frac"),
         })
 
         seen_variants.add(variant)
