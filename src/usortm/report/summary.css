@@ -254,8 +254,10 @@ tr.sel td { background:var(--surface-2); }
 .platerow { display:flex; align-items:flex-start; gap:1.1rem;
             margin-bottom:1.25rem; }
 .platerow .pcol { flex:1 1 0; min-width:0; }
-.cbcol { display:flex; flex-direction:column; align-items:flex-start;
+/* Centred between the plates rather than flush against one, so it reads as
+   belonging to both. */
+.cbcol { display:flex; flex-direction:column; align-items:center;
          flex:0 0 auto; align-self:stretch; }
 .cbcol .cbar { flex:1; }
 .cbcol .cblab { font-size:.66rem; color:var(--text-muted); margin-top:.4rem;
-                line-height:1.2; }
+                line-height:1.2; text-align:center; }
