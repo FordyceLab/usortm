@@ -74,6 +74,10 @@ def measured_parameters(well_data: Sequence[dict], designed: set,
     """
     sorted_wells = n_plates * WELLS_PER_PLATE
     grown = [w for w in well_data if (w.get("reads") or 0) >= TIER_READS["C"]]
+    # Fold sampling counts the wells that grew, not the wells that were sorted:
+    # a well that never produced a culture was never a sample of the library,
+    # and the curve is about what sampling those cultures recovers.  Sorting
+    # efficiency is reported beside it rather than folded into the axis.
     on_target = [
         w for w in grown
         if w.get("variant") in designed
@@ -88,7 +92,8 @@ def measured_parameters(well_data: Sequence[dict], designed: set,
         "n_plates": n_plates,
         "n_grown": len(grown),
         "n_on_target": len(on_target),
-        "sampling": sorted_wells / library_size if library_size else None,
+        "sampling": len(grown) / library_size if library_size else None,
+        "sorted_sampling": sorted_wells / library_size if library_size else None,
         "p_grow": len(grown) / sorted_wells if sorted_wells else 0.0,
         "p_incorrect": 1 - len(on_target) / n_grown,
         "p_fail": PUBLISHED["p_fail"],
@@ -126,9 +131,14 @@ def recovery_curves(library_size: int, skew: float, measured: dict,
             stds.append(round(float(np.std(r) / library_size * 100), 2))
         return means, stds
 
-    d_means, d_stds = run(PUBLISHED["p_grow"], PUBLISHED["p_fail"],
+    # p_grow is 1 on both curves.  The axis counts wells that grew, so the
+    # growth loss is already in it; applying it again would take it twice and
+    # put the run's own point above its own curve.  What the two curves then
+    # compare is the library rather than the sort: given cultures, how much of
+    # it comes back.
+    d_means, d_stds = run(1.0, PUBLISHED["p_fail"],
                           PUBLISHED["p_incorrect"], PUBLISHED["skew"])
-    m_means, m_stds = run(measured["p_grow"], measured["p_fail"],
+    m_means, m_stds = run(1.0, measured["p_fail"],
                           measured["p_incorrect"], skew)
     if d_means is None or m_means is None:
         return {}
@@ -311,8 +321,9 @@ def render_summary(project: dict, demux_summary: dict,
             hint += ".</div>\n"
         panels.append(
             f'    <div>\n      <h2>Recovery curve</h2>\n'
-            f'      <p class="note">Variants recovered against fold sampling, '
-            f'over {measured["n_sorted"]:,} wells on {n_plates} plates.</p>\n'
+            f'      <p class="note">Variants recovered against fold sampling '
+            f'of the {measured["n_grown"]:,} wells that grew, of '
+            f'{measured["n_sorted"]:,} sorted on {n_plates} plates.</p>\n'
             f'      {curve_html}\n{hint}    </div>')
         panels.append(_parameters_panel(project, measured, curves, deep, lib))
 

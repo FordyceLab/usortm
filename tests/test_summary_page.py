@@ -108,7 +108,40 @@ def test_sorted_wells_come_from_the_plate_count(run):
     wells = [_well(1, "A1", "V1"), _well(2, "A1", "V2")]
     m = measured_parameters(wells, {"V1", "V2"}, n_plates=2, library_size=2)
     assert m["n_sorted"] == 2 * WELLS_PER_PLATE
-    assert m["sampling"] == 2 * WELLS_PER_PLATE / 2
+    assert m["sorted_sampling"] == 2 * WELLS_PER_PLATE / 2
+
+
+def test_fold_sampling_counts_the_wells_that_grew(run):
+    """The axis is cultures sampled, not wells sorted into.
+
+    A well that never grew was never a sample of the library, and counting it
+    would put the run's point further right than its own data supports.
+    """
+    wells = [_well(1, "A1", "V1"), _well(1, "A2", "V2"),
+             _well(1, "A3", "V1", reads=3)]      # below the depth, did not grow
+    m = measured_parameters(wells, {"V1", "V2"}, n_plates=1, library_size=2)
+    assert m["n_grown"] == 2
+    assert m["sampling"] == 1.0          # two grown over a library of two
+    assert m["sorted_sampling"] == WELLS_PER_PLATE / 2
+
+
+def test_growth_is_not_applied_twice(run):
+    """With growth in the axis, the curves must not also apply p_grow.
+
+    Taking it in both places puts the run's own point above its own curve,
+    which is how the axis and the parameters last disagreed.
+    """
+    from usortm.report.summary import recovery_curves
+    wells = [_well(1, f"A{i}", "V1") for i in range(1, 9)]
+    m = measured_parameters(wells, {"V1"}, n_plates=1, library_size=2)
+    assert m["p_grow"] < 0.1            # few of a plate's wells grew
+    curves = recovery_curves(2, 2.0, m, observed_pct=90.0)
+    if not curves:
+        pytest.skip("simulation unavailable")
+    # A curve that had growth applied twice would sit far below one that did
+    # not; at high sampling with no off-target loss it should approach full
+    # recovery instead.
+    assert max(curves["measured"]["means"]) > 90.0
 
 
 def test_off_target_counts_only_clean_library_members(run):

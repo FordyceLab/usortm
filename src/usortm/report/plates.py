@@ -127,6 +127,7 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                 style = f"--f:{depth_colour(depth)}"
                 if href:
                     cells.append(f'<a class="{cls}" href="{href}" '
+                                 f'target="_blank" rel="noopener" '
                                  f'style="{style}" data-tip="{tip}"></a>')
                 else:
                     cells.append(f'<i class="{cls}" style="{style}" '
@@ -220,7 +221,8 @@ def pick_plate(pick_list: Optional[List[dict]],
             href = links.get(src)
             style = f"--f:{depth_colour(reads)}"
             if href:
-                cells.append(f'<a class="w" href="{href}" style="{style}" '
+                cells.append(f'<a class="w" href="{href}" target="_blank" '
+                             f'rel="noopener" style="{style}" '
                              f'data-tip="{tip}"></a>')
             else:
                 cells.append(f'<i class="w" style="{style}" '
