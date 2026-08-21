@@ -200,10 +200,17 @@ def _input_fingerprint(fastq):
     """Identify the input reads cheaply, for cache invalidation.
 
     Hashing the reads themselves is not affordable — a production input runs
-    to several gigabytes — so each file is identified by absolute path, byte
-    size and modification time instead.  The bias is deliberate: a false
-    mismatch costs a re-alignment, while a false match would silently process
-    the wrong reads.
+    to several gigabytes — so each file is identified by name, byte size and
+    modification time instead.  The bias is deliberate: a false mismatch costs
+    a re-alignment, while a false match would silently process the wrong
+    reads.
+
+    The directory is deliberately not part of it.  Moving a project does not
+    change the reads inside it, and keying on the full path meant relocating
+    one — off a synced folder, onto a bigger disk — silently threw away every
+    cached stage and re-ran hours of work on identical input.  Name, size and
+    modification time to the nanosecond still separate any two files a run
+    might plausibly be pointed at.
 
     Args:
         fastq: Path, directory, or list of paths, as accepted by
@@ -225,11 +232,31 @@ def _input_fingerprint(fastq):
         except OSError:
             return None
         prints.append({
-            "path": os.path.abspath(p),
+            "name": os.path.basename(p),
             "size": st.st_size,
             "mtime_ns": st.st_mtime_ns,
         })
     return prints
+
+
+def _fingerprints_match(saved, current) -> bool:
+    """Whether a recorded input fingerprint describes the same reads.
+
+    Compared field by field rather than by equality so a sidecar written
+    before the directory was dropped from the fingerprint still matches: those
+    entries carry ``path`` where new ones carry ``name``, and the basename of
+    the one is the other.  Without this the change that made caches survive a
+    move would itself have discarded every cache that predated it.
+    """
+    if not saved or not current or len(saved) != len(current):
+        return False
+    for old, new in zip(saved, current):
+        name = old.get("name") or os.path.basename(old.get("path", ""))
+        if (name != new.get("name")
+                or old.get("size") != new.get("size")
+                or old.get("mtime_ns") != new.get("mtime_ns")):
+            return False
+    return True
 
 
 def _hist_from_length_counts(length_counts: dict) -> dict:
@@ -242,16 +269,37 @@ def _hist_from_length_counts(length_counts: dict) -> dict:
     if not length_counts:
         return {}
     total = sum(length_counts.values())
-    longest = max(length_counts)
-    bin_size = max(1, (longest + 49) // 50)
 
+    # The axis runs to a high percentile, not to the longest read.  A
+    # nanopore run produces a few concatemers hundreds of times the amplicon
+    # -- one of 375,000 bases against a median of 2,054 -- and scaling to the
+    # longest put every real read in the first bin of fifty, which is a
+    # distribution the chart could not show at all.  Everything past the cap
+    # goes in the last bin rather than being dropped, so the count still adds
+    # up and a run with many long reads still says so.
+    HEADROOM = 0.995
+    cutoff = int(total * HEADROOM)
+    seen, cap = 0, max(length_counts)
+    for length in sorted(length_counts):
+        seen += length_counts[length]
+        if seen >= cutoff:
+            cap = length
+            break
+
+    bin_size = max(1, (cap + 49) // 50)
     bins = [0] * 50
+    n_over = 0
     for length, count in length_counts.items():
-        bins[min(length // bin_size, 49)] += count
+        index = length // bin_size
+        if index > 49:
+            n_over += count
+        bins[min(index, 49)] += count
 
     # The median is the length at the midpoint of the sorted reads, found by
     # accumulating counts in length order.
-    midpoint, seen, median = total // 2, 0, longest
+    # Over every read, not just those under the cap: the median is already
+    # robust to the long tail, so it needs no trimming.
+    midpoint, seen, median = total // 2, 0, max(length_counts)
     for length in sorted(length_counts):
         seen += length_counts[length]
         if seen > midpoint:
@@ -259,7 +307,8 @@ def _hist_from_length_counts(length_counts: dict) -> dict:
             break
 
     return {"bin_size": bin_size, "counts": bins, "median": int(median),
-            "n_reads": total, "sampled": False}
+            "n_reads": total, "sampled": False, "n_over": n_over,
+            "longest": int(max(length_counts))}
 
 
 def align_and_split_by_strand(
@@ -330,7 +379,7 @@ def align_and_split_by_strand(
                 saved = json.load(fh)
             if saved.get("ref_hash") != ref_hash:
                 stale_reason = "reference changed"
-            elif saved.get("input") != input_fp:
+            elif not _fingerprints_match(saved.get("input"), input_fp):
                 stale_reason = "input FASTQ changed"
             elif input_fp is None:
                 stale_reason = "input FASTQ could not be identified"
@@ -584,7 +633,11 @@ def _demux_is_reusable(output_dir, data, toml, barcodes) -> bool:
     try:
         with open(sidecar) as fh:
             saved = json.load(fh)
-        return saved == _demux_fingerprint(data, toml, barcodes)
+        current = _demux_fingerprint(data, toml, barcodes)
+        return (bool(current)
+                and saved.get("config") == current.get("config")
+                and _fingerprints_match(saved.get("input"),
+                                        current.get("input")))
     except (OSError, ValueError):
         return False
 
