@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
 
 console = get_console()
 
@@ -365,6 +366,12 @@ def _load_well_assignments(assignments_file: Path) -> list:
             nfp = row.get("n_flagged_positions", "")
             if nfp:
                 entry["n_flagged_positions"] = int(nfp)
+            # Carried because the tiers judge on the worst column's
+            # disagreement; without it the mixed-template test has nothing to
+            # read and silently passes every well.
+            mmf = row.get("max_mismatch_frac", "")
+            if mmf not in ("", None):
+                entry["max_mismatch_frac"] = float(mmf)
             well_data.append(entry)
     return well_data
 
@@ -467,6 +474,12 @@ def _load_well_assignments_merged(assignments_file: Path,
             nfp = row.get("n_flagged_positions", "")
             if nfp:
                 entry["n_flagged_positions"] = int(nfp)
+            # Carried because the tiers judge on the worst column's
+            # disagreement; without it the mixed-template test has nothing to
+            # read and silently passes every well.
+            mmf = row.get("max_mismatch_frac", "")
+            if mmf not in ("", None):
+                entry["max_mismatch_frac"] = float(mmf)
             raw.append(entry)
 
     # Compute total reads per prefixed plate and drop ghost plates
@@ -741,7 +754,12 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     - **Tier C:** ≥20 reads AND >90% consensus  (includes Tier A + B)
     """
     has_flank_data = any(w.get("flank_check") for w in well_data)
-    has_flagged_data = any(w.get("n_flagged_positions") for w in well_data)
+    # Judged on how far the worst column disagrees rather than on how many
+    # columns cleared a threshold baked in when the run was demultiplexed.  The
+    # two ask the same question, but the fraction is a stated criterion that can
+    # be reconsidered without re-reading a BAM, and a count cannot.
+    has_mismatch_data = any(w.get("max_mismatch_frac") is not None
+                            for w in well_data)
 
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
@@ -750,7 +768,9 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
             and w["consensus_fraction"] > 0.9
             and w.get("cons_check", "") not in ("Other Error", "Error")
             and (not has_flank_data or w.get("flank_check", "") == "OK")
-            and (not has_flagged_data or not w.get("n_flagged_positions", 0))
+            and (not has_mismatch_data
+                 or float(w.get("max_mismatch_frac") or 0.0)
+                 <= MIXED_TEMPLATE_THRESHOLD)
         }
 
     tier_a_set = _qualifying_variants(100)
