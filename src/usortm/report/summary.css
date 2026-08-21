@@ -21,7 +21,9 @@
 }
 body { margin:0; background:var(--surface-1); color:var(--text-primary);
        font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
-main { max-width:940px; margin:0 auto; padding:2rem; }
+/* Wide enough for two 384-well plates side by side; narrower and the wells
+   stop being large enough to pick a colour out of. */
+main { max-width:1180px; margin:0 auto; padding:2rem; }
 h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .meta { display:inline-block; margin:.15rem 0 .5rem; padding:.2rem .5rem;
         border-radius:4px; background:var(--surface-2);
@@ -86,8 +88,9 @@ td.name { font-variant-numeric:normal; }
        background:var(--surface-1); color:var(--text-secondary); }
 .tab.on { background:var(--surface-2); color:var(--text-primary);
           font-weight:600; }
-.plate { display:flex; align-items:stretch; gap:.6rem;
-          margin-bottom:.6rem; }
+/* A block now that the depth ramp stands outside it: as a flex row its one
+   grid child had nothing to stretch against and collapsed to nothing. */
+.plate { display:block; margin-bottom:.6rem; }
 /* An author display rule beats the hidden attribute's UA style, so hiding an
    unselected plate has to be said here or every plate stacks up at once. */
 .plate[hidden] { display:none; }
@@ -98,7 +101,7 @@ td.name { font-variant-numeric:normal; }
 /* Fluid inside its column, capped where a well stops being square enough to
    read: the two plate maps sit side by side and each gets half the page. */
 .cols24 { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px;
-          width:100%; max-width:32rem; min-width:19rem; }
+          width:100%; }
 
 /* The demux maps and the pick plate, read against each other. */
 .cols.plates > * { flex:1 1 21rem; }
@@ -245,13 +248,14 @@ table.params th:not(:first-child) { text-align:right; }
 .themeToggle:hover { color:var(--text-primary); }
 tr.sel td { background:var(--surface-2); }
 
-/* One depth scale for both plate maps, laid along the page beneath them. */
-.cbarh { max-width:32rem; margin:.2rem 0 1.25rem; }
-.cbarh .ramp { height:11px; border-radius:2px; border:1px solid var(--rule); }
-.cbarh .ticks { position:relative; height:1rem; }
-.cbarh .ticks span { position:absolute; transform:translateX(-50%);
-                     font-size:.66rem; color:var(--text-muted);
-                     line-height:1.6; white-space:nowrap; }
-.cbarh .ticks span:first-child { transform:none; }
-.cbarh .ticks span:last-child { transform:translateX(-100%); }
-.cblab { font-size:.66rem; color:var(--text-muted); margin-top:.9rem; }
+/* The two plate maps on one line, with the depth ramp standing once to the
+   left of both.  Grids are the only things in the row, so they start together;
+   headings and tabs sit above it, where their differing heights cost nothing. */
+.platerow { display:flex; align-items:flex-start; gap:1.1rem;
+            margin-bottom:1.25rem; }
+.platerow .pcol { flex:1 1 0; min-width:0; }
+.cbcol { display:flex; flex-direction:column; align-items:flex-start;
+         flex:0 0 auto; align-self:stretch; }
+.cbcol .cbar { flex:1; }
+.cbcol .cblab { font-size:.66rem; color:var(--text-muted); margin-top:.4rem;
+                line-height:1.2; }

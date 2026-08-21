@@ -202,3 +202,31 @@ def test_a_clean_well_carries_no_mark(run):
     cells = [c for c in html.split("<") if c.startswith('i class="w"')
              or c.startswith('a class="w"')]
     assert cells, "a clean library well is drawn without a corner"
+
+
+def test_the_ramp_matches_the_one_the_plate_maps_use():
+    """The report interpolates the ramp itself, so it must not drift.
+
+    matplotlib is an optional extra and cannot be required to render a report,
+    so charts.cmap_hex reimplements get_custom_cmap's stops.  Two
+    implementations of one scale is exactly the arrangement that goes quietly
+    wrong, so they are compared here across the range.
+    """
+    matplotlib = pytest.importorskip("matplotlib")
+    import matplotlib.colors as mcolors
+
+    from usortm.demux.viz import get_custom_cmap
+
+    reference = get_custom_cmap()
+    worst = 0
+    for i in range(101):
+        t = i / 100
+        ref = mcolors.rgb2hex(reference(t)[:3])
+        mine = cmap_hex(t)
+        worst = max(worst, *(abs(int(ref[j:j + 2], 16) - int(mine[j:j + 2], 16))
+                             for j in (1, 3, 5)))
+    # Both endpoints are exact; between them the two interpolations differ by
+    # rounding only, which is well under a step the eye resolves.
+    assert cmap_hex(0.0) == mcolors.rgb2hex(reference(0.0)[:3])
+    assert cmap_hex(1.0) == mcolors.rgb2hex(reference(1.0)[:3])
+    assert worst <= 4, f"ramp drifted by {worst}/255 from get_custom_cmap()"

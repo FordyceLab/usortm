@@ -76,7 +76,8 @@ def _well_tip(plate, label, well, has_pileup) -> str:
             klass, "clean")
         lines.append(
             f'<div style="font-size:11px;color:{tone};margin-top:2px;">'
-            f'Worst column {float(worst):.1%} &mdash; {note}</div>')
+            f'{float(worst):.0%} of reads disagree at one position '
+            f'&mdash; {note}</div>')
     if has_pileup:
         lines.append('<div style="font-size:11px;color:#6b7280;margin-top:2px;">'
                      'Click to view pileup</div>')
@@ -150,20 +151,22 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
             if n_linked else
             "Wells link to their pileup once <code>usortm pick</code> has "
             "generated them.")
-    return (
-        f'  <h2>Demux plate maps</h2>\n'
-        f'  <p class="note">Read depth per well. A corner marks what the well '
-        f'contains: red a mixed template, amber the parent, grey an insert '
-        f'that could not be called. {note}</p>\n'
-        f'  <div class="tabs">{"".join(tabs)}</div>\n'
-        f'  {"".join(grids)}\n'
-        f'  <div class="legend">'
-        f'<span class="ls"><i class="swatch mut"></i>mixed template</span>'
-        f'<span class="ls"><i class="swatch parent"></i>parent</span>'
-        f'<span class="ls"><i class="swatch uncalled"></i>not in library</span>'
-        f'<span class="ls"><i class="swatch watch"></i>worth checking</span>'
-        f'</div>\n'
-    )
+    return {
+        "note": (f"Read depth per well. A corner marks what the well contains: "
+                 f"red a mixed template, amber the parent, grey an insert that "
+                 f"could not be called; a blue corner opposite marks a well "
+                 f"worth checking. {note}"),
+        "tabs": f'<div class="tabs">{"".join(tabs)}</div>',
+        "grids": "".join(grids),
+        "legend": (
+            '<div class="legend">'
+            '<span class="ls"><i class="swatch mut"></i>mixed template</span>'
+            '<span class="ls"><i class="swatch parent"></i>parent</span>'
+            '<span class="ls"><i class="swatch uncalled"></i>not in library'
+            '</span>'
+            '<span class="ls"><i class="swatch watch"></i>worth checking</span>'
+            '</div>'),
+    }
 
 
 def pick_plate(pick_list: Optional[List[dict]],
@@ -175,15 +178,13 @@ def pick_plate(pick_list: Optional[List[dict]],
     describes different wells.
     """
     if pick_list is None:
-        return (
-            '  <h2>Pick plate</h2>\n'
-            '  <p class="note">Not shown: no current pick for this run. Run '
-            '<code>usortm pick</code> to populate it.</p>\n'
-        )
+        return {"note": ("Not shown: no current pick for this run. Run "
+                         "<code>usortm pick</code> to populate it."),
+                "grid": "", "legend": ""}
 
     by_target = {p["target_well"]: p for p in pick_list if p.get("target_well")}
     if not by_target:
-        return ""
+        return {"note": "", "grid": "", "legend": ""}
 
     filled = empty = blank = 0
     cells = []
@@ -235,15 +236,15 @@ def pick_plate(pick_list: Optional[List[dict]],
                 cells.append(f'<i class="w" style="{style}" '
                              f'data-tip="{tip}"></i>')
 
-    return (
-        f'  <h2>Pick plate</h2>\n'
-        f'  <p class="note">The destination plate as picked, filled by the '
-        f'read depth of each source well. {filled} filled, {empty} not '
-        f'recovered, {blank} blank by design.</p>\n'
-        f'  <div class="plate"><div class="grid">'
-        f'<div class="cols24">{"".join(cells)}</div></div></div>\n'
-        f'  <div class="legend">'
-        f'<span class="ls"><i class="swatch none"></i>not recovered</span>'
-        f'<span class="ls"><i class="swatch blank"></i>blank by design</span>'
-        f'</div>\n'
-    )
+    return {
+        "note": (f"The destination plate as picked, filled by the read depth of "
+                 f"each source well. {filled} filled, {empty} not recovered, "
+                 f"{blank} blank by design."),
+        "grid": (f'<div class="grid"><div class="cols24">{"".join(cells)}'
+                 f'</div></div>'),
+        "legend": (
+            '<div class="legend">'
+            '<span class="ls"><i class="swatch none"></i>not recovered</span>'
+            '<span class="ls"><i class="swatch blank"></i>blank by design'
+            '</span></div>'),
+    }
