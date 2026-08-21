@@ -291,8 +291,13 @@ function render() {
     // not read as reads of exactly that length.
     for (var t = 0; t < 3; t++) {
       var s = document.createElement("span");
-      var at = Math.round(t * counts.length / 2 * bin);
-      s.textContent = at.toLocaleString()
+      // Named for the tick rather than "at": var is function-scoped, so it
+      // hoists to the top of render() and collided with the const of that
+      // name below.  A redeclaration is a parse error, which took the whole
+      // script down -- not just this axis -- and left the page on its
+      // placeholder text with nothing to say why.
+      var tickBp = Math.round(t * counts.length / 2 * bin);
+      s.textContent = tickBp.toLocaleString()
         + (t === 2 ? (H.n_over ? "+ bp" : " bp") : "");
       axis.appendChild(s);
     }
