@@ -13,6 +13,7 @@ from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedCo
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE, section
+from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
 from usortm.paths import input_file
 
 console = get_console()
@@ -912,13 +913,18 @@ def _generate_pick_list(
                 or w["cons_check"] in _ACCEPTABLE_CONS
             ]
 
-    # Exclude wells with per-column mismatch flags (>10% non-reference
-    # reads at any ORF position indicates contamination or mixed population).
-    has_any_flagged = any(w.get("n_flagged_positions") for w in sorted_wells)
-    if has_any_flagged:
+    # Exclude wells whose worst ORF column disagrees by more than the mixed
+    # template threshold, which is a second population rather than the
+    # base-caller's error.  Judged on the fraction rather than on a count of
+    # flagged columns, so the criterion is the one stated here and not the one
+    # in force when the run was demultiplexed.
+    has_mismatch_data = any(w.get("max_mismatch_frac") is not None
+                            for w in sorted_wells)
+    if has_mismatch_data:
         sorted_wells = [
             w for w in sorted_wells
-            if not w.get("n_flagged_positions", 0)
+            if float(w.get("max_mismatch_frac") or 0.0)
+            <= MIXED_TEMPLATE_THRESHOLD
         ]
 
     for well in sorted_wells:

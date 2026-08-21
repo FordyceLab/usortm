@@ -2321,12 +2321,32 @@ def _protein_check(ref_seq, cons_var, frame_offset=0):
         return None
 
 
+#: A column disagreeing by more than this fraction is taken to hold a second
+#: template rather than base-calling noise.
+#:
+#: The threshold was 0.10, which sat below the mode of the noise: across one
+#: run's 642 library-member wells the worst column peaked at 10-15% in 282 of
+#: them, so the filter rejected the bulk of an ordinary error distribution and
+#: kept 228.  Those marginal columns are three times as likely to fall in a
+#: homopolymer run as the reference is (31% against 8-12%), which is the
+#: base-caller's signature, not a mixed well's.
+#:
+#: Wells holding a genuine second template form a separate cluster near 50%,
+#: where one alternate base accounts for 98% of the disagreement.  0.25 sits in
+#: the trough between the two and keeps that cluster flagged.
+MIXED_TEMPLATE_THRESHOLD = 0.25
+
+#: Above this a column is not merely suspect but close to an even split, which
+#: is what two templates in one well look like.
+MIXED_TEMPLATE_CLEAR = 0.40
+
+
 def _check_column_agreement(
     well: str,
     consensus_dir: str,
     orf_seq: str,
     orf_start: int,
-    threshold: float = 0.10,
+    threshold: float = MIXED_TEMPLATE_THRESHOLD,
     min_depth: int = 10,
 ) -> dict:
     """Check per-column read agreement in the variable region.
