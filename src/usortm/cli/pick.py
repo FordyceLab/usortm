@@ -449,12 +449,22 @@ def pick(
                 for _row in csv.DictReader(_sf):
                     streakout_well_keys.add(f"{_row['plate']}_{_row['well']}")
 
-        mutation_well_data = [
-            w for w in well_data
-            if w.get("cons_check", "") in ("Other Error", "Error")
-            and w.get("reads", 0) >= 20
-            and f"{w['plate']}_{w['well']}" not in streakout_well_keys
-        ]
+        # A well is worth a pileup when something is wrong with it that the
+        # summary cannot settle.  That is an error call, and also a column
+        # holding a second template: those are excluded from the pick for
+        # exactly the reason someone would want to look at them, and they had
+        # no pileup at all.
+        def _wants_a_pileup(w) -> bool:
+            if w.get("reads", 0) < 20:
+                return False
+            if f"{w['plate']}_{w['well']}" in streakout_well_keys:
+                return False
+            if w.get("cons_check", "") in ("Other Error", "Error"):
+                return True
+            return column_agreement_class(
+                w.get("max_mismatch_frac")) == "mixed"
+
+        mutation_well_data = [w for w in well_data if _wants_a_pileup(w)]
         if mutation_well_data:
             try:
                 from usortm.demux.streakout import generate_pick_pileups

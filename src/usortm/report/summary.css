@@ -261,3 +261,17 @@ tr.sel td { background:var(--surface-2); }
 .cbcol .cbar { flex:1; }
 .cbcol .cblab { font-size:.66rem; color:var(--text-muted); margin-top:.4rem;
                 line-height:1.2; text-align:center; }
+
+/* Detail a reader asks for rather than one they scroll past: the model
+   parameters are the point, and the well accounting is what you open when a
+   parameter looks wrong. */
+details.more { margin-top:.7rem; }
+details.more > summary { cursor:pointer; font-size:.72rem;
+                         color:var(--text-secondary); list-style:none;
+                         padding:.15rem 0; }
+details.more > summary::-webkit-details-marker { display:none; }
+details.more > summary::before { content:"\25B8"; display:inline-block;
+                                 width:1em; color:var(--text-muted); }
+details.more[open] > summary::before { content:"\25BE"; }
+details.more > summary:hover { color:var(--text-primary); }
+details.more table.params { margin-top:.3rem; }
