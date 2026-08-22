@@ -1166,8 +1166,21 @@ def _generate_one_pick_pileup(
         if parent_record is not None and len(parent_record.seq) == ref_len:
             parent = str(parent_record.seq)
 
-    _display_status = cons_check if cons_check else ""
-    _is_recoverable = cons_check in ("Perfect Match", "Silent Mutation")
+    # "Perfect Match" says the consensus agrees with the reference this group
+    # is drawn against, which is a narrower claim than it reads as: a well can
+    # agree at every called position and still carry a second template under
+    # the calling threshold, a broken flank, or the wrong variant entirely.
+    # The status says what was compared instead.
+    _display_status = {
+        "Perfect Match": "consensus matches reference",
+        "Match": "consensus matches reference",
+        "Silent Mutation": "synonymous change",
+        "Other Error": "differs from reference",
+        "Error": "differs from reference",
+    }.get(cons_check, cons_check or "")
+    # No star.  It marked a well as recoverable on the same narrow test, which
+    # put a commendation on wells that had not earned one.
+    _is_recoverable = False
     group_sections = [{
         "ref_id": f"{variant} vs parent" if against_parent else variant,
         "n_reads": n_variable_reads,
