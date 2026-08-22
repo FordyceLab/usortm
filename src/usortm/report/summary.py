@@ -533,11 +533,15 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
         <tr><th>Parameter</th><th>This run</th><th>Published</th></tr>
         {model}
       </table>
-      <table class="params">
-        <tr><th>Wells</th><th>Count</th><th>Share</th></tr>
-        {wells}
-      </table>
+      <details class="more">
+        <summary>Where the wells went</summary>
+        <table class="params">
+          <tr><th>Wells</th><th>Count</th><th>Share</th></tr>
+          {wells}
+        </table>
+        <p class="hint">The last five rows overlap; a well can fail more than
+           one.</p>
+      </details>
       <p class="hint">Sorting efficiency is measured from read counts, so wells
-         lost to PCR failure sit inside it. The last five rows overlap; a well
-         can fail more than one.</p>
+         lost to PCR failure sit inside it.</p>
     </div>"""
