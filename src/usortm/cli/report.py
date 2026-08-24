@@ -193,10 +193,22 @@ def report(
 
     if format in ["html", "all"]:
         # Generate HTML report
-        html_file = report_dir / "summary.html"
+        # At the top of the run, not in report/, because the page links out
+        # to the pileups under pick/ and demux_output/.  Safari grants a
+        # file:// page read access only to the directory it was opened from
+        # and below, so a page sitting in report/ cannot reach a sibling
+        # directory: every well link fails with "can't open the page".
+        html_file = report_dir.parent / "summary.html"
         _save_html_report(effective_project, demux_summary, well_data, html_file, effective_project_dir,
                           merged_context=merged_context)
         generated_files.append(html_file)
+
+        # A run reported before the page moved still holds the old copy, and
+        # that is the one a reader reaches for out of habit -- its well links
+        # are the ones that fail.  Drop it rather than leave both.
+        stale = report_dir / "summary.html"
+        if stale.exists():
+            stale.unlink()
 
     # Display summary
     console.print()
@@ -1375,7 +1387,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         with open(output_file, "w") as fh:
             fh.write(render_summary(
                 project, demux_summary, well_data,
-                project_dir or output_file.parent.parent,
+                project_dir or output_file.parent,
                 tiers=(bins or {}).get("recovery_tiers"),
                 library_size=library_size,
             ))

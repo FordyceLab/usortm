@@ -20,20 +20,21 @@ ROWS = "ABCDEFGHIJKLMNOP"
 COLS = 24
 
 #: Where pileups are looked for, most specific first: a picked hit, then a
-#: flagged mutation, then a general pass.  Paths are relative to the report
-#: directory, which is where the page is written.
+#: flagged mutation, then a general pass.  Each path serves twice, as the
+#: place on disk under the run directory and as the href the page carries,
+#: which holds because the page is written at the top of that directory.
 PILEUP_SOURCES = (
-    ("pick/pileup", "../pick/pileup"),
-    ("demux_output/mutation/pileup", "../demux_output/mutation/pileup"),
-    ("demux_output/pileups/pileup", "../demux_output/pileups/pileup"),
+    "pick/pileup",
+    "demux_output/mutation/pileup",
+    "demux_output/pileups/pileup",
 )
 
 
 def pileup_links(project_dir) -> Dict[str, str]:
     """Map ``"<plate>_<well>"`` to the page showing that well's reads."""
     links: Dict[str, str] = {}
-    for disk, rel in PILEUP_SOURCES:
-        directory = os.path.join(str(project_dir), disk)
+    for rel in PILEUP_SOURCES:
+        directory = os.path.join(str(project_dir), rel)
         if not os.path.isdir(directory):
             continue
         for name in os.listdir(directory):

@@ -38,11 +38,11 @@ class TestFindsWhatExists:
         assert "usortm demux" in html
 
     def test_summary_and_plate_map_are_listed(self, project):
-        (project / "report" / "summary.html").write_text("x")
+        (project / "summary.html").write_text("x")
         (project / "demux_output" / "plate_map.html").write_text("x")
 
         html = write_index(project).read_text()
-        assert "report/summary.html" in _links(html)
+        assert "summary.html" in _links(html)
         assert "demux_output/plate_map.html" in _links(html)
         assert "Results" in _sections(html)
 
@@ -76,7 +76,7 @@ class TestFindsWhatExists:
 
     def test_sections_are_ordered_by_what_is_wanted_first(self, project):
         (project / "demux_output" / "live.html").write_text("x")
-        (project / "report" / "summary.html").write_text("x")
+        (project / "summary.html").write_text("x")
         (project / "demux_output" / "well_assignments.csv").write_text("x")
 
         assert _sections(write_index(project).read_text()) == [
@@ -91,10 +91,10 @@ class TestRounds:
         rd = p / "rounds" / "2"
         (rd / "demux_output").mkdir(parents=True)
         (rd / "report").mkdir()
-        (rd / "report" / "summary.html").write_text("x")
+        (rd / "summary.html").write_text("x")
 
         html = write_index(p, round_num=2).read_text()
-        assert "rounds/2/report/summary.html" in _links(html)
+        assert "rounds/2/summary.html" in _links(html)
         assert "round 2" in html
 
 
@@ -106,7 +106,7 @@ class TestWriting:
         assert out.exists()
 
     def test_rewriting_replaces_rather_than_appends(self, project):
-        (project / "report" / "summary.html").write_text("x")
+        (project / "summary.html").write_text("x")
         first = write_index(project).read_text()
         second = write_index(project).read_text()
         assert first.count("summary.html") == second.count("summary.html")
