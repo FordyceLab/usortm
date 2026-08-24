@@ -15,7 +15,7 @@ from rich import box
 from usortm.cli.theme import get_console, BORDER_STYLE, section
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD, MIXED_TEMPLATE_WATCH,
                                 column_agreement_class)
-from usortm.paths import input_file
+from usortm.paths import INTEGRA_DIRNAME, input_file
 
 console = get_console()
 
@@ -367,7 +367,7 @@ def pick(
     pick_dir = pick_dir_base
     pick_dir.mkdir(parents=True, exist_ok=True)
 
-    integra_dir = pick_dir / "Integra ASSIST Input"
+    integra_dir = pick_dir / INTEGRA_DIRNAME
     integra_dir.mkdir(exist_ok=True)
 
     output_dir = integra_dir
@@ -378,7 +378,7 @@ def pick(
     # Save pick list in Integra ASSIST PLUS format (one file per target plate)
     written_files = _save_pick_list(pick_list, output_dir, volume)
 
-    # Write README for the Integra ASSIST Input folder
+    # Write README for the hitlist folder
     _write_integra_readme(integra_dir, written_files, volume, target_format)
 
     # Generate per-well pileup HTMLs for picked hits

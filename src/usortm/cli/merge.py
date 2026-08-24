@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
-from usortm.paths import input_file
+from usortm.paths import INTEGRA_DIRNAME, input_file
 
 console = get_console()
 
@@ -213,7 +213,7 @@ def merge(
     merged_dir.mkdir(exist_ok=True)
     pick_dir = merged_dir / "pick"
     pick_dir.mkdir(exist_ok=True)
-    integra_dir = project_dir / "Integra ASSIST Input"
+    integra_dir = project_dir / INTEGRA_DIRNAME
     integra_dir.mkdir(exist_ok=True)
 
     written_files = _save_pick_list(pick_list, integra_dir, volume)

@@ -18,6 +18,8 @@ import html as html_mod
 from datetime import datetime
 from pathlib import Path
 
+from usortm.paths import integra_dir
+
 INDEX_FILE = "index.html"
 
 
@@ -77,7 +79,7 @@ def _collect(project_dir: Path, round_num: int = 1) -> list:
         ("Per-read table", demux / "read_df.csv",
          "one row per read; no sequences"),
         ("Run summary", demux / "demux_summary.json", "aggregate counts"),
-        ("Hit-picking list", pick / "Integra ASSIST Input",
+        ("Hit-picking list", integra_dir(pick),
          "Integra ASSIST transfer files"),
     ):
         if path.exists():

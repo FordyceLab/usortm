@@ -18,6 +18,8 @@ from usortm.cli.theme import get_console, BORDER_STYLE
 
 console = get_console()
 
+from datetime import datetime
+
 PROJECT_STATE_FILE = "usortm_project.json"
 
 _BSAI_FWD = "GGTCTC"   # BsaI recognition site (forward)
@@ -150,15 +152,21 @@ def reorder(
         console.print("[red]Error:[/red] No variants found in variants file.")
         raise typer.Exit(1)
 
-    # Load recovered variants from hitlist (new path first, then legacy root)
-    hitlist_path = project_dir / "pick" / "hitlist.csv"
-    if not hitlist_path.exists():
-        hitlist_path = project_dir / "hitlist.csv"  # backward compat
-    if not hitlist_path.exists():
-        console.print(f"[red]Error:[/red] hitlist.csv not found in {project_dir}")
+    hitlists = _find_hitlists(project_dir)
+    if not hitlists:
+        console.print(
+            f"[red]Error:[/red] No pick hitlist found under {project_dir}."
+        )
+        console.print("Run: [cyan]usortm pick[/cyan] first.")
         raise typer.Exit(1)
 
-    recovered = _load_recovered(hitlist_path)
+    recovered = set()
+    for path in hitlists:
+        recovered |= _load_recovered(path)
+    console.print(
+        f"[green]\u2713[/green] Read {len(recovered)} recovered variant(s) "
+        f"from {len(hitlists)} hitlist file(s)"
+    )
 
     # Identify dropouts
     dropouts = [v for v in variants if _normalize(v["name"]) not in recovered]
@@ -259,6 +267,30 @@ def reorder(
     cost = total_bp * 0.07
     console.print(f"[yellow]→[/yellow] Estimated cost: [cyan]{total_bp:,} bp[/cyan] × $0.07 = [cyan]${cost:,.2f}[/cyan]")
 
+    # What was ordered, from which pick, and what it was expected to cost.
+    # Written last so a failed run leaves no record of an order that was not
+    # placed.  The variant names are kept in full: the next round is planned
+    # against them, and a count alone cannot say which ones came back.
+    project.setdefault("workflow_steps", {})["reorder"] = {
+        "completed": True,
+        "timestamp": datetime.now().isoformat(),
+        "format": fmt,
+        "output": str(output),
+        "library_size": len(variants),
+        "recovered": len(recovered),
+        "dropouts": len(dropouts),
+        "variants": [v["name"] for v in dropouts],
+        "total_bp": total_bp,
+        "estimated_cost_usd": round(cost, 2),
+        "from_round": project.get("round", 1),
+    }
+    with open(state_file, "w") as fh:
+        json.dump(project, fh, indent=2)
+    console.print(
+        f"[green]\u2713[/green] Recorded in "
+        f"[cyan]{state_file.name}[/cyan]"
+    )
+
     console.print()
     console.print("[bold]Next steps:[/bold]")
     next_step_map = {
@@ -310,6 +342,25 @@ def _load_variants(variants_path: Path) -> list[dict]:
             )
 
         return [{"name": row[name_col], "sequence": row[seq_col]} for row in reader if row.get(name_col)]
+
+
+def _find_hitlists(project_dir: Path) -> list[Path]:
+    """Every hitlist a pick wrote, newest layout first.
+
+    pick writes one file per target plate into a directory named for the robot
+    that reads them, so there is no single hitlist to open; a plate's dropouts
+    are only the dropouts once every plate has been counted.  The older
+    single-file locations are still honoured for projects picked before that.
+    """
+    found = sorted((project_dir / "pick").glob(
+        "*/hitlist_plate_*.csv"))
+    if found:
+        return found
+    found = sorted((project_dir / "pick").glob("hitlist_plate_*.csv"))
+    if found:
+        return found
+    return [p for p in (project_dir / "pick" / "hitlist.csv",
+                        project_dir / "hitlist.csv") if p.exists()]
 
 
 def _load_recovered(hitlist_path: Path) -> set[str]:

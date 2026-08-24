@@ -150,3 +150,29 @@ def test_pick_carries_the_band_onto_each_pick(tmp_path):
     watch = [p for p in filled
              if column_agreement_class(p["max_mismatch_frac"]) == "watch"]
     assert len(watch) == 1, "V1 is picked once, not three times"
+
+
+def test_the_parent_is_not_a_recovered_variant(tmp_path):
+    """Recovery is a share of the library, and the parent is not in it.
+
+    Counting it put every tier one above the truth, and made the report
+    disagree with reorder about how many variants were still outstanding.
+    """
+    path = _write(tmp_path / "wa.csv", [
+        _well(1, "A1", "V1", 0.02),
+        _well(1, "A2", "Parent", 0.02),
+    ])
+    bins = _compute_quality_bins(_load_well_assignments(path), 1)
+    assert bins["recovery_tiers"]["C"]["count"] == 1
+
+
+def test_a_designed_set_decides_membership(tmp_path):
+    """Given the library, anything outside it is outside the count."""
+    path = _write(tmp_path / "wa.csv", [
+        _well(1, "A1", "V1", 0.02),
+        _well(1, "A2", "G3V", 0.02),      # a real call, not a library member
+    ])
+    loaded = _load_well_assignments(path)
+    assert _compute_quality_bins(loaded, 1)["recovery_tiers"]["C"]["count"] == 2
+    bins = _compute_quality_bins(loaded, 1, designed={"V1"})
+    assert bins["recovery_tiers"]["C"]["count"] == 1
