@@ -15,6 +15,7 @@ from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
 from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
+from usortm.paths import integra_dir as _integra_dir
 
 #: Consensus outcomes that are not the sequence that was designed.  A silent
 #: change is among them: it encodes the right protein through a different
@@ -334,7 +335,7 @@ def _make_report_zip(
                 zf.write(f, f"report/{f.name}")
 
         # Integra ASSIST pick list
-        integra_dir = pick_dir / "Integra ASSIST Input"
+        integra_dir = _integra_dir(pick_dir)
         if integra_dir.exists():
             for f in integra_dir.iterdir():
                 if f.is_file():
@@ -759,7 +760,13 @@ def _save_json_report(project: dict, demux_summary: dict, well_data: list, outpu
         json.dump(report, f, indent=2)
 
 
-def _compute_quality_bins(well_data: list, library_size: int) -> dict:
+#: Calls that name no library member.  A well can be read cleanly and still
+#: hold one of these; what it does not hold is a variant that was ordered.
+NOT_A_LIBRARY_MEMBER = ("Parent", "unassigned", "")
+
+
+def _compute_quality_bins(well_data: list, library_size: int,
+                          designed: "set[str] | None" = None) -> dict:
     """Classify variants into quality tiers, mirroring the pick command's logic.
 
     A variant qualifies for a tier if it has **at least one well** meeting the
@@ -769,6 +776,12 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     - **Tier A:** ≥100 reads AND >90% consensus
     - **Tier B:** ≥50 reads AND >90% consensus  (includes Tier A)
     - **Tier C:** ≥20 reads AND >90% consensus  (includes Tier A + B)
+
+    *designed* is the library's own members.  When given, only those count:
+    recovery is a share of the library, and a well holding the parent has
+    recovered nothing from it.  Without it the obvious non-members are still
+    excluded, so a caller that cannot supply the set is not left counting the
+    parent as a variant.
     """
     has_flank_data = any(w.get("flank_check") for w in well_data)
     # Judged on how far the worst column disagrees rather than on how many
@@ -778,10 +791,16 @@ def _compute_quality_bins(well_data: list, library_size: int) -> dict:
     has_mismatch_data = any(w.get("max_mismatch_frac") is not None
                             for w in well_data)
 
+    def _in_library(name: str) -> bool:
+        if designed is not None:
+            return name in designed
+        return name not in NOT_A_LIBRARY_MEMBER
+
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
             _norm_variant(w["variant"]) for w in well_data
-            if w["reads"] >= min_reads
+            if _in_library(_norm_variant(w["variant"]))
+            and w["reads"] >= min_reads
             and w["consensus_fraction"] > 0.9
             and w.get("cons_check", "") not in NOT_THE_DESIGNED_SEQUENCE
             and (not has_flank_data or w.get("flank_check", "") == "OK")

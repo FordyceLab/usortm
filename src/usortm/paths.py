@@ -199,3 +199,31 @@ def input_file(project_dir, name: str) -> Path:
 def config_file(project_dir, name: str) -> Path:
     """Find one of a project's configuration files: plate map, masks, barcodes."""
     return _resolve(project_dir, "config", name)
+
+
+#: Where a pick's robot-ready hitlists go, under the pick directory.
+#:
+#: Named without spaces: the path is typed at a shell, passed to a robot's
+#: import dialog and quoted in scripts, and a space in it has to be escaped
+#: every time.  It was "Integra ASSIST Input".
+INTEGRA_DIRNAME = "integra_assist_input"
+
+#: What that directory was called before, still read so a project picked
+#: earlier keeps working without being re-picked.
+LEGACY_INTEGRA_DIRNAME = "Integra ASSIST Input"
+
+
+def integra_dir(pick_dir) -> Path:
+    """The hitlist directory for *pick_dir*, whichever name it carries.
+
+    Returns the current name for a directory that does not exist yet, so a new
+    pick writes to the new place while an old one is still found where it is.
+    """
+    pick_dir = Path(pick_dir)
+    current = pick_dir / INTEGRA_DIRNAME
+    if current.exists():
+        return current
+    legacy = pick_dir / LEGACY_INTEGRA_DIRNAME
+    if legacy.exists():
+        return legacy
+    return current

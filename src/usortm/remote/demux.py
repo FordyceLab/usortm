@@ -9,6 +9,9 @@ import time
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
+from usortm.paths import (INTEGRA_DIRNAME,
+                          LEGACY_INTEGRA_DIRNAME)
 from typing import Optional
 
 # Memorable job key generation — no external deps
@@ -1272,9 +1275,16 @@ exit $EXIT_CODE
             if "OK" in exists.stdout:
                 self.conn.get(remote_path, str(local_pick / fname))
 
-        # Integra ASSIST output
-        integra_dir = f"{remote_pick}/Integra ASSIST Input"
-        local_integra = local_pick / "Integra ASSIST Input"
+        # The robot-ready hitlists.  A remote picked before the rename still
+        # carries the old directory name, so both are tried; whatever comes
+        # back is written under the current one.
+        integra_dir = f"{remote_pick}/{INTEGRA_DIRNAME}"
+        probe = self.conn.run(
+            f'[ -d "{integra_dir}" ] && echo OK || echo MISSING',
+            hide=True, warn=True)
+        if "OK" not in probe.stdout:
+            integra_dir = f"{remote_pick}/{LEGACY_INTEGRA_DIRNAME}"
+        local_integra = local_pick / INTEGRA_DIRNAME
         local_integra.mkdir(parents=True, exist_ok=True)
         for fname in ("hitlist_integra_assist.csv", "README.txt"):
             remote_path = f"{integra_dir}/{fname}"

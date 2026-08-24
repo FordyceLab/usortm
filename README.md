@@ -191,7 +191,7 @@ usortm merge my_project/
 usortm report my_project/ --round merged
 ```
 
-After `usortm merge`, the combined Integra ASSIST pick list is written to `my_project/merged/pick/Integra ASSIST Input/`. Variants are placed at their library-ordered positions across both rounds, with round 2 hits filling in wherever round 1 did not recover.
+After `usortm merge`, the combined Integra ASSIST pick list is written to `my_project/merged/pick/integra_assist_input/`. Variants are placed at their library-ordered positions across both rounds, with round 2 hits filling in wherever round 1 did not recover.
 
 ### Example: Cost Estimate
 
