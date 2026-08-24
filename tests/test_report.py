@@ -88,7 +88,7 @@ def test_report_all_formats(mock_project_with_library):
     assert report_dir.exists()
 
     # Check all expected files exist
-    assert (report_dir / "summary.html").exists()
+    assert (report_dir.parent / "summary.html").exists()
     assert (report_dir / "plate_maps.csv").exists()
     assert (report_dir / "final_mapping.csv").exists()
     assert (report_dir / "missing_variants.csv").exists()
@@ -109,7 +109,7 @@ def test_report_csv_only(mock_project_with_library):
     assert (report_dir / "missing_variants.csv").exists()
 
     # HTML and JSON should not exist
-    assert not (report_dir / "summary.html").exists()
+    assert not (report_dir.parent / "summary.html").exists()
     assert not (report_dir / "report.json").exists()
 
 
@@ -122,7 +122,7 @@ def test_report_html_only(mock_project_with_library):
     report_dir = mock_project_with_library / "report"
 
     # HTML should exist
-    assert (report_dir / "summary.html").exists()
+    assert (report_dir.parent / "summary.html").exists()
 
     # CSV and JSON should not exist
     assert not (report_dir / "plate_maps.csv").exists()
@@ -142,7 +142,7 @@ def test_report_json_only(mock_project_with_library):
 
     # CSV and HTML should not exist
     assert not (report_dir / "plate_maps.csv").exists()
-    assert not (report_dir / "summary.html").exists()
+    assert not (report_dir.parent / "summary.html").exists()
 
 
 def test_report_plate_maps_content(mock_project_with_library):
@@ -216,7 +216,7 @@ def test_report_html_content(mock_project_with_library):
     """Test HTML report contains expected content."""
     runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -353,7 +353,7 @@ def test_report_html_has_bar_chart(mock_project_with_library):
     result = runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
     assert result.exit_code == 0
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -368,7 +368,7 @@ def test_report_html_no_minimum_reads_row(mock_project_with_library):
     result = runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
     assert result.exit_code == 0
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -481,7 +481,7 @@ def test_report_dark_mode_toggle(mock_project_with_library):
     """HTML report should contain dark mode CSS and JS toggle."""
     runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -501,7 +501,7 @@ def test_report_html_library_recovery(mock_project_with_library):
     """HTML report should contain Library Recovery section with tiers."""
     runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -529,7 +529,7 @@ def test_report_html_selected_tier_indicator(mock_project_with_library):
 
     runner.invoke(app, ["report", str(mock_project_with_library), "--format", "html"])
 
-    html_file = mock_project_with_library / "report" / "summary.html"
+    html_file = mock_project_with_library / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -607,7 +607,7 @@ def test_report_seq_len_range_from_demux_summary(tmp_path):
     result = runner.invoke(app, ["report", str(project_dir), "--format", "html"])
     assert result.exit_code == 0
 
-    html_file = project_dir / "report" / "summary.html"
+    html_file = project_dir / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
@@ -653,8 +653,35 @@ def test_report_seq_len_single_value_from_demux_summary(tmp_path):
     result = runner.invoke(app, ["report", str(project_dir), "--format", "html"])
     assert result.exit_code == 0
 
-    html_file = project_dir / "report" / "summary.html"
+    html_file = project_dir / "summary.html"
     with open(html_file) as f:
         html_content = f.read()
 
     assert "450 bp" in html_content
+
+
+def test_summary_sits_above_the_directories_it_links_to(mock_project_with_library):
+    """The page reaches the pileups under pick/ and demux_output/.
+
+    Safari grants a file:// page read access to its own directory and below,
+    so a page written into report/ cannot open a sibling directory and every
+    well link fails.
+    """
+    runner.invoke(app, ["report", str(mock_project_with_library),
+                        "--format", "html"])
+
+    assert (mock_project_with_library / "summary.html").exists()
+    assert not (mock_project_with_library / "report" / "summary.html").exists()
+
+
+def test_a_summary_left_in_the_report_directory_is_dropped(mock_project_with_library):
+    """The old copy is the one reached for out of habit, and it is broken."""
+    report_dir = mock_project_with_library / "report"
+    report_dir.mkdir(exist_ok=True)
+    stale = report_dir / "summary.html"
+    stale.write_text("<html>an earlier run</html>")
+
+    runner.invoke(app, ["report", str(mock_project_with_library),
+                        "--format", "html"])
+
+    assert not stale.exists()

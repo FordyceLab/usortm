@@ -285,3 +285,78 @@ def test_the_pick_plate_carries_the_watch_mark(run):
         [_well(1, "A1", "V1", mismatch=0.15)], run, library_size=1)
     pick_section = html.split('<div class="pcol">')[-1]
     assert "w watch" in pick_section
+
+
+def _tiers():
+    return {"A": {"count": 2, "pct": 100.0}, "B": {"count": 2, "pct": 100.0},
+            "C": {"count": 2, "pct": 100.0}}
+
+
+def test_a_sections_note_is_out_of_the_flow(run):
+    """Two sections stand side by side, and a note between a heading and its
+    table is as tall as it happens to wrap: the longer of the two started its
+    table lower than the other, and no two rows lined up.
+    """
+    html = render_summary(
+        {"library_size": 2, "round": 1, "skew": 2}, {"input_reads": 100},
+        [_well(1, "A1", "V1"), _well(1, "A2", "V2")], run,
+        tiers=_tiers(), library_size=2)
+    for title in ("Library recovery", "What the wells contain"):
+        assert (f'<div class="head"><h2>{title}</h2>'
+                f'<details class="info">') in html
+    # Nothing stands between a heading and the table it belongs to.
+    row = html.split('<div class="cols contain">')[1]
+    assert '<p class="note">' not in row.split("</table>")[0]
+
+
+def test_the_tier_rule_stays_on_the_page(run):
+    """The rule is what the tier counts mean.  The button holds it; it does
+    not drop it.
+    """
+    html = render_summary(
+        {"library_size": 2, "round": 1, "skew": 2}, {"input_reads": 100},
+        [_well(1, "A1", "V1"), _well(1, "A2", "V2")], run,
+        tiers=_tiers(), library_size=2)
+    pop = html.split("<h2>Library recovery</h2>")[1].split("</details>")[0]
+    assert "consensus exceeds 90% agreement" in pop
+    assert "25% of reads disagree" in pop
+    assert "Tiers are cumulative" in pop
+
+
+def test_a_note_button_says_what_it_opens(run):
+    """A <summary> takes focus and opens from the keyboard, but the control
+    itself is one character, so the label carries the section's name.
+    """
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1")], run, library_size=2)
+    assert '<summary aria-label="About demux plate maps">' in html
+
+
+def test_a_missing_pick_says_so_on_the_page(run):
+    """With no plate to draw, the note is the section rather than a gloss on
+    it, and saying why nothing is here belongs in the flow.
+    """
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1")], run, library_size=2)
+    assert '<h2>Pick plate</h2><p class="note">Not shown' in html
+
+
+def test_a_well_links_below_the_page_it_is_on(run):
+    """Safari reads a file:// page's directory and no further up.
+
+    The page therefore sits at the top of the run and reaches down to the
+    pileups; a link that climbs out with ``../`` loads as "can't open the
+    page" for every well.
+    """
+    pileups = run / "pick" / "pileup"
+    pileups.mkdir(parents=True)
+    (pileups / "well_1_A1.html").write_text("<html></html>")
+
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1")], run, library_size=2)
+
+    assert 'href="pick/pileup/well_1_A1.html"' in html
+    assert 'href="../' not in html
