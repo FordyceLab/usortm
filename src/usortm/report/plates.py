@@ -105,7 +105,7 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
             return (1, 0, p)
 
     plates = sorted(by_plate, key=plate_key)
-    tabs, grids = [], []
+    grids = []
     for i, plate in enumerate(plates):
         wells = by_plate[plate]
         cells = []
@@ -140,8 +140,7 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                 else:
                     cells.append(f'<i class="{cls}" style="{style}" '
                                  f'data-tip="{tip}"></i>')
-        tabs.append(f'<button class="tab{" on" if i == 0 else ""}" '
-                    f'data-p="{plate}">{plate}</button>')
+
         grids.append(
             f'<div class="plate" data-p="{plate}"{"" if i == 0 else " hidden"}>'
             f'<div class="grid"><div class="cols24">{"".join(cells)}</div>'
@@ -157,7 +156,10 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                  f"red a mixed template, amber the parent, grey an insert that "
                  f"could not be called; a blue corner opposite marks a well "
                  f"worth checking. {note}"),
-        "tabs": f'<div class="tabs">{"".join(tabs)}</div>',
+        # The page steps through these one at a time rather than offering a
+        # button per plate: fourteen buttons is a wall, and a plate map is read
+        # in sequence far more often than jumped to.
+        "plates": plates,
         "grids": "".join(grids),
         "legend": (
             '<div class="legend">'
