@@ -171,6 +171,21 @@ def _stat(label, value, unit=""):
             f'<div class="v">{value}{u}</div></div>')
 
 
+def _section(title: str, note: str = "") -> str:
+    """A section heading, with its explanation folded into a button beside it.
+
+    Sections sit side by side, and a note left in the flow is as tall as it
+    happens to wrap: the longer of two notes pushed its table down until the
+    two tables' rows no longer lined up.  Out of the flow a note cannot move
+    anything, and the page carries less prose for the same explanation.
+    """
+    if not note:
+        return f"<h2>{title}</h2>"
+    return (f'<div class="head"><h2>{title}</h2>'
+            f'<details class="info"><summary aria-label="About {title.lower()}"'
+            f'>i</summary><div class="pop">{note}</div></details></div>')
+
+
 def render_summary(project: dict, demux_summary: dict,
                    well_data: Sequence[dict], project_dir,
                    tiers: Optional[dict] = None,
@@ -226,13 +241,13 @@ def render_summary(project: dict, demux_summary: dict,
             f'<tr><td colspan="2" class="name">Not recovered</td>'
             f'<td>{missing} <span class="u">{miss_pct:.1f}%</span></td>'
             f'<td>{bar(miss_pct, "bad")}</td></tr>')
+        note = (f'Variants with at least one well at the tier\'s depth whose '
+                f'consensus exceeds 90% agreement, carries no error call, has '
+                f'intact flanks, and no position where more than '
+                f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
+                f'cumulative.')
         recovery_html = (
-            f'   <div>\n  <h2>Library recovery</h2>\n'
-            f'  <p class="note">Variants with at least one well at the tier\'s '
-            f'depth whose consensus exceeds 90% agreement, carries no error '
-            f'call, has intact flanks, and no position where more than '
-            f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
-            f'cumulative.</p>\n'
+            f'   <div>\n  {_section("Library recovery", note)}\n'
             f'  <table><tr><th>Tier</th><th>Threshold</th><th>Variants</th>'
             f'<th style="width:34%"></th></tr>{"".join(rows)}</table>\n'
             f'   </div>\n')
@@ -265,11 +280,11 @@ def render_summary(project: dict, demux_summary: dict,
             rows.append(f'<tr><td class="name">{label}</td>'
                         f'<td>{n:,} <span class="u">{pct:.1f}%</span></td>'
                         f'<td>{bar(pct, tone)}</td></tr>')
+        note = (f'Over the {len(deep):,} wells with at least '
+                f'{TIER_READS["C"]} reads. Each well\'s consensus, translated '
+                f'and compared to the parent.')
         contents_html = (
-            f'   <div>\n  <h2>What the wells contain</h2>\n'
-            f'  <p class="note">Over the {len(deep):,} wells with at least '
-            f'{TIER_READS["C"]} reads. Each well\'s consensus, translated and '
-            f'compared to the parent.</p>\n'
+            f'   <div>\n  {_section("What the wells contain", note)}\n'
             f'  <table><tr><th>Outcome</th><th>Wells</th>'
             f'<th style="width:34%"></th></tr>{"".join(rows)}</table>\n'
             f'   </div>\n')
@@ -290,14 +305,16 @@ def render_summary(project: dict, demux_summary: dict,
     stacked = []
     hist_html = read_length_chart(demux_summary.get("read_len_hist") or {}, inp)
     if hist_html:
-        stacked.append(f'      <div>\n      <h2>Read length</h2>\n'
-                       f'      <p class="note">Distribution of read lengths.'
-                       f'</p>\n      {hist_html}\n      </div>')
+        # No note: the chart's own line already says what it covers, and the
+        # heading says what it is.
+        stacked.append(f'      <div>\n      {_section("Read length")}\n'
+                       f'      {hist_html}\n      </div>')
     depth_html = read_depth_chart(depths)
     if depth_html:
-        stacked.append(f'      <div>\n      <h2>Read depth per well</h2>\n'
-                       f'      <p class="note">Filled by the same scale as the '
-                       f'plate maps.</p>\n      {depth_html}\n      </div>')
+        head = _section("Read depth per well",
+                        "Filled by the same scale as the plate maps.")
+        stacked.append(f'      <div>\n      {head}\n'
+                       f'      {depth_html}\n      </div>')
 
     panels = []
     if stacked:
@@ -318,11 +335,11 @@ def render_summary(project: dict, demux_summary: dict,
             if pub is not None:
                 hint += f". Published parameters give {pub:.0f}%"
             hint += ".</div>\n"
+        note = (f'Variants recovered against fold sampling of the '
+                f'{measured["n_grown"]:,} wells that grew, of '
+                f'{measured["n_sorted"]:,} sorted on {n_plates} plates.')
         panels.append(
-            f'    <div>\n      <h2>Recovery curve</h2>\n'
-            f'      <p class="note">Variants recovered against fold sampling '
-            f'of the {measured["n_grown"]:,} wells that grew, of '
-            f'{measured["n_sorted"]:,} sorted on {n_plates} plates.</p>\n'
+            f'    <div>\n      {_section("Recovery curve", note)}\n'
             f'      {curve_html}\n{hint}    </div>')
         panels.append(_parameters_panel(project, measured, curves, deep, lib))
 
@@ -341,18 +358,24 @@ def render_summary(project: dict, demux_summary: dict,
     }
     pick = pick_plate(_current_pick(project_dir), links, well_class)
 
-    # Headings, notes and the plate tabs sit above the row so the two grids
-    # start on the same line: the demux map carries a row of tabs and the pick
-    # plate does not, which otherwise drops one grid below the other.  The
-    # depth ramp stands to the left of both, once, since they share a scale.
+    # Headings and the plate tabs sit above the row so the two grids start on
+    # the same line: the demux map carries a row of tabs and the pick plate
+    # does not, which otherwise drops one grid below the other.  The depth ramp
+    # stands to the left of both, once, since they share a scale.
     plates_html = ""
     if maps:
+        # With no plate to draw, the note is the section rather than a gloss on
+        # it, and saying why nothing is here belongs on the page.
+        if pick["grid"]:
+            pick_head = _section("Pick plate", pick["note"])
+        else:
+            pick_head = (f'{_section("Pick plate")}'
+                         f'<p class="note">{pick["note"]}</p>')
         heads = (
             f'  <div class="cols contain">\n'
-            f'   <div><h2>Demux plate maps</h2>'
-            f'<p class="note">{maps["note"]}</p>{maps["tabs"]}</div>\n'
-            f'   <div><h2>Pick plate</h2>'
-            f'<p class="note">{pick["note"]}</p></div>\n'
+            f'   <div>{_section("Demux plate maps", maps["note"])}'
+            f'{maps["tabs"]}</div>\n'
+            f'   <div>{pick_head}</div>\n'
             f'  </div>\n')
         # The ramp stands between the two plates: it belongs to both, and in
         # the middle it separates them without a rule that would say they are
@@ -428,6 +451,20 @@ document.addEventListener("mousemove", function (e) {{
   tip.style.left = (x + window.scrollX) + "px";
   tip.style.top = (y + window.scrollY) + "px";
 }});
+/* A <details> closes only from the control that opened it, which leaves a note
+   standing over the page after the reader has moved on. */
+document.addEventListener("click", function (e) {{
+  document.querySelectorAll("details.info[open]").forEach(function (d) {{
+    if (!d.contains(e.target)) d.open = false;
+  }});
+}});
+document.addEventListener("keydown", function (e) {{
+  if (e.key !== "Escape") return;
+  document.querySelectorAll("details.info[open]").forEach(function (d) {{
+    d.open = false;
+  }});
+}});
+
 document.querySelectorAll(".tab").forEach(function (b) {{
   b.addEventListener("click", function () {{
     document.querySelectorAll(".tab").forEach(function (o) {{
@@ -525,10 +562,16 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
              f"{100 * low / n_deep:.0f}% of grown"),
     ])
 
+    # The caveat on sorting efficiency travels with the note rather than
+    # standing under the table: it qualifies one row of it, and on the page it
+    # sat below a disclosure it had nothing to do with.
+    head = _section(
+        "Simulation",
+        "The parameters behind the curves, measured here and as published for "
+        "the hAcyP2 library. Sorting efficiency is measured from read counts, "
+        "so wells lost to PCR failure sit inside it.")
     return f"""    <div>
-      <h2>Simulation</h2>
-      <p class="note">The parameters behind the curves, measured here and as
-         published for the hAcyP2 library.</p>
+      {head}
       <table class="params">
         <tr><th>Parameter</th><th>This run</th><th>Published</th></tr>
         {model}
@@ -542,6 +585,4 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
         <p class="hint">The last five rows overlap; a well can fail more than
            one.</p>
       </details>
-      <p class="hint">Sorting efficiency is measured from read counts, so wells
-         lost to PCR failure sit inside it.</p>
     </div>"""

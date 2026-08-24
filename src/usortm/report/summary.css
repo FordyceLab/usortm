@@ -41,6 +41,38 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
 .note { color:var(--text-secondary); font-size:.85rem; margin:0 0 .9rem; }
 
+/* A section's explanation, folded into a button beside its heading.  Two
+   sections stand side by side and their notes wrap to different heights, so a
+   note in the flow started one table lower than the other and no two rows
+   lined up; out of the flow neither note can move a table.  A <details>
+   rather than a scripted popover: it opens from the keyboard and stays open
+   while it is read, which a hover card does not. */
+.head { position:relative; display:flex; align-items:center; gap:.4rem;
+        margin:2.25rem 0 .2rem; }
+.head h2 { margin:0; }
+.info > summary { list-style:none; cursor:pointer; width:15px; height:15px;
+                  border-radius:50%; border:1px solid var(--rule);
+                  background:var(--surface-2); color:var(--text-muted);
+                  font:600 .64rem/13px system-ui,-apple-system,sans-serif;
+                  text-align:center; user-select:none; }
+.info > summary::-webkit-details-marker { display:none; }
+.info > summary:hover,
+.info[open] > summary { color:var(--text-primary);
+                        border-color:var(--text-muted); }
+.info > summary:focus-visible { outline:2px solid var(--series-1);
+                                outline-offset:2px; }
+/* Hung from the heading rather than from the button, so it opens inside its
+   own column wherever that column sits: under the button it would run off the
+   page from a heading in the first column. */
+.info .pop { position:absolute; z-index:45; top:calc(100% + .45rem); left:0;
+             width:min(21rem, 100%);
+             padding:.55rem .7rem; border-radius:5px;
+             border:1px solid var(--rule); background:var(--surface-1);
+             box-shadow:0 3px 12px rgba(0,0,0,.18);
+             color:var(--text-secondary); font-size:.8rem; line-height:1.45; }
+.info .pop code { font-family:SF Mono,Menlo,Consolas,monospace;
+                  font-size:.92em; color:var(--text-primary); }
+
 table { border-collapse:collapse; font-size:.85rem; width:100%;
         margin-bottom:.5rem; }
 th { text-align:left; font-weight:600; color:var(--text-muted);
@@ -67,9 +99,12 @@ td.name { font-variant-numeric:normal; }
         color:var(--text-muted); margin-top:.3rem; }
 .hint { color:var(--text-secondary); font-size:.75rem; margin-top:.15rem; }
 
+/* Held inside the line it sits on: at the inherited line height the chip's
+   own box plus its padding stands taller than the row's text, and the
+   recovery table's rows then miss those of the table beside it. */
 .chip { display:inline-block; padding:.05rem .45rem; border-radius:10px;
-        font-size:.72rem; font-weight:600; background:var(--surface-2);
-        color:var(--text-secondary); }
+        font-size:.72rem; line-height:1.35; font-weight:600;
+        background:var(--surface-2); color:var(--text-secondary); }
 .chip.a { color:var(--good); }
 .chip.b { color:var(--series-1); }
 .chip.c { color:var(--warn); }
