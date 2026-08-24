@@ -171,7 +171,7 @@ def _stat(label, value, unit=""):
             f'<div class="v">{value}{u}</div></div>')
 
 
-def _section(title: str, note: str = "") -> str:
+def _section(title: str, note: str = "", control: str = "") -> str:
     """A section heading, with its explanation folded into a button beside it.
 
     Sections sit side by side, and a note left in the flow is as tall as it
@@ -179,11 +179,33 @@ def _section(title: str, note: str = "") -> str:
     two tables' rows no longer lined up.  Out of the flow a note cannot move
     anything, and the page carries less prose for the same explanation.
     """
-    if not note:
+    if not (note or control):
         return f"<h2>{title}</h2>"
-    return (f'<div class="head"><h2>{title}</h2>'
-            f'<details class="info"><summary aria-label="About {title.lower()}"'
-            f'>i</summary><div class="pop">{note}</div></details></div>')
+    info = ""
+    if note:
+        info = (f'<details class="info">'
+                f'<summary aria-label="About {title.lower()}"></summary>'
+                f'<div class="pop">{note}</div></details>')
+    return f'<div class="head"><h2>{title}</h2>{info}{control}</div>'
+
+
+def _plate_stepper(plates: Sequence[str]) -> str:
+    """Step through the plate maps one at a time.
+
+    A button per plate is a wall of them by fourteen, and the maps are read in
+    order far more often than jumped between.  The count sits in the heading
+    row so the two plate sections keep their titles on one line.
+    """
+    if len(plates) < 2:
+        return ""
+    return (
+        f'<div class="stepper" data-n="{len(plates)}">'
+        f'<button type="button" data-step="-1" aria-label="Previous plate">'
+        f'&minus;</button>'
+        f'<span class="count"><b id="plateAt">1</b>/{len(plates)}</span>'
+        f'<button type="button" data-step="1" aria-label="Next plate">+'
+        f'</button></div>'
+    )
 
 
 def render_summary(project: dict, demux_summary: dict,
@@ -373,8 +395,7 @@ def render_summary(project: dict, demux_summary: dict,
                          f'<p class="note">{pick["note"]}</p>')
         heads = (
             f'  <div class="cols contain">\n'
-            f'   <div>{_section("Demux plate maps", maps["note"])}'
-            f'{maps["tabs"]}</div>\n'
+            f'   <div>{_section("Demux plate maps", maps["note"], _plate_stepper(maps["plates"]))}</div>\n'
             f'   <div>{pick_head}</div>\n'
             f'  </div>\n')
         # The ramp stands between the two plates: it belongs to both, and in
@@ -465,14 +486,30 @@ document.addEventListener("keydown", function (e) {{
   }});
 }});
 
-document.querySelectorAll(".tab").forEach(function (b) {{
-  b.addEventListener("click", function () {{
-    document.querySelectorAll(".tab").forEach(function (o) {{
-      o.classList.toggle("on", o === b); }});
-    document.querySelectorAll(".plate[data-p]").forEach(function (g) {{
-      g.hidden = g.dataset.p !== b.dataset.p; }});
+(function () {{
+  var box = document.querySelector(".stepper");
+  if (!box) return;
+  var maps = [...document.querySelectorAll(".plate[data-p]")];
+  var at = document.getElementById("plateAt");
+  var i = 0;
+  function show() {{
+    maps.forEach(function (g, k) {{ g.hidden = k !== i; }});
+    if (at) at.textContent = i + 1;
+    box.querySelectorAll("button").forEach(function (b) {{
+      var next = i + Number(b.dataset.step);
+      // Disabled at the ends rather than wrapping: wrapping from the last
+      // plate to the first reads as a jump to a plate that was not asked for.
+      b.disabled = next < 0 || next >= maps.length;
+    }});
+  }}
+  box.addEventListener("click", function (e) {{
+    var b = e.target.closest("button[data-step]");
+    if (!b || b.disabled) return;
+    i = Math.min(maps.length - 1, Math.max(0, i + Number(b.dataset.step)));
+    show();
   }});
-}});
+  show();
+}})();
 
 /* The palette follows the system until someone says otherwise, and the choice
    is remembered: a report is looked at more than once, and re-picking it every

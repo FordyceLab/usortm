@@ -7,6 +7,7 @@ unless something checks the dates.
 import json
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -360,3 +361,33 @@ def test_a_well_links_below_the_page_it_is_on(run):
 
     assert 'href="pick/pileup/well_1_A1.html"' in html
     assert 'href="../' not in html
+
+
+def test_plates_are_stepped_not_tabbed(run):
+    """One control for however many plates, rather than one control each."""
+    wells = [_well(p, "A1", "V1") for p in range(1, 5)]
+    html = render_summary(
+        {"library_size": 1, "round": 1}, {"input_reads": 100},
+        wells, run, library_size=1)
+    assert 'class="stepper"' in html
+    assert 'class="tabs"' not in html
+    assert "/4</span>" in html          # the count names the total
+    assert 'data-step="-1"' in html and 'data-step="1"' in html
+
+
+def test_a_single_plate_needs_no_stepper(run):
+    """With one plate there is nowhere to step to."""
+    html = render_summary(
+        {"library_size": 1, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1")], run, library_size=1)
+    assert 'class="stepper"' not in html
+
+
+def test_the_information_icon_is_drawn_not_typed():
+    """A letter cannot be centred in a 15px circle; a dot and a stem can."""
+    css = (Path(__file__).parents[1] / "src" / "usortm" / "report"
+           / "summary.css").read_text()
+    assert ".info > summary::before" in css
+    assert ".info > summary::after" in css
+    # One grey for the border and the mark, so it reads as a single object.
+    assert "border:1px solid currentColor" in css

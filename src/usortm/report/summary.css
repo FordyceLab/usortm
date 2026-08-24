@@ -50,15 +50,26 @@ h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
 .head { position:relative; display:flex; align-items:center; gap:.4rem;
         margin:2.25rem 0 .2rem; }
 .head h2 { margin:0; }
+/* The glyph is drawn rather than typed.  A letter i is centred on its own
+   bearings, not on the circle, and no combination of line-height and padding
+   puts it in the middle at this size; a dot and a stem always sit where they
+   are placed.  Border and mark share one grey so the button reads as a single
+   object. */
 .info > summary { list-style:none; cursor:pointer; width:15px; height:15px;
-                  border-radius:50%; border:1px solid var(--rule);
-                  background:var(--surface-2); color:var(--text-muted);
-                  font:600 .64rem/13px system-ui,-apple-system,sans-serif;
-                  text-align:center; user-select:none; }
+                  box-sizing:border-box; border-radius:50%;
+                  border:1px solid currentColor; color:var(--text-muted);
+                  background:none; position:relative; user-select:none;
+                  flex:0 0 auto; }
+.info > summary::before, .info > summary::after {
+  content:""; position:absolute; left:50%; transform:translateX(-50%);
+  background:currentColor; }
+.info > summary::before { top:2.5px; width:1.5px; height:1.5px;
+                          border-radius:50%; }
+.info > summary::after { top:5.5px; width:1.5px; height:5px;
+                         border-radius:.75px; }
 .info > summary::-webkit-details-marker { display:none; }
 .info > summary:hover,
-.info[open] > summary { color:var(--text-primary);
-                        border-color:var(--text-muted); }
+.info[open] > summary { color:var(--text-primary); }
 .info > summary:focus-visible { outline:2px solid var(--series-1);
                                 outline-offset:2px; }
 /* Hung from the heading rather than from the button, so it opens inside its
@@ -310,3 +321,19 @@ details.more > summary::before { content:"\25B8"; display:inline-block;
 details.more[open] > summary::before { content:"\25BE"; }
 details.more > summary:hover { color:var(--text-primary); }
 details.more table.params { margin-top:.3rem; }
+
+/* One plate at a time, stepped from the heading.  Sits in the heading row so
+   the demux and pick titles stay on one line and their grids start together. */
+.stepper { display:flex; align-items:center; gap:.3rem; margin-left:.15rem; }
+.stepper button { font:inherit; font-size:.78rem; line-height:1;
+                  width:1.15rem; height:1.15rem; padding:0; cursor:pointer;
+                  display:flex; align-items:center; justify-content:center;
+                  border:1px solid var(--rule); border-radius:4px;
+                  background:var(--surface-1); color:var(--text-secondary); }
+.stepper button:hover:not(:disabled) { background:var(--surface-2);
+                                       color:var(--text-primary); }
+.stepper button:disabled { opacity:.35; cursor:default; }
+.stepper .count { font-size:.72rem; color:var(--text-muted);
+                  font-variant-numeric:tabular-nums; min-width:2.6rem;
+                  text-align:center; }
+.stepper .count b { color:var(--text-primary); font-weight:600; }
