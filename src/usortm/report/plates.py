@@ -155,9 +155,9 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                         cls += " parent"
                     elif not carries_designed_sequence(w, designed):
                         cls += " mut"
-                    # Independent of what the well holds, and drawn in the
-                    # opposite corner: a parent well can also read uncleanly,
-                    # and one corner cannot say both.
+                    # Independent of what the well holds, and drawn as the
+                    # well's edge: a parent well can also read uncleanly, and
+                    # one corner cannot say both.
                     if klass == "watch":
                         cls += " watch"
                 href = links.get(f"{plate}_{label}")
@@ -186,8 +186,8 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                  f"well's sequence is not the one designed for it, whether an "
                  f"insert that could not be read, a mixed template, or a "
                  f"difference from the design. Amber marks the parent, which "
-                 f"carries no mutation. A blue corner opposite marks a well "
-                 f"worth checking. {note}"),
+                 f"carries no mutation. A blue edge marks a well worth "
+                 f"checking. {note}"),
         # The page steps through these one at a time rather than offering a
         # button per plate: fourteen buttons is a wall, and a plate map is read
         # in sequence far more often than jumped to.

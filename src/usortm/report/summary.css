@@ -245,21 +245,17 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
   clip-path:polygon(0 0, 100% 0, 0 100%);
 }
 .w.mut::after      { background:#dc2626; }
-/* Worth checking sits in the opposite corner from what the well contains, so a
-   well can say both at once: a library member that reads uncleanly is not the
-   same as one that is not a library member. */
-.w.watch::before { content:""; position:absolute; inset:0; border-radius:1px;
-                   clip-path:polygon(100% 100%, 100% 35%, 35% 100%);
-                   background:var(--series-1);
-                   /* A halo in the page's own ground, traced around the
-                      clipped triangle.  The fill under this corner runs the
-                      whole depth ramp, and a blue that reads on an empty well
-                      disappears into the dark end of it; the halo separates
-                      the mark from the fill without giving it a second
-                      colour to mean something by. */
-                   filter:drop-shadow(0 0 .6px var(--surface-1))
-                          drop-shadow(0 0 .6px var(--surface-1)); }
-.swatch.watch { background:var(--series-1); }
+/* Worth checking is the well's own edge, so it says nothing about what the
+   well holds and the corner is left to that: a library member that reads
+   uncleanly is not the same as one that is not a library member, and both
+   can be true of one well.  An edge also reads against any fill, where a
+   mark laid over the well competed with the dark end of the depth ramp.
+   Drawn as a border plus an inset ring rather than a thicker border, which
+   would grow the cell and pull the plate out of its grid. */
+.w.watch { border-color:var(--series-1);
+           box-shadow:inset 0 0 0 1px var(--series-1); }
+.swatch.watch { background:var(--surface-2); border-color:var(--series-1);
+                box-shadow:inset 0 0 0 1px var(--series-1); }
 .w.parent::after   { background:#d97706; }
 .w.blank { background:repeating-linear-gradient(45deg,
              var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
@@ -458,11 +454,15 @@ details.more table.params { margin-top:.3rem; }
              display:block; justify-self:center; }
 .plotkey i.k3 { width:8px; height:8px; border:0; border-radius:50%;
                 background:var(--bad); }
-/* The popout opens up and to the right, over the histograms rather than off
-   the page: anchored below, it would fall off the bottom of a key that already
-   sits in the bottom corner. */
+/* The card opens beside the plot rather than over it.  Its own numbers are
+   read against the curve, so covering the curve to show them defeats the
+   comparison; the slack to the right of the column is where it goes.  Held to
+   the square's height so it cannot reach past either spine, and scrolled
+   inside if its tables run longer -- it opens on a click and stays open, so
+   scrolling it is no worse than reading it. */
 .keyinfo { position:static; }
-.keyinfo .pop { top:auto; right:auto; left:0; bottom:calc(100% + .45rem);
-                width:22rem; max-height:24rem; overflow-y:auto; }
+.keyinfo .pop { top:auto; right:auto; bottom:-.5rem;
+                left:calc(100% + .95rem); box-sizing:border-box;
+                width:22rem; max-height:17.125rem; overflow-y:auto; }
 .keyinfo .pop p { margin:0 0 .45rem; }
 .keyinfo .pop p:last-child { margin:.45rem 0 0; }
