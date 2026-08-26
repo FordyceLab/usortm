@@ -13,13 +13,13 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from usortm.cli.report import NOT_THE_DESIGNED_SEQUENCE
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
 from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
                      read_length_chart, recovery_chart)
-from .plates import demux_plate_maps, pick_plate, pileup_links
+from .plates import (carries_designed_sequence, demux_plate_maps,
+                     pick_plate, pileup_links)
 
 #: Parameters the manuscript reports for the hAcyP2 library.  Only the PCR
 #: failure rate is still read from here; see measured_parameters().
@@ -128,14 +128,7 @@ def measured_parameters(well_data: Sequence[dict], designed: set,
     # a well that never produced a culture was never a sample of the library,
     # and the curve is about what sampling those cultures recovers.  Sorting
     # efficiency is reported beside it rather than folded into the axis.
-    on_target = [
-        w for w in grown
-        if w.get("variant") in designed
-        and (w.get("consensus_fraction") or 0) > 0.9
-        and w.get("cons_check", "") not in NOT_THE_DESIGNED_SEQUENCE
-        and (w.get("flank_check", "OK") or "OK") == "OK"
-        and column_agreement_class(w.get("max_mismatch_frac")) != "mixed"
-    ]
+    on_target = [w for w in grown if carries_designed_sequence(w, designed)]
     n_grown = len(grown) or 1
     return {
         "n_sorted": sorted_wells,
@@ -475,23 +468,20 @@ def render_summary(project: dict, demux_summary: dict,
         panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
 
     if curves:
-        info = _simulation_info(project, measured, deep, lib)
-        curve_html = recovery_chart(curves, info)
+        # The plot marks this run and the key names the mark, so the reading
+        # is on the figure already; the line under it repeated in numbers what
+        # the red dot says in place, beside a caption saying something else.
+        # The numbers keep, in the card the key opens.
         pred = _at(curves["fold_samplings"], curves["measured"]["means"],
                    measured.get("sampling"))
-        hint = ""
-        if pred is not None and measured.get("sampling"):
-            hint = (f'      <div class="hint">at '
-                    f'{measured["sampling"]:.1f}&#215;: {pred:.0f}% predicted')
-            if observed is not None:
-                hint += f", {observed:.1f}% recovered"
-            hint += ".</div>\n"
+        info = _simulation_info(project, measured, deep, lib, pred, observed)
+        curve_html = recovery_chart(curves, info)
         note = (f'Variants recovered against fold sampling of the '
                 f'{measured["n_grown"]:,} wells that grew, of '
                 f'{measured["n_sorted"]:,} sorted on {n_plates} plates.')
         panels.append(
             f'    <div>\n      {_section("Recovery curve", note)}\n'
-            f'      {curve_html}\n{hint}    </div>')
+            f'      {curve_html}\n    </div>')
 
     figures_html = ""
     if panels:
@@ -666,7 +656,8 @@ document.addEventListener("keydown", function (e) {{
 """
 
 
-def _simulation_info(project, measured, deep, library_size) -> str:
+def _simulation_info(project, measured, deep, library_size,
+                     predicted=None, observed=None) -> str:
     """The conditions the curve was computed under, folded into its key.
 
     Only this run's values.  The published ones were dropped with the curve
@@ -749,10 +740,21 @@ def _simulation_info(project, measured, deep, library_size) -> str:
             f'{ci}. Poisson sampling spreads those counts on its own and is '
             f'deconvolved from the estimate.{dropout}</p>')
 
+    # What the curve says at the depth this run reached, beside what came
+    # back.  On the figure the same comparison is the red mark against the
+    # line; here it is the two numbers.
+    at_run = ""
+    if predicted is not None and measured.get("sampling"):
+        at_run = (f'<p>At {measured["sampling"]:.1f} fold, the depth this run '
+                  f'reached, the curve gives {predicted:.0f}%')
+        at_run += (f' and {observed:.1f}% came back.</p>'
+                   if observed is not None else '.</p>')
+
     return f"""<details class="info keyinfo">
         <summary aria-label="About the simulation"></summary>
         <div class="pop">
           <p>The curve uses this run's own parameters.</p>
+          {at_run}
           {skew_note}
           <table class="params">
             <tr><th>Parameter</th><th>Value</th></tr>{model}

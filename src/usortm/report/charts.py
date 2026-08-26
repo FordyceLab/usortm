@@ -206,14 +206,17 @@ def recovery_chart(curves: dict, info: str = "") -> str:
     def py(v):
         return 100 - v
 
+    # --grid, not --rule: the rules that separate content sit on top of the
+    # page, and at this density they read as a mesh the curve has to compete
+    # with.
     out = []
     for pct in (25, 50, 75):
         out.append(f'<line x1="0" y1="{py(pct):.2f}" x2="100" y2="{py(pct):.2f}" '
-                   f'stroke="var(--rule)" stroke-width="1" '
+                   f'stroke="var(--grid)" stroke-width="1" '
                    f'vector-effect="non-scaling-stroke"></line>')
     for v in range(2, int(x_max) + 1, 2):
         out.append(f'<line x1="{px(v):.2f}" y1="0" x2="{px(v):.2f}" y2="100" '
-                   f'stroke="var(--rule)" stroke-width="1" '
+                   f'stroke="var(--grid)" stroke-width="1" '
                    f'vector-effect="non-scaling-stroke"></line>')
 
     def series(key, colour, dashed, band):

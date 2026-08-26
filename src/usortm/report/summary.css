@@ -4,6 +4,8 @@
   --surface-1:#fcfcfb; --surface-2:#f3f3f0; --rule:#dedcd5;
   --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#75736c;
   --series-1:#2a78d6; --good:#1baf7a; --warn:#eb6834; --bad:#d1495b;
+  /* Lighter than --rule: a chart's grid is read past, not read. */
+  --grid:#ebeae4;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -11,6 +13,7 @@
     --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
     --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
     --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+    --grid:#2a2a28;
   }
 }
 :root[data-theme="dark"] {
@@ -18,6 +21,7 @@
   --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
   --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
   --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+  --grid:#2a2a28;
 }
 body { margin:0; background:var(--surface-1); color:var(--text-primary);
        font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
@@ -149,6 +153,15 @@ td { padding:.35rem .6rem .35rem 0; border-bottom:1px solid var(--rule);
      font-variant-numeric:tabular-nums; }
 td.name { font-variant-numeric:normal; }
 
+/* Not recovered, on the pick plate: the fill says the well is empty and the
+   outline says the emptiness was counted.  Solid and in the text's own ink
+   rather than dashed and grey, which read as another shade of absent among
+   the pale end of the depth ramp. */
+.w.none  { background:var(--surface-2); border-style:solid;
+           border-color:var(--text-primary); }
+.swatch.none { background:var(--surface-2); border-style:solid;
+               border-color:var(--text-primary); }
+
 /* A share shown as a bar as well as a number: comparing rows is the point,
    and the eye does that faster than arithmetic. */
 .bar { display:block; height:6px; border-radius:3px; background:var(--rule);
@@ -227,7 +240,7 @@ a.w { cursor:pointer; }
 /* Lifted while hovered: cells paint in document order, so without this the
    next well's background covers the half of the outline that overlaps it. */
 a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
-.w.mut::after, .w.parent::after, .w.uncalled::after {
+.w.mut::after, .w.parent::after {
   content:""; position:absolute; inset:0; border-radius:1px;
   clip-path:polygon(0 0, 100% 0, 0 100%);
 }
@@ -237,12 +250,17 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
    same as one that is not a library member. */
 .w.watch::before { content:""; position:absolute; inset:0; border-radius:1px;
                    clip-path:polygon(100% 100%, 100% 35%, 35% 100%);
-                   background:var(--series-1); }
+                   background:var(--series-1);
+                   /* A halo in the page's own ground, traced around the
+                      clipped triangle.  The fill under this corner runs the
+                      whole depth ramp, and a blue that reads on an empty well
+                      disappears into the dark end of it; the halo separates
+                      the mark from the fill without giving it a second
+                      colour to mean something by. */
+                   filter:drop-shadow(0 0 .6px var(--surface-1))
+                          drop-shadow(0 0 .6px var(--surface-1)); }
 .swatch.watch { background:var(--series-1); }
 .w.parent::after   { background:#d97706; }
-.w.uncalled::after { background:var(--text-muted); }
-.w.none  { background:var(--surface-2); border-style:dashed;
-           border-color:var(--text-muted); }
 .w.blank { background:repeating-linear-gradient(45deg,
              var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 
@@ -254,8 +272,6 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
         border:1px solid var(--rule); display:inline-block; }
 .swatch.mut      { background:#dc2626; }
 .swatch.parent   { background:#d97706; }
-.swatch.uncalled { background:var(--text-muted); }
-.swatch.none     { background:var(--surface-2); border-style:dashed; }
 .swatch.blank    { background:repeating-linear-gradient(45deg,
                      var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 
@@ -334,12 +350,15 @@ table.params th:not(:first-child) { text-align:right; }
 /* Small-to-medium: the four panels are read side by side, so each plot is
    held well short of its column rather than stretched across it. */
 .quad .chart, .quad .axis, .quad .hint { max-width:19rem; }
-/* Square, and sized so the curve's panel finishes level with the pair of
-   histograms beside it.  The two stacked histograms come to 23.6rem, and the
-   curve's heading, caption and tick row take 7.2rem of its own column, which
-   leaves this for the square itself. */
-.quad .plotbox { width:16.4rem; max-width:none; }
-.quad .axis.inset { max-width:16.4rem; margin-left:2.3rem; }
+/* Square, and sized to the histograms' own plot area rather than to their
+   column: the square's top and bottom spines land on the top of the upper
+   chart and the bottom of the lower one.  That span measures 274px -- two
+   76px charts plus the axis, caption and heading between them -- so the
+   curve's own tick row hangs below the pair, which is the side of the trade
+   that keeps the three plots reading as one row.  Re-measure this if the
+   charts change height or a caption gains a line. */
+.quad .plotbox { width:17.125rem; max-width:none; }
+.quad .axis.inset { max-width:17.125rem; margin-left:2.3rem; }
 
 /* Fold-sampling ticks under the square, positioned to the gridlines they
    name rather than spaced evenly. */
