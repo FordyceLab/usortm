@@ -183,11 +183,11 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
             "generated them.")
     return {
         "note": (f"Read depth per well. A red corner marks a mutation: the "
-                 f"well's sequence is not the one designed for it, whether an "
-                 f"insert that could not be read, a mixed template, or a "
-                 f"difference from the design. Amber marks the parent, which "
-                 f"carries no mutation. A blue edge marks a well worth "
-                 f"checking. {note}"),
+                 f"well does not hold the sequence designed for it. That "
+                 f"covers a well matching no library member, a consensus "
+                 f"differing from the design, a mixed template, and failed "
+                 f"flanks. Amber marks the parent, which carries no mutation. "
+                 f"A blue edge marks a well worth checking. {note}"),
         # The page steps through these one at a time rather than offering a
         # button per plate: fourteen buttons is a wall, and a plate map is read
         # in sequence far more often than jumped to.

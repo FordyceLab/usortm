@@ -456,6 +456,8 @@ def test_the_sampling_gauge_card_is_reachable_and_not_read_twice():
 
     html = _sampling_dots(6.0)
     assert "6.0 wells that grew per designed variant" in html
+    # The figure is left to the curve, which alone knows this run's skew.
+    assert "recovery curve below gives" in html
     # The rule the card draws is spoken for a reader who cannot see it.
     assert "amber below 3" in html
     assert 'aria-label="Sampling depth 4 of 5.' in html

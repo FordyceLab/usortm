@@ -258,9 +258,9 @@ def _sampling_dots(fold: float) -> str:
     # Drawn rather than left to the title attribute, which never appeared:
     # the dots are 7px tall, and a tooltip on a non-interactive element of
     # that size is not reliably offered.
-    lead = (f"{fold:.1f} wells that grew per designed variant. "
-            f"What this depth is predicted to recover is on the recovery "
-            f"curve below.")
+    lead = (f"{fold:.1f} wells that grew per designed variant. The "
+            f"recovery curve below gives what this depth is predicted to "
+            f"recover.")
     scale = "".join(
         f'{_dot_row(lv, n)}'
         f'<b{" class=\"now\"" if lv == level else ""}>{label}</b>'
@@ -380,9 +380,10 @@ def render_summary(project: dict, demux_summary: dict,
             f'<tr><td colspan="2" class="name">Not recovered</td>'
             f'<td>{missing} <span class="u">{miss_pct:.1f}%</span></td>'
             f'<td>{bar(miss_pct, "bad")}</td></tr>')
-        note = (f'Variants with at least one well at the tier\'s depth whose '
-                f'consensus exceeds 90% agreement, carries no error call, has '
-                f'intact flanks, and no position where more than '
+        note = (f'Variants with at least one well at the tier\'s depth '
+                f'whose consensus exceeds 90% agreement. That well must also '
+                f'carry no error call, have intact flanks, and have no '
+                f'position where more than '
                 f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
                 f'cumulative.')
         recovery_html = (
@@ -417,8 +418,8 @@ def render_summary(project: dict, demux_summary: dict,
                         f'<td>{n:,} <span class="u">{pct:.1f}%</span></td>'
                         f'<td>{bar(pct, tone)}</td></tr>')
         note = (f'Over the {len(deep):,} wells with at least '
-                f'{TIER_READS["C"]} reads, counted by the test the demux '
-                f'plate maps flag on.')
+                f'{TIER_READS["C"]} reads, by the same test the demux plate '
+                f'maps flag on.')
         contents_html = (
             f'   <div>\n  {_section("What the wells contain", note)}\n'
             f'  <table><tr><th>Outcome</th><th>Wells</th>'
@@ -724,27 +725,30 @@ def _simulation_info(project, measured, deep, library_size,
     skew_note = ""
     if est:
         ci = ""
+        # The interval is on the skew.  Written after the wells-per-variant
+        # figure it read as an interval on that instead, which is the number
+        # it sits next to and not the one it describes.
         if est["ci"]:
-            ci = (f', 95% interval {est["ci"][0]:.1f}&ndash;'
-                  f'{est["ci"][1]:.1f}')
+            ci = (f' At this depth the 95% interval on the skew runs '
+                  f'{est["ci"][0]:.1f} to {est["ci"][1]:.1f}.')
         dropout = ""
         if est["dropout"] >= 0.005:
-            dropout = (f' A further {est["dropout"]:.0%} of the library is '
-                       f'estimated absent rather than rare.')
+            dropout = (f' The same fit puts {est["dropout"]:.0%} of the '
+                       f'library absent rather than at low abundance.')
         skew_note = (
-            f'<p>Skew is estimated from the number of wells carrying each '
-            f'designed variant, {est["mean_wells"]:.1f} on average'
-            f'{ci}. Poisson sampling spreads those counts on its own and is '
-            f'deconvolved from the estimate.{dropout}</p>')
+            f'<p>Skew is estimated from how many wells carried each designed '
+            f'variant, {est["mean_wells"]:.1f} on average. The fit separates '
+            f'the Poisson spread of those counts from the library\'s own.'
+            f'{ci}{dropout}</p>')
 
     # What the curve says at the depth this run reached, beside what came
     # back.  On the figure the same comparison is the red mark against the
     # line; here it is the two numbers.
     at_run = ""
     if predicted is not None and measured.get("sampling"):
-        at_run = (f'<p>At {measured["sampling"]:.1f} fold, the depth this run '
-                  f'reached, the curve gives {predicted:.0f}%')
-        at_run += (f' and {observed:.1f}% came back.</p>'
+        at_run = (f'<p>At {measured["sampling"]:.1f} fold it gives '
+                  f'{predicted:.0f}%')
+        at_run += (f'; {observed:.1f}% of the library came back.</p>'
                    if observed is not None else '.</p>')
 
     return f"""<details class="info keyinfo">
@@ -759,8 +763,9 @@ def _simulation_info(project, measured, deep, library_size,
           <table class="params">
             <tr><th>Wells</th><th>Count</th><th>Share</th></tr>{wells}
           </table>
-          <p>Sorting efficiency is measured from read counts, so wells lost to
-             PCR failure sit inside it. The last five rows are shares of the
-             wells that grew and overlap; a well can fail more than one.</p>
+          <p>Sorting efficiency is measured from read counts, so wells lost
+             to PCR failure are counted inside it. The last five rows are
+             shares of the wells that grew; they overlap, since a well can
+             fail more than one test.</p>
         </div>
       </details>"""
