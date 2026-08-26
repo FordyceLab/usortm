@@ -265,8 +265,11 @@ table.params th:not(:first-child) { text-align:right; }
 /* Small-to-medium: the four panels are read side by side, so each plot is
    held well short of its column rather than stretched across it. */
 .quad .chart, .quad .axis, .quad .hint { max-width:19rem; }
-.quad .plotbox { max-width:12rem; }
-.quad .axis.inset { max-width:12rem; }
+/* The curve is square and as tall as the pair of histograms beside it, so
+   the three panels start and finish together.  Capped short of its column it
+   left the row ragged along the bottom. */
+.quad .plotbox { max-width:none; }
+.quad .axis.inset { max-width:none; margin-left:2.3rem; }
 
 /* Fold-sampling ticks under the square, positioned to the gridlines they
    name rather than spaced evenly. */
@@ -297,13 +300,30 @@ tr.sel td { background:var(--surface-2); }
 /* The two plate maps on one line, with the depth ramp standing once to the
    left of both.  Grids are the only things in the row, so they start together;
    headings and tabs sit above it, where their differing heights cost nothing. */
-.platerow { display:flex; align-items:flex-start; gap:1.1rem;
-            margin-bottom:1.25rem; }
-.platerow .pcol { flex:1 1 0; min-width:0; }
+/* Heading, plate and legend each sit in their plate's own column, and the
+   ramp occupies the middle one across the plate row.  Laid out apart, the
+   headings ran on two columns while the plates ran on three, so a heading
+   began half way across the page and its plate began somewhere else. */
+.platewrap { display:grid; grid-template-columns:1fr auto 1fr;
+             grid-template-rows:auto auto auto;
+             column-gap:1.1rem; margin-bottom:1.25rem;
+             align-items:start; }
+/* Column and row are both stated for every part.  Pinning only the row let
+   the second heading flow into the ramp's column, which put a title over a
+   colour scale and left its plate somewhere else entirely. */
+.platewrap .phead { grid-row:1; }
+.platewrap .pgrid { grid-row:2; min-width:0; }
+.platewrap .pleg  { grid-row:3; }
+.platewrap .left  { grid-column:1; }
+.platewrap .right { grid-column:3; }
+/* The ramp spans the plate row only: over the headings it would stand taller
+   than the thing it is a scale for. */
+.platewrap .cbcol { grid-column:2; grid-row:2; }
+.platewrap .phead h2 { margin-top:0; }
 /* Centred between the plates rather than flush against one, so it reads as
    belonging to both. */
 .cbcol { display:flex; flex-direction:column; align-items:center;
-         flex:0 0 auto; align-self:stretch; }
+         align-self:stretch; }
 .cbcol .cbar { flex:1; }
 .cbcol .cblab { font-size:.66rem; color:var(--text-muted); margin-top:.4rem;
                 line-height:1.2; text-align:center; }

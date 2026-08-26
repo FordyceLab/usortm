@@ -393,22 +393,24 @@ def render_summary(project: dict, demux_summary: dict,
         else:
             pick_head = (f'{_section("Pick plate")}'
                          f'<p class="note">{pick["note"]}</p>')
-        heads = (
-            f'  <div class="cols contain">\n'
-            f'   <div>{_section("Demux plate maps", maps["note"], _plate_stepper(maps["plates"]))}</div>\n'
-            f'   <div>{pick_head}</div>\n'
-            f'  </div>\n')
-        # The ramp stands between the two plates: it belongs to both, and in
-        # the middle it separates them without a rule that would say they are
-        # measured differently.
-        row = (
-            f'  <div class="platerow">\n'
-            f'    <div class="pcol">{maps["grids"]}{maps["legend"]}</div>\n'
+        # Heading, plate and legend share a column with the plate they belong
+        # to, and each row of the grid begins together.  The ramp stands in the
+        # middle column: it belongs to both plates, and between them it
+        # separates the two without a rule that would say they are measured
+        # differently.
+        demux_head = _section("Demux plate maps", maps["note"],
+                              _plate_stepper(maps["plates"]))
+        plates_html = (
+            f'  <div class="platewrap">\n'
+            f'    <div class="phead left">{demux_head}</div>\n'
             f'    <div class="cbcol">{colorbar()}<div class="cblab">reads'
             f'<br>per well</div></div>\n'
-            f'    <div class="pcol">{pick["grid"]}{pick["legend"]}</div>\n'
+            f'    <div class="phead right">{pick_head}</div>\n'
+            f'    <div class="pgrid left">{maps["grids"]}</div>\n'
+            f'    <div class="pgrid right">{pick["grid"]}</div>\n'
+            f'    <div class="pleg left">{maps["legend"]}</div>\n'
+            f'    <div class="pleg right">{pick["legend"]}</div>\n'
             f'  </div>\n')
-        plates_html = heads + row
 
     versions = demux_summary.get("versions") or {}
     ver_rows = "".join(

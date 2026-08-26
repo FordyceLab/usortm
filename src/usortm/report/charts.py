@@ -231,10 +231,9 @@ def recovery_chart(curves: dict) -> str:
     oy = curves.get("observed")
     marker = ""
     if ox is not None and oy is not None and ox <= x_max:
-        out.append(f'<line x1="{px(ox):.2f}" y1="{py(0):.2f}" x2="{px(ox):.2f}" '
-                   f'y2="{py(oy):.2f}" stroke="var(--bad)" stroke-width="1" '
-                   f'stroke-dasharray="3 3" '
-                   f'vector-effect="non-scaling-stroke"></line>')
+        # The point alone.  A line dropped to the axis restated a coordinate
+        # the gridlines already give, in the one colour on the figure that
+        # means something is wrong.
         # An HTML dot: the SVG is stretched to its box, which would draw a
         # circle as an ellipse.
         marker = (f'<i class="obs" style="left:{px(ox):.2f}%;'
