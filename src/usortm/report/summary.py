@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
-                                MIXED_TEMPLATE_WATCH, column_agreement_class)
+                                column_agreement_class)
 
 from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
                      read_length_chart, recovery_chart, skew_chart)
@@ -196,19 +196,6 @@ def recovery_curves(library_size: int, skew: float, measured: dict,
         "sampling": measured.get("sampling"),
         "observed": observed_pct,
     }
-
-
-def _at(folds, values, x):
-    """*values* interpolated at *x*."""
-    if x is None or not folds:
-        return None
-    if x <= folds[0]:
-        return values[0]
-    for i in range(1, len(folds)):
-        if x <= folds[i]:
-            f = (x - folds[i - 1]) / (folds[i] - folds[i - 1])
-            return values[i - 1] + f * (values[i] - values[i - 1])
-    return values[-1]
 
 
 def _stat(label, value, unit="", extra=""):
@@ -478,9 +465,7 @@ def render_summary(project: dict, demux_summary: dict,
         # is on the figure already; the line under it repeated in numbers what
         # the red dot says in place, beside a caption saying something else.
         # The numbers keep, in the card the key opens.
-        pred = _at(curves["fold_samplings"], curves["measured"]["means"],
-                   measured.get("sampling"))
-        info = _simulation_info(project, measured, deep, lib, pred, observed)
+        info = _simulation_info(project, measured, lib)
         curve_html = recovery_chart(curves, info)
         note = (f'Variants recovered against fold sampling of the '
                 f'{measured["n_grown"]:,} wells that grew, of '
@@ -676,32 +661,18 @@ document.addEventListener("keydown", function (e) {{
 """
 
 
-def _simulation_info(project, measured, deep, library_size,
-                     predicted=None, observed=None) -> str:
-    """The conditions the curve was computed under, folded into its key.
+def _simulation_info(project, measured, library_size) -> str:
+    """The parameters the curve was computed on, folded into its key.
 
-    Only this run's values.  The published ones were dropped with the curve
-    they belonged to, which described a different library at a different skew
-    and off-target rate.
+    The table alone.  What the run recovered at its own depth is the marked
+    point on the curve, and the counts the skew was fitted to are the figure
+    beside it, so restating either here sent the reader to a card for
+    something the plot next to it already showed.
     """
-    n_deep = len(deep) or 1
-    mixed = watch = bad_flank = err = low = 0
-    for w in deep:
-        klass = column_agreement_class(w.get("max_mismatch_frac"))
-        if klass == "mixed":
-            mixed += 1
-        elif klass == "watch":
-            watch += 1
-        if (w.get("flank_check") or "OK") != "OK":
-            bad_flank += 1
-        if w.get("cons_check") in ("Error", "Other Error"):
-            err += 1
-        if (w.get("consensus_fraction") or 0) <= 0.9:
-            low += 1
     skew = float(measured.get("planned_skew") or project.get("skew") or 2)
 
     def row(label, value):
-        return (f'<tr><td class="name">{label}</td><td>{value}</td></tr>')
+        return f'<tr><td class="name">{label}</td><td>{value}</td></tr>'
 
     est = measured.get("skew_estimate")
     if est:
@@ -711,6 +682,7 @@ def _simulation_info(project, measured, deep, library_size,
             f"{measured['planned_skew']:g} planned")
     else:
         skew_row = row("Library skew, Q90/Q10", f"{skew:g} planned")
+
     model = "".join([
         row("Library size", f"{library_size}"),
         skew_row,
@@ -719,75 +691,11 @@ def _simulation_info(project, measured, deep, library_size,
         row("PCR failure", f"{measured['p_fail']:.3f}"),
     ])
 
-    def wrow(label, count, share=""):
-        return (f'<tr><td class="name">{label}</td><td>{count}</td>'
-                f'<td>{share}</td></tr>')
-
-    wells = "".join([
-        wrow(f"Sorted, {measured['n_plates']} plates",
-             f"{measured['n_sorted']:,}"),
-        wrow(f"Grew, &ge;{TIER_READS['C']} reads", f"{measured['n_grown']:,}",
-             f"{100 * measured['p_grow']:.0f}%"),
-        wrow("On-target", f"{measured['n_on_target']:,}",
-             f"{100 * (1 - measured['p_incorrect']):.0f}%"),
-        wrow(f"A position past {MIXED_TEMPLATE_THRESHOLD:.0%}", f"{mixed:,}",
-             f"{100 * mixed / n_deep:.0f}%"),
-        wrow(f"A position at {MIXED_TEMPLATE_WATCH:.0%}&ndash;"
-             f"{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{watch:,}",
-             f"{100 * watch / n_deep:.0f}%"),
-        wrow("Flank failed", f"{bad_flank:,}",
-             f"{100 * bad_flank / n_deep:.0f}%"),
-        wrow("Called an error", f"{err:,}", f"{100 * err / n_deep:.0f}%"),
-        wrow("Agreement &le;90%", f"{low:,}", f"{100 * low / n_deep:.0f}%"),
-    ])
-
-    # Where the skew came from and how wide the estimate is.  At a few wells
-    # per variant the counts are mostly Poisson, so the interval carries the
-    # caveat rather than an adjective.
-    skew_note = ""
-    if est:
-        ci = ""
-        # The interval is on the skew.  Written after the wells-per-variant
-        # figure it read as an interval on that instead, which is the number
-        # it sits next to and not the one it describes.
-        if est["ci"]:
-            ci = (f' At this depth the 95% confidence interval on the skew '
-                  f'runs {est["ci"][0]:.1f} to {est["ci"][1]:.1f}.')
-        dropout = ""
-        if est["dropout"] >= 0.005:
-            dropout = (f' The same fit puts {est["dropout"]:.0%} of the '
-                       f'library absent rather than at low abundance.')
-        skew_note = (
-            f'<p>Skew is estimated from how many wells carried each designed '
-            f'variant, {est["mean_wells"]:.1f} on average. The fit separates '
-            f'the Poisson spread of those counts from the library\'s own.'
-            f'{ci}{dropout}</p>')
-
-    # What the curve says at the depth this run reached, beside what came
-    # back.  On the figure the same comparison is the red mark against the
-    # line; here it is the two numbers.
-    at_run = ""
-    if predicted is not None and measured.get("sampling"):
-        at_run = (f'<p>At {measured["sampling"]:.1f} fold it gives '
-                  f'{predicted:.0f}%')
-        at_run += (f'; {observed:.1f}% of the library came back.</p>'
-                   if observed is not None else '.</p>')
-
     return f"""<details class="info keyinfo">
-        <summary aria-label="About the simulation"></summary>
+        <summary aria-label="The curve\'s parameters"></summary>
         <div class="pop">
-          <p>The curve uses this run's own parameters.</p>
-          {at_run}
-          {skew_note}
           <table class="params">
             <tr><th>Parameter</th><th>Value</th></tr>{model}
           </table>
-          <table class="params">
-            <tr><th>Wells</th><th>Count</th><th>Share</th></tr>{wells}
-          </table>
-          <p>Sorting efficiency is measured from read counts, so wells lost
-             to PCR failure are counted inside it. The last five rows are
-             shares of the wells that grew; they overlap, since a well can
-             fail more than one test.</p>
         </div>
       </details>"""

@@ -480,6 +480,6 @@ details.more table.params { margin-top:.3rem; }
 .keyinfo { position:static; }
 .keyinfo .pop { top:auto; right:auto; bottom:-.5rem;
                 left:calc(100% + .95rem); box-sizing:border-box;
-                width:22rem; max-height:17.125rem; overflow-y:auto; }
+                width:17rem; max-height:17.125rem; overflow-y:auto; }
 .keyinfo .pop p { margin:0 0 .45rem; }
 .keyinfo .pop p:last-child { margin:.45rem 0 0; }
