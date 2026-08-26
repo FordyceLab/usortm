@@ -222,6 +222,28 @@ def _stat(label, value, unit="", extra=""):
 SAMPLING_STEPS = (2.0, 3.0, 5.0, 8.0)
 
 
+def _dot_row(level: int, n: int) -> str:
+    """*level* of *n* dots filled, in the tone that level carries.
+
+    Shared by the gauge and by the examples in its card, so the two cannot
+    come to disagree about what a given level looks like.
+    """
+    tone = "good" if level >= 3 else "warn"
+    dots = "".join('<i class="on"></i>' if i < level else "<i></i>"
+                   for i in range(n))
+    return f'<span class="dots {tone}">{dots}</span>'
+
+
+def _sampling_bands() -> list:
+    """The depth each gauge level covers, as (level, label) pairs."""
+    steps = SAMPLING_STEPS
+    out = [(1, f"under {steps[0]:g}")]
+    out += [(i + 2, f"{steps[i]:g} to {steps[i + 1]:g}")
+            for i in range(len(steps) - 1)]
+    out.append((len(steps) + 1, f"{steps[-1]:g} and over"))
+    return out
+
+
 def _sampling_dots(fold: float) -> str:
     """A filled-dot gauge for how deeply the library was sampled.
 
@@ -231,30 +253,35 @@ def _sampling_dots(fold: float) -> str:
     where sorting more plates still pays from the depths where it does not.
     Amber below 3x and green at or above it.
 
-    The gauge states nothing the number beside it does not; it is there to be
-    read without stopping to compare against a threshold.  What a given depth
-    is predicted to recover depends on the library's skew and the sort's
-    off-target rate, so the figure itself is left to the recovery curve, which
-    is drawn on this run's own parameters.
+    The card shows every band drawn rather than named, with this run's own
+    marked, so the reading is a comparison rather than an arithmetic step.
+    What a given depth is predicted to recover depends on the library's skew
+    and the sort's off-target rate, so the figure itself is left to the
+    recovery curve, which is drawn on this run's own parameters.
     """
     n = len(SAMPLING_STEPS) + 1
     level = 1 + sum(1 for t in SAMPLING_STEPS if fold >= t)
-    tone = "good" if level >= 3 else "warn"
-    dots = "".join('<i class="on"></i>' if i < level else "<i></i>"
-                   for i in range(n))
     steps = ", ".join(f"{t:g}" for t in SAMPLING_STEPS)
     # Drawn rather than left to the title attribute, which never appeared:
     # the dots are 7px tall, and a tooltip on a non-interactive element of
-    # that size is not reliably offered.  The card is the same one the
-    # section headings open, so the page has one popout and not two.
-    tip = (f"{fold:.1f} wells that grew per designed variant. "
-           f"The gauge fills at {steps}, and is amber below "
-           f"{SAMPLING_STEPS[1]:g}. What this depth is predicted to recover "
-           f"is on the recovery curve below.")
+    # that size is not reliably offered.
+    lead = (f"{fold:.1f} wells that grew per designed variant. "
+            f"What this depth is predicted to recover is on the recovery "
+            f"curve below.")
+    scale = "".join(
+        f'{_dot_row(lv, n)}'
+        f'<b{" class=\"now\"" if lv == level else ""}>{label}</b>'
+        for lv, label in _sampling_bands())
+    # The card is a picture, so the words a screen reader gets have to carry
+    # the same thing: where the steps fall and which side of them this run is.
+    spoken = (f"Sampling depth {level} of {n}. {lead} "
+              f"The gauge fills at {steps}, and is amber below "
+              f"{SAMPLING_STEPS[1]:g}.")
     return (f'<div class="gauge" tabindex="0" role="img" '
-            f'aria-label="Sampling depth {level} of {n}. {tip}">'
-            f'<div class="dots {tone}">{dots}</div>'
-            f'<span class="gaugetip" aria-hidden="true">{tip}</span>'
+            f'aria-label="{spoken}">'
+            f'{_dot_row(level, n)}'
+            f'<span class="gaugetip" aria-hidden="true">{lead}'
+            f'<span class="gaugescale">{scale}</span></span>'
             f'</div>')
 
 

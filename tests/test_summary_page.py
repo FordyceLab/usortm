@@ -395,43 +395,74 @@ def test_the_information_icon_is_drawn_not_typed():
 
 def test_the_sampling_gauge_fills_with_depth():
     """One dot at a fold, five well past it, amber until the curve flattens."""
-    from usortm.report.summary import SAMPLING_STEPS, _sampling_dots
+    import re
 
-    def filled(html):
-        return html.count('<i class="on">')
+    from usortm.report.summary import (SAMPLING_STEPS, _dot_row,
+                                       _sampling_dots)
 
     total = len(SAMPLING_STEPS) + 1
-    assert filled(_sampling_dots(1.0)) == 1
-    assert filled(_sampling_dots(2.5)) == 2
-    assert filled(_sampling_dots(3.5)) == 3
-    assert filled(_sampling_dots(6.0)) == 4
-    assert filled(_sampling_dots(9.0)) == total
 
-    # Amber where a large share of the library is missed, green past 3x.
-    assert "dots warn" in _sampling_dots(1.0)
-    assert "dots warn" in _sampling_dots(2.9)
-    assert "dots good" in _sampling_dots(3.0)
+    def level(fold):
+        # The card draws every band as an example, so the page carries more
+        # filled dots than the reading. Take the level the gauge states.
+        m = re.search(r"Sampling depth (\d+) of (\d+)", _sampling_dots(fold))
+        assert m, "the gauge does not state its level"
+        assert int(m.group(2)) == total
+        return int(m.group(1))
 
-    # The scale's length is readable at any depth, so every dot is drawn.
-    assert _sampling_dots(1.0).count("<i") == total
+    assert level(1.0) == 1
+    assert level(2.5) == 2
+    assert level(3.5) == 3
+    assert level(6.0) == 4
+    assert level(9.0) == total
 
-    # The card names the units and where the steps fall, and leaves the
-    # predicted recovery to the curve, which alone knows this run's skew.
+    # One row fills exactly what it is asked for, and draws the rest, so the
+    # scale's length is readable at any depth.
+    assert _dot_row(3, total).count('<i class="on">') == 3
+    assert _dot_row(3, total).count("<i") == total
+    assert _dot_row(1, total).count("<i") == total
+
+    # Amber where the curve is still climbing steeply, green past 3x.
+    assert "dots warn" in _dot_row(1, total)
+    assert "dots warn" in _dot_row(2, total)
+    assert "dots good" in _dot_row(3, total)
+
+
+def test_the_sampling_card_draws_every_band():
+    """The card shows what each band looks like, with this run's marked."""
+    from usortm.report.summary import (SAMPLING_STEPS, _sampling_bands,
+                                       _sampling_dots)
+
+    bands = _sampling_bands()
+    assert [b[0] for b in bands] == list(range(1, len(SAMPLING_STEPS) + 2))
+    assert bands[0][1] == "under 2"
+    assert bands[-1][1] == "8 and over"
+
+    html = _sampling_dots(6.0)
+    for _, label in bands:
+        assert f">{label}</b>" in html
+    # Exactly one band is this run's.
+    assert html.count('class="now"') == 1
+    assert '<b class="now">5 to 8</b>' in html
+    # The examples sit in the card, not beside the gauge on the page.
+    assert 'class="gaugescale"' in html
+
+
+def test_the_sampling_gauge_card_is_reachable_and_not_read_twice():
+    """The picture is hidden from the label, which carries it in words."""
+    from usortm.report.summary import _sampling_dots
+
     html = _sampling_dots(6.0)
     assert "6.0 wells that grew per designed variant" in html
+    # The rule the card draws is spoken for a reader who cannot see it.
     assert "amber below 3" in html
+    assert 'aria-label="Sampling depth 4 of 5.' in html
     # Drawn, not left to a title attribute, which never appeared on a glyph
-    # this small.
-    # Its own class: .tip is the plate maps' well hover, which is
-    # display:none until script adds .on.
+    # this small.  Its own class: .tip is the plate maps' well hover, which
+    # is display:none until script adds .on.
     assert 'class="gaugetip"' in html
     assert 'class="tip"' not in html
     assert "title=" not in html
-    # The same text reaches a reader who cannot hover: once in the card, once
-    # on the label, and the card itself is hidden from the accessibility tree
-    # so it is not read twice.
-    assert html.count("wells that grew per designed variant") == 2
-    assert 'aria-label="Sampling depth 4 of 5.' in html
     assert 'aria-hidden="true"' in html
     # Reachable without a pointer.
     assert 'tabindex="0"' in html

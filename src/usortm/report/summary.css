@@ -74,6 +74,14 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
        transition:opacity .12s ease; }
 .gauge:hover .gaugetip,
 .gauge:focus-visible .gaugetip { opacity:1; visibility:visible; }
+/* Every band drawn, with this run's marked: the gauge is a picture, and a
+   picture is read against other pictures faster than against a rule stated
+   in words.  A grid so the examples line up down one column and the depths
+   they stand for down another. */
+.gaugescale { display:grid; grid-template-columns:auto 1fr;
+              gap:.3rem .55rem; align-items:center; margin-top:.5rem; }
+.gaugescale b { font-weight:400; color:var(--text-muted); }
+.gaugescale b.now { font-weight:600; color:var(--text-primary); }
 .dots i { width:7px; height:7px; border-radius:50%; box-sizing:border-box;
           border:1px solid var(--rule); background:none; }
 .dots.warn i.on { background:var(--warn); border-color:var(--warn); }
