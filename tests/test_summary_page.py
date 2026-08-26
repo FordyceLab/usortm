@@ -415,14 +415,26 @@ def test_the_sampling_gauge_fills_with_depth():
     # The scale's length is readable at any depth, so every dot is drawn.
     assert _sampling_dots(1.0).count("<i") == total
 
-    # Hover names the units and where the steps fall, and leaves the
+    # The card names the units and where the steps fall, and leaves the
     # predicted recovery to the curve, which alone knows this run's skew.
     html = _sampling_dots(6.0)
-    assert 'title="' in html
     assert "6.0 wells that grew per designed variant" in html
     assert "amber below 3" in html
-    # The same text reaches a reader who cannot hover.
+    # Drawn, not left to a title attribute, which never appeared on a glyph
+    # this small.
+    # Its own class: .tip is the plate maps' well hover, which is
+    # display:none until script adds .on.
+    assert 'class="gaugetip"' in html
+    assert 'class="tip"' not in html
+    assert "title=" not in html
+    # The same text reaches a reader who cannot hover: once in the card, once
+    # on the label, and the card itself is hidden from the accessibility tree
+    # so it is not read twice.
     assert html.count("wells that grew per designed variant") == 2
+    assert 'aria-label="Sampling depth 4 of 5.' in html
+    assert 'aria-hidden="true"' in html
+    # Reachable without a pointer.
+    assert 'tabindex="0"' in html
 
 
 def test_the_sampling_gauge_reaches_the_top_metrics(run):
@@ -435,3 +447,41 @@ def test_the_sampling_gauge_reaches_the_top_metrics(run):
     # Inside the metric's own block, after its value.
     i = html.index("Fold sampling")
     assert 'class="dots' in html[i:i + 400]
+
+
+def test_no_rendered_class_is_hidden_by_another_rule():
+    """A class the page renders must not be one another rule sets display:none.
+
+    The sampling gauge's card was first written as ``.tip``, which the plate
+    maps' well hover already owned further down the stylesheet: that rule is
+    ``display:none`` until script adds ``.on``, and it won on order alone, so
+    the card never painted while every other sign of it looked right. The
+    failure is silent, so it is worth a test rather than an eye.
+    """
+    import re
+
+    css = (Path(__file__).parents[1] / "src" / "usortm" / "report"
+           / "summary.css").read_text()
+    # Comments first: the note explaining this very collision contains the
+    # words display:none, and a scan that keeps it blames the rule above.
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    hidden = set()
+    for m in re.finditer(r"display\s*:\s*none", css):
+        # Walk back to the rule's brace, then to the end of the rule before
+        # it. A brace-matching regex trips over the @media blocks.
+        brace = css.rfind("{", 0, m.start())
+        if brace < 0:
+            continue
+        start = max(css.rfind("}", 0, brace), css.rfind("{", 0, brace)) + 1
+        for part in css[start:brace].split(","):
+            part = part.strip()
+            if re.fullmatch(r"\.[A-Za-z0-9_-]+", part):
+                hidden.add(part[1:])
+
+    # The guard is only worth having if it sees the rule that caused the bug.
+    assert "tip" in hidden, "scan found no bare display:none class rule"
+
+    rendered = {"gauge", "gaugetip", "dots"}
+    clash = rendered & hidden
+    assert not clash, f"rendered class hidden by another rule: {clash}"

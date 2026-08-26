@@ -237,18 +237,25 @@ def _sampling_dots(fold: float) -> str:
     off-target rate, so the figure itself is left to the recovery curve, which
     is drawn on this run's own parameters.
     """
+    n = len(SAMPLING_STEPS) + 1
     level = 1 + sum(1 for t in SAMPLING_STEPS if fold >= t)
     tone = "good" if level >= 3 else "warn"
-    dots = "".join(f'<i class="on"></i>' if i < level else "<i></i>"
-                   for i in range(len(SAMPLING_STEPS) + 1))
+    dots = "".join('<i class="on"></i>' if i < level else "<i></i>"
+                   for i in range(n))
     steps = ", ".join(f"{t:g}" for t in SAMPLING_STEPS)
-    hover = (f"{fold:.1f} wells that grew per designed variant. "
-             f"The gauge fills at {steps}, and is amber below "
-             f"{SAMPLING_STEPS[1]:g}. What this depth is predicted to "
-             f"recover is on the recovery curve below.")
-    return (f'<div class="dots {tone}" role="img" title="{hover}" '
-            f'aria-label="Sampling depth {level} of '
-            f'{len(SAMPLING_STEPS) + 1}. {hover}">{dots}</div>')
+    # Drawn rather than left to the title attribute, which never appeared:
+    # the dots are 7px tall, and a tooltip on a non-interactive element of
+    # that size is not reliably offered.  The card is the same one the
+    # section headings open, so the page has one popout and not two.
+    tip = (f"{fold:.1f} wells that grew per designed variant. "
+           f"The gauge fills at {steps}, and is amber below "
+           f"{SAMPLING_STEPS[1]:g}. What this depth is predicted to recover "
+           f"is on the recovery curve below.")
+    return (f'<div class="gauge" tabindex="0" role="img" '
+            f'aria-label="Sampling depth {level} of {n}. {tip}">'
+            f'<div class="dots {tone}">{dots}</div>'
+            f'<span class="gaugetip" aria-hidden="true">{tip}</span>'
+            f'</div>')
 
 
 def _section(title: str, note: str = "", control: str = "") -> str:
@@ -312,7 +319,8 @@ def render_summary(project: dict, demux_summary: dict,
                            f" {100 * aligned / inp:.1f}%"))
         stats.append(_stat("Demuxed", f"{demuxed:,}",
                            f" {100 * demuxed / inp:.1f}%"))
-    stats.append(_stat(f"Wells &ge;{TIER_READS['C']} reads", f"{len(deep):,}"))
+    # The well count is not a metric of its own: fold sampling states it as
+    # the figure it divides, and the two stood side by side saying it twice.
     if lib:
         fold = len(deep) / lib
         # The wells the figure divides, rather than the library it divides

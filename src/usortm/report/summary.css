@@ -50,8 +50,30 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 
 /* How deep the sampling went, as a gauge under the number.  An unfilled dot
    keeps its outline so the scale's length is visible whatever the reading. */
-.dots { display:flex; gap:3px; margin-top:.35rem; cursor:help;
-        width:max-content; }
+/* The dots are 7px tall, so the gauge takes padding to hover and to focus
+   against; without it the target is the glyph itself and the card flickers
+   as the pointer crosses the gaps between dots. */
+.gauge { position:relative; display:inline-block; cursor:help;
+         padding:.35rem .25rem .25rem 0; margin-left:-.25rem; }
+.gauge:focus-visible { outline:2px solid var(--series-1); outline-offset:2px;
+                       border-radius:3px; }
+.dots { display:flex; gap:3px; width:max-content; }
+/* Its own class rather than .tip, which the plate maps' well hover already
+   owns further down this file: that rule sets display:none and toggles a
+   .on class from script, and it won this one on order alone.
+
+   Hidden by visibility rather than display, so the text stays in the box the
+   card is measured against and does not reflow when it opens. */
+.gaugetip { position:absolute; z-index:50; top:calc(100% + .3rem); left:0;
+       width:17rem; padding:.55rem .7rem; border-radius:5px;
+       border:1px solid var(--rule); background:var(--surface-1);
+       box-shadow:0 3px 12px rgba(0,0,0,.18); color:var(--text-secondary);
+       font-size:.75rem; line-height:1.45; font-weight:400;
+       white-space:normal; text-transform:none; letter-spacing:normal;
+       opacity:0; visibility:hidden; pointer-events:none;
+       transition:opacity .12s ease; }
+.gauge:hover .gaugetip,
+.gauge:focus-visible .gaugetip { opacity:1; visibility:visible; }
 .dots i { width:7px; height:7px; border-radius:50%; box-sizing:border-box;
           border:1px solid var(--rule); background:none; }
 .dots.warn i.on { background:var(--warn); border-color:var(--warn); }
@@ -271,9 +293,17 @@ table.params td:not(.name) { text-align:right; font-weight:600;
 table.params td.name { font-weight:400; color:var(--text-secondary); }
 table.params th:not(:first-child) { text-align:right; }
 
-/* A square plot, with its scale in HTML beside it rather than inside it. */
+/* A square plot, with its scale in HTML beside it rather than inside it.
+
+   The plot carries its own width rather than flexing into what is left.  On
+   flex:1 its basis is zero, so it counted for nothing when the column it sits
+   in was measured, and the column came out as wide as the caption under the
+   plot instead: at some window widths that left the square a tall, narrow
+   sliver.  align-self keeps the height the aspect ratio asks for, which
+   stretch would otherwise override. */
 .plotwrap { display:flex; gap:.5rem; align-items:stretch; margin-top:.2rem; }
-.plotbox { position:relative; flex:1; aspect-ratio:1; max-width:13rem; }
+.plotbox { position:relative; flex:0 0 auto; align-self:flex-start;
+           width:13rem; aspect-ratio:1; }
 .plotbox .sq { width:100%; height:100%; display:block; }
 .yaxis { display:flex; flex-direction:column; justify-content:space-between;
          text-align:right; font-size:.72rem; color:var(--text-secondary);
@@ -296,14 +326,12 @@ table.params th:not(:first-child) { text-align:right; }
 /* Small-to-medium: the four panels are read side by side, so each plot is
    held well short of its column rather than stretched across it. */
 .quad .chart, .quad .axis, .quad .hint { max-width:19rem; }
-/* The curve is square and as tall as the pair of histograms beside it, so
-   the three panels start and finish together.  Capped short of its column it
-   left the row ragged along the bottom. */
-/* Square, and about as tall as the two histograms beside it.  Sized here
-   rather than left to fill its column: in a column of its own it would grow
-   to half the page and tower over them. */
-.quad .plotbox { width:23rem; max-width:none; }
-.quad .axis.inset { max-width:23rem; margin-left:2.3rem; }
+/* Square, and sized so the curve's panel finishes level with the pair of
+   histograms beside it.  The two stacked histograms come to 23.6rem, and the
+   curve's heading, caption and tick row take 7.2rem of its own column, which
+   leaves this for the square itself. */
+.quad .plotbox { width:16.4rem; max-width:none; }
+.quad .axis.inset { max-width:16.4rem; margin-left:2.3rem; }
 
 /* Fold-sampling ticks under the square, positioned to the gridlines they
    name rather than spaced evenly. */
