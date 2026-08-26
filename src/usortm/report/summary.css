@@ -37,14 +37,21 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .sub { color:var(--text-secondary); font-size:.9rem; margin:0 0 1.75rem; }
 
 .stats { display:flex; flex-wrap:wrap; gap:1.75rem; margin-bottom:2rem; }
+/* Each metric holds its own width.  As shrinkable flex items they give way
+   to the widest one in the row, and a metric squeezed below the width of its
+   value breaks the value off its unit and clips the number rather than
+   wrapping it.  The row wraps whole metrics instead. */
+.stats > div { flex:0 0 auto; }
 .k { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
      color:var(--text-muted); }
-.v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums;
+     white-space:nowrap; }
 .u { font-size:.8rem; color:var(--text-secondary); font-weight:400; }
 
 /* How deep the sampling went, as a gauge under the number.  An unfilled dot
    keeps its outline so the scale's length is visible whatever the reading. */
-.dots { display:flex; gap:3px; margin-top:.35rem; }
+.dots { display:flex; gap:3px; margin-top:.35rem; cursor:help;
+        width:max-content; }
 .dots i { width:7px; height:7px; border-radius:50%; box-sizing:border-box;
           border:1px solid var(--rule); background:none; }
 .dots.warn i.on { background:var(--warn); border-color:var(--warn); }

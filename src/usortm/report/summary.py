@@ -225,19 +225,30 @@ SAMPLING_STEPS = (2.0, 3.0, 5.0, 8.0)
 def _sampling_dots(fold: float) -> str:
     """A filled-dot gauge for how deeply the library was sampled.
 
-    Five dots, filled to the step this run reached.  Amber below 3x, where the
-    curve predicts a large share of the library is missed however clean the
-    sort is, and green at or above it.  The gauge repeats the number beside it
-    rather than adding anything to it: it is there to be read without stopping
-    to compare against a threshold.
+    Five dots, filled to the step this run reached.  The steps follow the
+    recovery curve's shape rather than round numbers: recovery climbs steeply
+    to about 5x and gains little after 8x, so the gauge separates the depths
+    where sorting more plates still pays from the depths where it does not.
+    Amber below 3x and green at or above it.
+
+    The gauge states nothing the number beside it does not; it is there to be
+    read without stopping to compare against a threshold.  What a given depth
+    is predicted to recover depends on the library's skew and the sort's
+    off-target rate, so the figure itself is left to the recovery curve, which
+    is drawn on this run's own parameters.
     """
     level = 1 + sum(1 for t in SAMPLING_STEPS if fold >= t)
     tone = "good" if level >= 3 else "warn"
     dots = "".join(f'<i class="on"></i>' if i < level else "<i></i>"
                    for i in range(len(SAMPLING_STEPS) + 1))
-    return (f'<div class="dots {tone}" role="img" '
+    steps = ", ".join(f"{t:g}" for t in SAMPLING_STEPS)
+    hover = (f"{fold:.1f} wells that grew per designed variant. "
+             f"The gauge fills at {steps}, and is amber below "
+             f"{SAMPLING_STEPS[1]:g}. What this depth is predicted to "
+             f"recover is on the recovery curve below.")
+    return (f'<div class="dots {tone}" role="img" title="{hover}" '
             f'aria-label="Sampling depth {level} of '
-            f'{len(SAMPLING_STEPS) + 1}">{dots}</div>')
+            f'{len(SAMPLING_STEPS) + 1}. {hover}">{dots}</div>')
 
 
 def _section(title: str, note: str = "", control: str = "") -> str:

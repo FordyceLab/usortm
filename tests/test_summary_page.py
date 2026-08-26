@@ -415,6 +415,15 @@ def test_the_sampling_gauge_fills_with_depth():
     # The scale's length is readable at any depth, so every dot is drawn.
     assert _sampling_dots(1.0).count("<i") == total
 
+    # Hover names the units and where the steps fall, and leaves the
+    # predicted recovery to the curve, which alone knows this run's skew.
+    html = _sampling_dots(6.0)
+    assert 'title="' in html
+    assert "6.0 wells that grew per designed variant" in html
+    assert "amber below 3" in html
+    # The same text reaches a reader who cannot hover.
+    assert html.count("wells that grew per designed variant") == 2
+
 
 def test_the_sampling_gauge_reaches_the_top_metrics(run):
     """The gauge is rendered under the fold-sampling figure, not alongside."""
