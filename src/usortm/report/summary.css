@@ -444,13 +444,18 @@ details.more table.params { margin-top:.3rem; }
    because it names what is drawn there, and a key set below the axis reads as
    another row of the page. */
 .plotkey { position:absolute; right:.5rem; bottom:.5rem; z-index:4;
-           display:flex; flex-direction:column; align-items:flex-start;
-           gap:.15rem; padding:.35rem .5rem; border-radius:5px;
+           display:flex; align-items:center; gap:.45rem;
+           padding:.35rem .5rem; border-radius:5px;
            border:1px solid var(--rule); background:var(--surface-1);
            font-size:.68rem; color:var(--text-secondary); }
-.plotkey span { display:inline-flex; align-items:center; gap:.3rem; }
+/* A grid, not a row of inline pairs: the marks are a 13px rule and an 8px
+   dot, so laid out inline each label started where its own mark ended and no
+   two lines began together.  One column sized to the wider mark centres both
+   against it and starts both labels on the same edge. */
+.keyrows { display:grid; grid-template-columns:13px auto;
+           align-items:center; gap:.15rem .3rem; }
 .plotkey i { width:13px; height:0; border-top:2px solid var(--series-1);
-             display:inline-block; flex:0 0 auto; }
+             display:block; justify-self:center; }
 .plotkey i.k3 { width:8px; height:8px; border:0; border-radius:50%;
                 background:var(--bad); }
 /* The popout opens up and to the right, over the histograms rather than off

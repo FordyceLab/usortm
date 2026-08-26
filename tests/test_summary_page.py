@@ -249,7 +249,9 @@ def test_a_silent_change_is_not_its_own_category(run):
         {"library_size": 1, "round": 1}, {"input_reads": 100},
         [_well(1, "A1", "V1", cons="Silent Mutation")], run, library_size=1)
     assert "Silent mutation" not in html
-    assert "Sequence differs from design" in html
+    # Counted as a mutation, with every other way a well can hold something
+    # other than the sequence designed for it.
+    assert ">Mutation</td>" in html
 
 
 def test_pick_does_not_take_a_silent_change(run):

@@ -335,7 +335,7 @@ def render_summary(project: dict, demux_summary: dict,
 
     stats = [_stat("Input reads", f"{inp:,}")]
     if inp:
-        stats.append(_stat("Aligned", f"{aligned:,}",
+        stats.append(_stat("Aligned to reference", f"{aligned:,}",
                            f" {100 * aligned / inp:.1f}%"))
         stats.append(_stat("Demuxed", f"{demuxed:,}",
                            f" {100 * demuxed / inp:.1f}%"))
@@ -394,24 +394,21 @@ def render_summary(project: dict, demux_summary: dict,
     # --- what the wells contain ---
     contents_html = ""
     if deep:
-        buckets = {"designed": 0, "parent": 0, "uncalled": 0, "other": 0}
+        # The rule the plate maps flag on and the recovery curve is drawn
+        # on.  Split four ways this table tested only the consensus call, so
+        # a well could be counted here as a library member while the map
+        # flagged it and the curve left it out.
+        buckets = {"designed": 0, "parent": 0, "mutation": 0}
         for w in deep:
-            variant = w.get("variant") or ""
-            cons = w.get("cons_check") or ""
-            if variant == "Parent":
+            if (w.get("variant") or "") == "Parent":
                 buckets["parent"] += 1
-            elif variant == "unassigned" or variant not in designed:
-                buckets["uncalled"] += 1
-            elif cons in ("Perfect Match", "Match", ""):
+            elif carries_designed_sequence(w, designed):
                 buckets["designed"] += 1
             else:
-                # A silent change lands here with the rest: it is not the
-                # sequence that was designed, whatever it encodes.
-                buckets["other"] += 1
+                buckets["mutation"] += 1
         labels = [("designed", "Variant in library", "good"),
                   ("parent", "Parent (unmutated)", "warn"),
-                  ("uncalled", "Insert not readable", "bad"),
-                  ("other", "Sequence differs from design", "bad")]
+                  ("mutation", "Mutation", "bad")]
         rows = []
         for key, label, tone in labels:
             n = buckets[key]
@@ -420,8 +417,8 @@ def render_summary(project: dict, demux_summary: dict,
                         f'<td>{n:,} <span class="u">{pct:.1f}%</span></td>'
                         f'<td>{bar(pct, tone)}</td></tr>')
         note = (f'Over the {len(deep):,} wells with at least '
-                f'{TIER_READS["C"]} reads. Each well\'s consensus, translated '
-                f'and compared to the parent.')
+                f'{TIER_READS["C"]} reads, counted by the test the demux '
+                f'plate maps flag on.')
         contents_html = (
             f'   <div>\n  {_section("What the wells contain", note)}\n'
             f'  <table><tr><th>Outcome</th><th>Wells</th>'

@@ -267,9 +267,10 @@ def recovery_chart(curves: dict, info: str = "") -> str:
         f'<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="sq">'
         f'{"".join(out)}</svg>{marker}'
         f'<div class="plotkey">'
-        f'<span><i class="k1"></i>simulated</span>'
-        f'<span><i class="k3"></i>recovered</span>'
-        f'{info}</div>'
+        f'<div class="keyrows">'
+        f'<i class="k1"></i><span>simulated</span>'
+        f'<i class="k3"></i><span>recovered</span>'
+        f'</div>{info}</div>'
         f'<div class="xticks">{ticks}</div></div></div>'
         f'<div class="xlab">fold sampling of wells that grew</div>'
     )
