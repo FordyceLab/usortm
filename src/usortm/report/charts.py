@@ -272,5 +272,7 @@ def recovery_chart(curves: dict, info: str = "") -> str:
         f'<i class="k3"></i><span>recovered</span>'
         f'</div>{info}</div>'
         f'<div class="xticks">{ticks}</div></div></div>'
-        f'<div class="xlab">fold sampling of wells that grew</div>'
+        # Which wells are counted is stated in the note above the plot, so
+        # the axis names the quantity and leaves the qualifier there.
+        f'<div class="xlab">fold sampling</div>'
     )
