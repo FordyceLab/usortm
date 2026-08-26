@@ -489,8 +489,20 @@ def demux(
                 f"[green]\u2713[/green] {segment.name}: {len(found)} FASTQ file(s) "
                 f"in {segment.path}"
             )
+        elif segment.extra_paths:
+            console.print(
+                f"[green]\u2713[/green] {segment.name}: "
+                f"{len(segment.all_paths)} FASTQ file(s), pooled"
+            )
+            for extra in segment.all_paths:
+                console.print(f"[muted]    {extra}[/muted]")
         else:
             console.print(f"[green]\u2713[/green] {segment.name}: {segment.path}")
+
+    # Said plainly, because the run has fewer segments than the plate map has
+    # entries and the reason is not visible anywhere else.
+    for note in getattr(segments, "notes", []):
+        console.print(f"[yellow]\u26a0[/yellow] {note}")
     console.print()
 
     # One dashboard for the whole run, at the top of the output directory,
@@ -542,7 +554,8 @@ def demux(
             # files and reads gzip natively, so concatenating them into one
             # decompressed staging copy would only cost disk.
             results = _run_demux(
-                fastq=segment.path,
+                fastq=(segment.all_paths if segment.extra_paths
+                       else segment.path),
                 output_dir=seg_dir,
                 reference=reference,
                 min_reads=min_reads,
@@ -676,6 +689,8 @@ def demux(
             {
                 "name": seg.name,
                 "fastq": str(seg.path.absolute()),
+                "pooled_fastqs": [str(p.absolute()) for p in seg.all_paths]
+                                 if seg.extra_paths else None,
                 "plates": {str(bc): sort for bc, sort in sorted(seg.plates.items())},
             }
             for seg in segments
@@ -1319,7 +1334,7 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
     import sys
     from usortm.demux.plate_map import (
         MAX_BARCODE_PLATES, PlateMapError, Segment, identity_segment,
-        segment_name_for, write_plate_map, _validate_across_segments,
+        segment_name_for, write_plate_map, _pool_shared_plates,
     )
 
     if not sys.stdin.isatty():
@@ -1415,10 +1430,12 @@ def _prompt_plate_map(fastq: Optional[Path], n_plates: int, project_dir: Path):
         return None
 
     try:
-        _validate_across_segments(segments)
+        segments, pooling_notes = _pool_shared_plates(segments)
     except PlateMapError as exc:
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
         return None
+    for note in pooling_notes:
+        console.print(f"[yellow]\u26a0[/yellow] {note}")
 
     covered = sorted(p for s in segments for p in s.sort_plates)
     if len(covered) != n_sort:
