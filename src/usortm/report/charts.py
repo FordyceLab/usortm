@@ -243,14 +243,15 @@ def skew_chart(est: dict, library_size: int) -> str:
 
     ci = ""
     if est.get("ci"):
-        ci = f' (95% {est["ci"][0]:.1f}&ndash;{est["ci"][1]:.1f})'
+        ci = (f' &middot; 95% CI {est["ci"][0]:.1f}&ndash;'
+              f'{est["ci"][1]:.1f}')
     return (
         f'<svg viewBox="0 0 640 96" preserveAspectRatio="none" '
         f'class="chart">{"".join(out)}</svg>'
         f'<div class="axis"><span>0</span>'
         f'<span>{k_max} wells</span></div>'
         f'<div class="hint">bars counted, line fitted &middot; skew '
-        f'{est["skew"]:.1f}{ci}</div>'
+        f'Q90/Q10 {est["skew"]:.1f}{ci}</div>'
     )
 
 

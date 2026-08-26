@@ -71,10 +71,14 @@ def estimate_skew(well_data: Sequence[dict],
     variant.  Those counts are Poisson draws about the library's abundances,
     which is the model :mod:`usortm.qc.skew` fits for read counts from a
     sequenced pool, applied here to well counts.  Sampling noise spreads the
-    counts on its own, so the raw ratio of the 90th to the 10th percentile
-    overstates skew; :func:`~usortm.qc.skew.measure_skew` deconvolves the
-    Poisson component and fits the dropout fraction separately, which keeps
-    variants absent from the library out of the skew term.
+    counts on its own, so the raw ratio overstates skew;
+    :func:`~usortm.qc.skew.measure_skew` deconvolves the Poisson component and
+    fits the dropout fraction separately, which keeps variants absent from the
+    library out of the skew term.
+
+    Skew is Q90/Q10 throughout, the same ratio
+    :func:`usortm.simulate.sample.generate_pool` takes, so the estimate can be
+    handed straight to the simulation the recovery curve is drawn from.
 
     A sort yields fewer wells per variant than a sequenced pool yields reads,
     below the depth that function calls sufficient, so the interval is wide.
@@ -702,11 +706,11 @@ def _simulation_info(project, measured, deep, library_size,
     est = measured.get("skew_estimate")
     if est:
         skew_row = row(
-            "Library skew",
+            "Library skew, Q90/Q10",
             f"{measured['skew']:.1f} estimated, "
             f"{measured['planned_skew']:g} planned")
     else:
-        skew_row = row("Library skew", f"{skew:g} planned")
+        skew_row = row("Library skew, Q90/Q10", f"{skew:g} planned")
     model = "".join([
         row("Library size", f"{library_size}"),
         skew_row,
@@ -747,8 +751,8 @@ def _simulation_info(project, measured, deep, library_size,
         # figure it read as an interval on that instead, which is the number
         # it sits next to and not the one it describes.
         if est["ci"]:
-            ci = (f' At this depth the 95% interval on the skew runs '
-                  f'{est["ci"][0]:.1f} to {est["ci"][1]:.1f}.')
+            ci = (f' At this depth the 95% confidence interval on the skew '
+                  f'runs {est["ci"][0]:.1f} to {est["ci"][1]:.1f}.')
         dropout = ""
         if est["dropout"] >= 0.005:
             dropout = (f' The same fit puts {est["dropout"]:.0%} of the '

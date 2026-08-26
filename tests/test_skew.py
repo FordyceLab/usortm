@@ -1048,3 +1048,34 @@ def test_skew_from_well_counts_needs_wells():
     assert estimate_skew([], {"v0", "v1"}) is None
     assert estimate_skew([{"variant": "v0", "reads": 1}], {"v0"}) is None
     assert estimate_skew([{"variant": "v0", "reads": 100}], set()) is None
+
+
+def test_skew_is_q90_q10_everywhere():
+    """Skew is Q90/Q10, in the estimator and in the pool it is handed to.
+
+    The report shows the figure beside a 95% confidence interval, which reads
+    as a 95/5 ratio if the ratio's own quantiles are not stated. They differ:
+    at the sigma this run fitted, Q90/Q10 is 1.68 and Q95/Q5 is 1.95. A
+    mismatch between the two sides would also mis-parameterise the recovery
+    curve, which takes the estimate directly.
+    """
+    from scipy.stats import norm
+
+    from usortm.qc.skew import _Z_SPREAD, sigma_to_skew, skew_to_sigma
+
+    q90_q10 = norm.ppf(0.9) - norm.ppf(0.1)
+    q95_q5 = norm.ppf(0.95) - norm.ppf(0.05)
+    assert _Z_SPREAD == pytest.approx(q90_q10)
+    assert _Z_SPREAD != pytest.approx(q95_q5)
+
+    # The two conversions are inverses, and land on the decile ratio.
+    sigma = 0.203
+    assert sigma_to_skew(sigma) == pytest.approx(np.exp(sigma * q90_q10))
+    assert sigma_to_skew(sigma) == pytest.approx(1.683, abs=0.002)
+    assert skew_to_sigma(sigma_to_skew(sigma)) == pytest.approx(sigma)
+
+    # generate_pool takes the same ratio, so an estimate can be handed to it
+    # without conversion.  Drawn large, its own deciles reproduce the skew.
+    pool = generate_pool(lib_size=200_000, skew=4.0, seed=7)
+    lo, hi = np.percentile(pool, [10, 90])
+    assert hi / lo == pytest.approx(4.0, rel=0.05)
