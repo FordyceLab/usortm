@@ -999,3 +999,52 @@ def test_profile_to_dict_is_json_serializable():
     assert restored["library_size"] == 150
     assert restored["skew"]["q90_q10_corrected"] > 0
     assert restored["resolvability"] is None
+
+
+def test_skew_from_well_counts():
+    """Skew estimated from wells per variant, at the depth a sort gives.
+
+    The report reads skew from how many wells carried each designed variant
+    rather than from read counts, and a sort gives far fewer wells per variant
+    than a sequenced pool gives reads. This pins the behaviour at that depth,
+    and the numbers it asserts are the ones quoted in
+    :func:`usortm.report.summary.estimate_skew`.
+    """
+    from usortm.report.summary import estimate_skew
+
+    lib_size, depth, n_seeds = 376, 2.86, 12
+    z2 = 2 * 1.2815515655446004
+    designed = {f"v{i}" for i in range(lib_size)}
+
+    for true_skew, expected_median in ((2.0, 1.9), (4.0, 3.9)):
+        sigma = np.log(true_skew) / z2
+        estimates, covered = [], 0
+        for seed in range(n_seeds):
+            rng = np.random.default_rng(1000 + seed)
+            abundance = rng.lognormal(0.0, sigma, size=lib_size)
+            abundance = abundance / abundance.mean() * depth
+            wells = rng.poisson(abundance)
+            # One record per well, as the demux writes them.
+            well_data = [
+                {"variant": f"v{i}", "reads": 100}
+                for i, n in enumerate(wells) for _ in range(int(n))
+            ]
+            est = estimate_skew(well_data, designed)
+            assert est is not None
+            estimates.append(est["skew"])
+            if est["ci"] and est["ci"][0] <= true_skew <= est["ci"][1]:
+                covered += 1
+
+        median = float(np.median(estimates))
+        assert median == pytest.approx(expected_median, abs=0.15), (
+            f"true {true_skew}: median {median:.2f}")
+        assert covered >= n_seeds - 1, f"true {true_skew}: covered {covered}"
+
+
+def test_skew_from_well_counts_needs_wells():
+    """No designed variant seen means no estimate rather than a fabricated one."""
+    from usortm.report.summary import estimate_skew
+
+    assert estimate_skew([], {"v0", "v1"}) is None
+    assert estimate_skew([{"variant": "v0", "reads": 1}], {"v0"}) is None
+    assert estimate_skew([{"variant": "v0", "reads": 100}], set()) is None

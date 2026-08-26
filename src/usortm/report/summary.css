@@ -224,10 +224,11 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
 /* Four plots on one grid rather than stacked in two columns: they are read
    against each other, and a 2-up block keeps each one at a size where its
    axis labels still fit. */
-.quad { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
-        gap:0 1.8rem; align-items:start; }
-@media (max-width: 900px) { .quad { grid-template-columns:repeat(2, 1fr); } }
-@media (max-width: 620px) { .quad { grid-template-columns:1fr; } }
+/* Two panels now that the simulation's numbers hang off the curve's key: the
+   histograms, and the curve sized to stand beside them. */
+.quad { display:grid; grid-template-columns:minmax(0, 1fr) auto;
+        gap:0 2.2rem; align-items:start; }
+@media (max-width: 760px) { .quad { grid-template-columns:1fr; } }
 
 /* The parameters a curve was computed under, kept with the curve so the
    figure and its conditions cannot be separated.  A table rather than a
@@ -268,8 +269,11 @@ table.params th:not(:first-child) { text-align:right; }
 /* The curve is square and as tall as the pair of histograms beside it, so
    the three panels start and finish together.  Capped short of its column it
    left the row ragged along the bottom. */
-.quad .plotbox { max-width:none; }
-.quad .axis.inset { max-width:none; margin-left:2.3rem; }
+/* Square, and about as tall as the two histograms beside it.  Sized here
+   rather than left to fill its column: in a column of its own it would grow
+   to half the page and tower over them. */
+.quad .plotbox { width:23rem; max-width:none; }
+.quad .axis.inset { max-width:23rem; margin-left:2.3rem; }
 
 /* Fold-sampling ticks under the square, positioned to the gridlines they
    name rather than spaced evenly. */
@@ -357,3 +361,24 @@ details.more table.params { margin-top:.3rem; }
                   font-variant-numeric:tabular-nums; min-width:2.6rem;
                   text-align:center; }
 .stepper .count b { color:var(--text-primary); font-weight:600; }
+
+/* The curve's key, in the corner the curve leaves empty.  Inside the plot
+   because it names what is drawn there, and a key set below the axis reads as
+   another row of the page. */
+.plotkey { position:absolute; right:.5rem; bottom:.5rem; z-index:4;
+           display:flex; flex-direction:column; align-items:flex-start;
+           gap:.15rem; padding:.35rem .5rem; border-radius:5px;
+           border:1px solid var(--rule); background:var(--surface-1);
+           font-size:.68rem; color:var(--text-secondary); }
+.plotkey span { display:inline-flex; align-items:center; gap:.3rem; }
+.plotkey i { width:13px; height:0; border-top:2px solid var(--series-1);
+             display:inline-block; flex:0 0 auto; }
+.plotkey i.k3 { width:8px; height:8px; border:0; border-radius:50%;
+                background:var(--bad); }
+/* The popout opens up and to the left: anchored below, it would fall off the
+   bottom of a key that already sits in the bottom corner. */
+.keyinfo { position:static; }
+.keyinfo .pop { top:auto; left:auto; right:0; bottom:calc(100% + .45rem);
+                width:22rem; max-height:24rem; overflow-y:auto; }
+.keyinfo .pop p { margin:0 0 .45rem; }
+.keyinfo .pop p:last-child { margin:.45rem 0 0; }

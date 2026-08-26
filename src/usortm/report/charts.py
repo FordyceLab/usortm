@@ -174,12 +174,13 @@ def read_depth_chart(depths: Sequence[int]) -> str:
     )
 
 
-def recovery_chart(curves: dict) -> str:
-    """Two simulated curves against fold sampling, with this run marked.
+def recovery_chart(curves: dict, info: str = "") -> str:
+    """Simulated recovery against fold sampling, with this run marked.
 
-    *curves* carries ``fold_samplings`` and, under ``design`` and ``measured``,
-    the mean and standard deviation at each; ``sampling`` and ``observed`` place
-    the run's own point.
+    *curves* carries ``fold_samplings`` and, under ``measured``, the mean and
+    standard deviation at each; ``sampling`` and ``observed`` place the run's
+    own point.  *info* is the conditions the curve was computed under, folded
+    into the key rather than set beside the figure.
     """
     folds = curves.get("fold_samplings") or []
     if not folds:
@@ -224,7 +225,6 @@ def recovery_chart(curves: dict) -> str:
                      f'vector-effect="non-scaling-stroke"></polyline>')
         return "".join(marks)
 
-    out.append(series("design", "var(--text-muted)", True, False))
     out.append(series("measured", "var(--series-1)", False, True))
 
     ox = curves.get("sampling")
@@ -251,10 +251,10 @@ def recovery_chart(curves: dict) -> str:
         f'<div class="plotbox">'
         f'<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="sq">'
         f'{"".join(out)}</svg>{marker}'
+        f'<div class="plotkey">'
+        f'<span><i class="k1"></i>simulated</span>'
+        f'<span><i class="k3"></i>recovered</span>'
+        f'{info}</div>'
         f'<div class="xticks">{ticks}</div></div></div>'
         f'<div class="xlab">fold sampling of wells that grew</div>'
-        f'<div class="key">'
-        f'<span><i class="k1"></i>simulated, this run</span>'
-        f'<span><i class="k2"></i>simulated, published</span>'
-        f'<span><i class="k3"></i>recovered</span></div>'
     )

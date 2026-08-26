@@ -21,8 +21,8 @@ from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
                      read_length_chart, recovery_chart)
 from .plates import demux_plate_maps, pick_plate, pileup_links
 
-#: Parameters the manuscript reports for the hAcyP2 library, drawn beside this
-#: run's own so the two are comparable at a glance.
+#: Parameters the manuscript reports for the hAcyP2 library.  Only the PCR
+#: failure rate is still read from here; see measured_parameters().
 PUBLISHED = {"skew": 2, "p_incorrect": 0.35, "p_grow": 0.67, "p_fail": 0.025}
 
 #: Wells per sort plate, which sets how many were sorted for a given plate
@@ -60,6 +60,55 @@ def _current_pick(project_dir) -> Optional[List[dict]]:
             return json.load(fh)
     except (OSError, ValueError):
         return None
+
+
+def estimate_skew(well_data: Sequence[dict],
+                  designed: set) -> Optional[dict]:
+    """Estimate library skew from how many wells carried each designed variant.
+
+    Read depth measures how much a well was sequenced, not how abundant its
+    variant was, so the observable is the number of wells carrying each
+    variant.  Those counts are Poisson draws about the library's abundances,
+    which is the model :mod:`usortm.qc.skew` fits for read counts from a
+    sequenced pool, applied here to well counts.  Sampling noise spreads the
+    counts on its own, so the raw ratio of the 90th to the 10th percentile
+    overstates skew; :func:`~usortm.qc.skew.measure_skew` deconvolves the
+    Poisson component and fits the dropout fraction separately, which keeps
+    variants absent from the library out of the skew term.
+
+    A sort yields fewer wells per variant than a sequenced pool yields reads,
+    below the depth that function calls sufficient, so the interval is wide.
+    At 2.9 wells per variant over 376 variants the median estimate is 1.9 for
+    a true skew of 2 and 3.9 for a true 4, and the 95% interval covers truth
+    in 12 of 12 seeds (``tests/test_skew.py::test_skew_from_well_counts``).
+
+    Returns None when the fit cannot run, otherwise ``skew``, its ``ci``,
+    ``mean_wells`` and ``dropout``.
+    """
+    if not designed:
+        return None
+    seen: Dict[str, int] = {v: 0 for v in designed}
+    for w in well_data:
+        variant = w.get("variant")
+        if variant in seen and (w.get("reads") or 0) >= TIER_READS["C"]:
+            seen[variant] += 1
+    if not any(seen.values()):
+        return None
+    try:
+        from usortm.qc.skew import VariantCounts, measure_skew
+        stats = measure_skew(VariantCounts(counts=seen))
+    except Exception:
+        # scipy missing, or the likelihood did not converge.  The page falls
+        # back to the planned skew rather than dropping the figure.
+        return None
+    lo, hi = stats.q90_q10_ci
+    finite = all(v == v and abs(v) != float("inf") for v in (lo, hi))
+    return {
+        "skew": float(stats.q90_q10_corrected),
+        "ci": (float(lo), float(hi)) if finite else None,
+        "mean_wells": float(stats.mean_depth),
+        "dropout": float(stats.dropout_fraction),
+    }
 
 
 def measured_parameters(well_data: Sequence[dict], designed: set,
@@ -103,7 +152,7 @@ def measured_parameters(well_data: Sequence[dict], designed: set,
 
 def recovery_curves(library_size: int, skew: float, measured: dict,
                     observed_pct: Optional[float]) -> dict:
-    """Simulate recovery on this run's parameters and on the published ones.
+    """Simulate recovery against sampling depth on this run's parameters.
 
     Returns an empty dict when the simulation cannot run, so the page omits the
     figure rather than drawing a curve with nothing behind it.
@@ -132,20 +181,16 @@ def recovery_curves(library_size: int, skew: float, measured: dict,
             stds.append(round(float(np.std(r) / library_size * 100), 2))
         return means, stds
 
-    # p_grow is 1 on both curves.  The axis counts wells that grew, so the
-    # growth loss is already in it; applying it again would take it twice and
-    # put the run's own point above its own curve.  What the two curves then
-    # compare is the library rather than the sort: given cultures, how much of
-    # it comes back.
-    d_means, d_stds = run(1.0, PUBLISHED["p_fail"],
-                          PUBLISHED["p_incorrect"], PUBLISHED["skew"])
+    # p_grow is 1 here.  The axis counts wells that grew, so the growth loss
+    # is already in it; applying it again would take it twice and put the run's
+    # own point above its own curve.  The curve is therefore about the library
+    # rather than the sort: given cultures, how much of it comes back.
     m_means, m_stds = run(1.0, measured["p_fail"],
                           measured["p_incorrect"], skew)
-    if d_means is None or m_means is None:
+    if m_means is None:
         return {}
     return {
         "fold_samplings": folds,
-        "design": {"means": d_means, "stds": d_stds},
         "measured": {"means": m_means, "stds": m_stds},
         "sampling": measured.get("sampling"),
         "observed": observed_pct,
@@ -319,8 +364,16 @@ def render_summary(project: dict, demux_summary: dict,
     # --- figures ---
     measured = measured_parameters(well_data, designed, n_plates, lib)
     observed = (tiers or {}).get("C", {}).get("pct")
-    curves = recovery_curves(lib, float(project.get("skew") or 2), measured,
-                             observed)
+    # Skew from the run rather than from the plan.  The planned value is what
+    # was ordered, not what arrived, and the curve is drawn to describe this
+    # run.  The planned value is kept for the table alongside it.
+    skew_est = estimate_skew(well_data, designed)
+    planned_skew = float(project.get("skew") or 2)
+    skew = skew_est["skew"] if skew_est else planned_skew
+    measured["skew"] = skew
+    measured["planned_skew"] = planned_skew
+    measured["skew_estimate"] = skew_est
+    curves = recovery_curves(lib, skew, measured, observed)
 
     # The two histograms share a column so the row is three wide: a fourth
     # panel wraps onto a second row and leaves the first two thirds empty.
@@ -342,20 +395,17 @@ def render_summary(project: dict, demux_summary: dict,
     if stacked:
         panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
 
-    curve_html = recovery_chart(curves) if curves else ""
-    if curve_html:
+    if curves:
+        info = _simulation_info(project, measured, deep, lib)
+        curve_html = recovery_chart(curves, info)
         pred = _at(curves["fold_samplings"], curves["measured"]["means"],
                    measured.get("sampling"))
-        pub = _at(curves["fold_samplings"], curves["design"]["means"],
-                  measured.get("sampling"))
         hint = ""
         if pred is not None and measured.get("sampling"):
             hint = (f'      <div class="hint">at '
                     f'{measured["sampling"]:.1f}&#215;: {pred:.0f}% predicted')
             if observed is not None:
                 hint += f", {observed:.1f}% recovered"
-            if pub is not None:
-                hint += f". Published parameters give {pub:.0f}%"
             hint += ".</div>\n"
         note = (f'Variants recovered against fold sampling of the '
                 f'{measured["n_grown"]:,} wells that grew, of '
@@ -363,7 +413,6 @@ def render_summary(project: dict, demux_summary: dict,
         panels.append(
             f'    <div>\n      {_section("Recovery curve", note)}\n'
             f'      {curve_html}\n{hint}    </div>')
-        panels.append(_parameters_panel(project, measured, curves, deep, lib))
 
     figures_html = ""
     if panels:
@@ -538,11 +587,12 @@ document.addEventListener("keydown", function (e) {{
 """
 
 
-def _parameters_panel(project, measured, curves, deep, library_size) -> str:
-    """The conditions the curves were computed under, beside them.
+def _simulation_info(project, measured, deep, library_size) -> str:
+    """The conditions the curve was computed under, folded into its key.
 
-    Two tables rather than prose: these are values to be compared down a
-    column, and a sentence makes the reader pick each one out of it.
+    Only this run's values.  The published ones were dropped with the curve
+    they belonged to, which described a different library at a different skew
+    and off-target rate.
     """
     n_deep = len(deep) or 1
     mixed = watch = bad_flank = err = low = 0
@@ -558,22 +608,25 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
             err += 1
         if (w.get("consensus_fraction") or 0) <= 0.9:
             low += 1
-    skew = float(project.get("skew") or 2)
+    skew = float(measured.get("planned_skew") or project.get("skew") or 2)
 
-    def row(label, mine, published=""):
-        pub = f"<td>{published}</td>" if published != "" else "<td></td>"
-        return (f'<tr><td class="name">{label}</td>'
-                f'<td>{mine}</td>{pub}</tr>')
+    def row(label, value):
+        return (f'<tr><td class="name">{label}</td><td>{value}</td></tr>')
 
+    est = measured.get("skew_estimate")
+    if est:
+        skew_row = row(
+            "Library skew",
+            f"{measured['skew']:.1f} estimated, "
+            f"{measured['planned_skew']:g} planned")
+    else:
+        skew_row = row("Library skew", f"{skew:g} planned")
     model = "".join([
-        row("Library size", f"{library_size}", "&mdash;"),
-        row("Library skew", f"{skew:g}", f"{PUBLISHED['skew']:g}"),
-        row("Off-target variation", f"{measured['p_incorrect']:.2f}",
-            f"{PUBLISHED['p_incorrect']:.2f}"),
-        row("Sorting efficiency", f"{measured['p_grow']:.2f}",
-            f"{PUBLISHED['p_grow']:.2f}"),
-        row("PCR failure", f"{measured['p_fail']:.3f}",
-            f"{PUBLISHED['p_fail']:.3f}"),
+        row("Library size", f"{library_size}"),
+        skew_row,
+        row("Off-target variation", f"{measured['p_incorrect']:.2f}"),
+        row("Sorting efficiency", f"{measured['p_grow']:.2f}"),
+        row("PCR failure", f"{measured['p_fail']:.3f}"),
     ])
 
     def wrow(label, count, share=""):
@@ -584,44 +637,52 @@ def _parameters_panel(project, measured, curves, deep, library_size) -> str:
         wrow(f"Sorted, {measured['n_plates']} plates",
              f"{measured['n_sorted']:,}"),
         wrow(f"Grew, &ge;{TIER_READS['C']} reads", f"{measured['n_grown']:,}",
-             f"{100 * measured['p_grow']:.0f}% of sorted"),
+             f"{100 * measured['p_grow']:.0f}%"),
         wrow("On-target", f"{measured['n_on_target']:,}",
-             f"{100 * (1 - measured['p_incorrect']):.0f}% of grown"),
-        wrow(f"A position past {MIXED_TEMPLATE_THRESHOLD:.0%} disagreement",
-             f"{mixed:,}",
-             f"{100 * mixed / n_deep:.0f}% of grown"),
+             f"{100 * (1 - measured['p_incorrect']):.0f}%"),
+        wrow(f"A position past {MIXED_TEMPLATE_THRESHOLD:.0%}", f"{mixed:,}",
+             f"{100 * mixed / n_deep:.0f}%"),
         wrow(f"A position at {MIXED_TEMPLATE_WATCH:.0%}&ndash;"
              f"{MIXED_TEMPLATE_THRESHOLD:.0%}", f"{watch:,}",
-             f"{100 * watch / n_deep:.0f}% of grown"),
+             f"{100 * watch / n_deep:.0f}%"),
         wrow("Flank failed", f"{bad_flank:,}",
-             f"{100 * bad_flank / n_deep:.0f}% of grown"),
-        wrow("Called an error", f"{err:,}",
-             f"{100 * err / n_deep:.0f}% of grown"),
-        wrow("Agreement &le;90%", f"{low:,}",
-             f"{100 * low / n_deep:.0f}% of grown"),
+             f"{100 * bad_flank / n_deep:.0f}%"),
+        wrow("Called an error", f"{err:,}", f"{100 * err / n_deep:.0f}%"),
+        wrow("Agreement &le;90%", f"{low:,}", f"{100 * low / n_deep:.0f}%"),
     ])
 
-    # The caveat on sorting efficiency travels with the note rather than
-    # standing under the table: it qualifies one row of it, and on the page it
-    # sat below a disclosure it had nothing to do with.
-    head = _section(
-        "Simulation",
-        "The parameters behind the curves, measured here and as published for "
-        "the hAcyP2 library. Sorting efficiency is measured from read counts, "
-        "so wells lost to PCR failure sit inside it.")
-    return f"""    <div>
-      {head}
-      <table class="params">
-        <tr><th>Parameter</th><th>This run</th><th>Published</th></tr>
-        {model}
-      </table>
-      <details class="more">
-        <summary>Where the wells went</summary>
-        <table class="params">
-          <tr><th>Wells</th><th>Count</th><th>Share</th></tr>
-          {wells}
-        </table>
-        <p class="hint">The last five rows overlap; a well can fail more than
-           one.</p>
-      </details>
-    </div>"""
+    # Where the skew came from and how wide the estimate is.  At a few wells
+    # per variant the counts are mostly Poisson, so the interval carries the
+    # caveat rather than an adjective.
+    skew_note = ""
+    if est:
+        ci = ""
+        if est["ci"]:
+            ci = (f', 95% interval {est["ci"][0]:.1f}&ndash;'
+                  f'{est["ci"][1]:.1f}')
+        dropout = ""
+        if est["dropout"] >= 0.005:
+            dropout = (f' A further {est["dropout"]:.0%} of the library is '
+                       f'estimated absent rather than rare.')
+        skew_note = (
+            f'<p>Skew is estimated from the number of wells carrying each '
+            f'designed variant, {est["mean_wells"]:.1f} on average'
+            f'{ci}. Poisson sampling spreads those counts on its own and is '
+            f'deconvolved from the estimate.{dropout}</p>')
+
+    return f"""<details class="info keyinfo">
+        <summary aria-label="About the simulation"></summary>
+        <div class="pop">
+          <p>The curve uses this run's own parameters.</p>
+          {skew_note}
+          <table class="params">
+            <tr><th>Parameter</th><th>Value</th></tr>{model}
+          </table>
+          <table class="params">
+            <tr><th>Wells</th><th>Count</th><th>Share</th></tr>{wells}
+          </table>
+          <p>Sorting efficiency is measured from read counts, so wells lost to
+             PCR failure sit inside it. The last five rows are shares of the
+             wells that grew and overlap; a well can fail more than one.</p>
+        </div>
+      </details>"""
