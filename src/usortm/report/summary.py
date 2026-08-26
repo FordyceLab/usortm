@@ -304,10 +304,13 @@ def render_summary(project: dict, demux_summary: dict,
     stats.append(_stat(f"Wells &ge;{TIER_READS['C']} reads", f"{len(deep):,}"))
     if lib:
         fold = len(deep) / lib
-        # No unit: the figure is wells per designed variant, and "of 376"
-        # beside it reads as a fraction of the library, which it is not.
-        stats.append(_stat("Fold sampling", f"{fold:.1f}&#215;",
-                           extra=_sampling_dots(fold)))
+        # The wells the figure divides, rather than the library it divides
+        # by: "of 376" beside it reads as a fraction of the library, which
+        # it is not.
+        stats.append(_stat(
+            "Fold sampling", f"{fold:.1f}",
+            f" {len(deep):,} wells &ge;{TIER_READS['C']} reads",
+            _sampling_dots(fold)))
     tier_c = (tiers or {}).get("C", {}).get("count")
     if tier_c is not None and lib:
         stats.append(_stat("Library recovered", f"{tier_c}", f" of {lib}"))

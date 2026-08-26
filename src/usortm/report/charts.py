@@ -99,8 +99,13 @@ def bar(pct: float, tone: str = "") -> str:
     return f'<span class="{cls}"><i style="width:{max(0.0, min(100.0, pct)):.1f}%"></i></span>'
 
 
-def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None) -> str:
-    """A histogram's bars, drawn against the tallest bin."""
+def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None,
+              fill: str = "var(--series-1)") -> str:
+    """A histogram's bars, drawn against the tallest bin.
+
+    *colours* gives a fill per bin; *fill* is the one every bin takes when it
+    is not given.  Both are CSS colours, so a token follows the theme.
+    """
     if not counts:
         return ""
     peak = max(counts) or 1
@@ -112,10 +117,10 @@ def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None) ->
         h = round(c / peak * 94)
         if h < 1:
             h = 1
-        fill = colours[i] if colours else "var(--series-1)"
+        paint = colours[i] if colours else fill
         out.append(
             f'<rect x="{i * width:.2f}" y="{96 - h}" '
-            f'width="{max(width - 1, 0.5):.2f}" height="{h}" fill="{fill}"></rect>'
+            f'width="{max(width - 1, 0.5):.2f}" height="{h}" fill="{paint}"></rect>'
         )
     out.append('<line x1="0" y1="95.5" x2="640" y2="95.5" '
                'stroke="var(--rule)" stroke-width="1"></line>')
@@ -152,7 +157,15 @@ def read_length_chart(hist: dict, run_reads: int) -> str:
 
 
 def read_depth_chart(depths: Sequence[int]) -> str:
-    """Per-well depth, in the plate maps' colours so the two read together."""
+    """Per-well depth, in one green from the plate maps' ramp.
+
+    Filling each bin with the ramp colour for its own depth hid the left of
+    the distribution: the ramp opens at white, so the bins holding wells that
+    returned few reads were painted the colour of the page behind them, and
+    only the deep end of the histogram could be seen.  Those bins are the ones
+    a reader is checking for.  A single fill keeps the tie to the plate maps
+    and leaves the depth to the axis, which already states it.
+    """
     depths = [d for d in depths if d and d > 0]
     if not depths:
         return ""
@@ -160,13 +173,12 @@ def read_depth_chart(depths: Sequence[int]) -> str:
     counts = [0] * n_bins
     for d in depths:
         counts[min(int(d / DEPTH_CEILING * n_bins), n_bins - 1)] += 1
-    colours = [cmap_hex((i + 0.5) / n_bins) for i in range(n_bins)]
     ordered = sorted(depths)
     median = ordered[len(ordered) // 2]
     n20 = sum(1 for d in depths if d >= TIER_READS["C"])
     n100 = sum(1 for d in depths if d >= TIER_READS["A"])
     return (
-        f'{_bars_svg(counts, colours)}'
+        f'{_bars_svg(counts, fill="var(--good)")}'
         f'<div class="axis"><span>0</span><span>{DEPTH_CEILING // 2}</span>'
         f'<span>&ge;{DEPTH_CEILING} reads</span></div>'
         f'<div class="hint">median {median:,} reads &middot; {n20:,} wells '
