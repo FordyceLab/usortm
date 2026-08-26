@@ -58,7 +58,7 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
    against; without it the target is the glyph itself and the card flickers
    as the pointer crosses the gaps between dots. */
 .gauge { position:relative; display:inline-block; cursor:help;
-         padding:.35rem .25rem .25rem 0; margin-left:-.25rem; }
+         padding:.35rem .25rem .25rem 0; }
 .gauge:focus-visible { outline:2px solid var(--series-1); outline-offset:2px;
                        border-radius:3px; }
 .dots { display:flex; gap:3px; width:max-content; }
@@ -75,9 +75,18 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
        font-size:.75rem; line-height:1.45; font-weight:400;
        white-space:normal; text-transform:none; letter-spacing:normal;
        opacity:0; visibility:hidden; pointer-events:none;
-       transition:opacity .12s ease; }
+       transform:translateY(-3px);
+       /* Visibility does not interpolate, so it is held at its old value for
+          the length of the fade and switched at the end.  Without that the
+          card is taken out of sight on the first frame and the fade out is
+          never seen. */
+       transition:opacity .14s ease, transform .14s ease,
+                  visibility 0s linear .14s; }
 .gauge:hover .gaugetip,
-.gauge:focus-visible .gaugetip { opacity:1; visibility:visible; }
+.gauge:focus-visible .gaugetip {
+  opacity:1; visibility:visible; transform:translateY(0);
+  transition:opacity .14s ease, transform .14s ease,
+             visibility 0s linear 0s; }
 /* Every band drawn, with this run's marked: the gauge is a picture, and a
    picture is read against other pictures faster than against a rule stated
    in words.  A grid so the examples line up down one column and the depths
@@ -278,12 +287,20 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
 /* The plate-map hover, positioned by script: a pale card with a thin border
    and dark text in either theme, since the hover markup carries its own
    colours and would otherwise fight the surface behind it. */
-.tip { position:absolute; z-index:50; display:none; max-width:22rem;
+/* Faded rather than switched on: the tip follows the pointer across a
+   plate of 384 wells, and appearing outright at each one reads as flicker.
+   Opacity only, since the position is set from script on every move and a
+   transform would be fighting it.  Laid out at all times now rather than
+   display:none, which also means script can measure it before it is shown. */
+.tip { position:absolute; z-index:50; max-width:22rem;
        padding:.45rem .6rem; border-radius:5px; pointer-events:none;
        background:#fff; color:#111; border:1px solid #c8c8c8;
        box-shadow:0 2px 8px rgba(0,0,0,.16);
-       font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif; }
-.tip.on { display:block; }
+       font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
+       opacity:0; visibility:hidden;
+       transition:opacity .1s ease, visibility 0s linear .1s; }
+.tip.on { opacity:1; visibility:visible;
+          transition:opacity .1s ease, visibility 0s linear 0s; }
 
 /* Charts that carry their own text: unlike the sparklines these keep their
    aspect ratio, or the labels stretch with the box. */
@@ -297,7 +314,7 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
    their contents and packed left, so the slack falls to the right of the curve
    rather than between the two -- which both keeps the pair read as one block
    and leaves the curve's key somewhere to open its popout. */
-.quad { display:grid; grid-template-columns:19rem auto;
+.quad { display:grid; grid-template-columns:19rem auto 19rem;
         justify-content:start; gap:0 2.2rem; align-items:start; }
 @media (max-width: 760px) { .quad { grid-template-columns:1fr; } }
 

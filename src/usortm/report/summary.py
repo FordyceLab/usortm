@@ -17,7 +17,7 @@ from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
 from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
-                     read_length_chart, recovery_chart)
+                     read_length_chart, recovery_chart, skew_chart)
 from .plates import (carries_designed_sequence, demux_plate_maps,
                      pick_plate, pileup_links)
 
@@ -108,6 +108,10 @@ def estimate_skew(well_data: Sequence[dict],
         "ci": (float(lo), float(hi)) if finite else None,
         "mean_wells": float(stats.mean_depth),
         "dropout": float(stats.dropout_fraction),
+        # What was counted and what was fitted to it, so the figure showing
+        # the fit does not have to count the wells a second time.
+        "counts": list(seen.values()),
+        "stats": stats,
     }
 
 
@@ -480,6 +484,20 @@ def render_summary(project: dict, demux_summary: dict,
         panels.append(
             f'    <div>\n      {_section("Recovery curve", note)}\n'
             f'      {curve_html}\n    </div>')
+
+    # The evidence behind the skew the curve was drawn on, beside the curve
+    # rather than inside its card: a fitted width is worth seeing against the
+    # counts it was fitted to.
+    skew_html = skew_chart(skew_est, lib)
+    if skew_html:
+        note = ('Bars are the designed variants seen at each number of '
+                'wells. The line is the same count under the fitted model, '
+                'a log-normal abundance sampled by Poisson. Skew is the '
+                'width the fit gives the log-normal, so most of the spread '
+                'in the bars is sampling rather than library.')
+        panels.append(
+            f'    <div>\n      {_section("Wells per variant", note)}\n'
+            f'      {skew_html}\n    </div>')
 
     figures_html = ""
     if panels:

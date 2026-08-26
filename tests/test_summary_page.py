@@ -484,27 +484,18 @@ def test_the_sampling_gauge_reaches_the_top_metrics(run):
     assert 'class="dots' in html[i:i + 400]
 
 
-def test_no_rendered_class_is_hidden_by_another_rule():
-    """A class the page renders must not be one another rule sets display:none.
+def _classes_hidden_by_a_bare_rule(css):
+    """Classes whose own rule sets display:none, from a stylesheet's text.
 
-    The sampling gauge's card was first written as ``.tip``, which the plate
-    maps' well hover already owned further down the stylesheet: that rule is
-    ``display:none`` until script adds ``.on``, and it won on order alone, so
-    the card never painted while every other sign of it looked right. The
-    failure is silent, so it is worth a test rather than an eye.
+    Comments go first: a note about a display:none rule is not one, and the
+    note explaining this very check contains the words.  The walk back from
+    each match beats a brace-matching regex, which the @media blocks break.
     """
     import re
 
-    css = (Path(__file__).parents[1] / "src" / "usortm" / "report"
-           / "summary.css").read_text()
-    # Comments first: the note explaining this very collision contains the
-    # words display:none, and a scan that keeps it blames the rule above.
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-
     hidden = set()
     for m in re.finditer(r"display\s*:\s*none", css):
-        # Walk back to the rule's brace, then to the end of the rule before
-        # it. A brace-matching regex trips over the @media blocks.
         brace = css.rfind("{", 0, m.start())
         if brace < 0:
             continue
@@ -513,10 +504,73 @@ def test_no_rendered_class_is_hidden_by_another_rule():
             part = part.strip()
             if re.fullmatch(r"\.[A-Za-z0-9_-]+", part):
                 hidden.add(part[1:])
+    return hidden
 
-    # The guard is only worth having if it sees the rule that caused the bug.
-    assert "tip" in hidden, "scan found no bare display:none class rule"
 
-    rendered = {"gauge", "gaugetip", "dots"}
-    clash = rendered & hidden
+def test_the_hidden_class_scan_sees_what_it_is_for():
+    """The scan, against the shape of stylesheet that caused the bug."""
+    fixture = """
+    /* a note mentioning display:none, which is not a rule */
+    @media (prefers-color-scheme: dark) { :root { --x:#000; } }
+    .decoy > summary::-webkit-details-marker { display:none; }
+    .plate[hidden] { display:none; }
+    .card { display:none; }
+    .card.on { display:block; }
+    """
+    assert _classes_hidden_by_a_bare_rule(fixture) == {"card"}
+
+
+def test_no_rendered_class_is_hidden_by_another_rule():
+    """A class the page renders must not be one another rule sets display:none.
+
+    The sampling gauge's card was first written as ``.tip``, which the plate
+    maps' well hover owned further down the stylesheet: that rule was
+    ``display:none`` until script added ``.on``, and it won on order alone, so
+    the card never painted while its markup, its cursor and its tests all
+    looked right.  The failure is silent, so it is worth a test.
+    """
+    css = (Path(__file__).parents[1] / "src" / "usortm" / "report"
+           / "summary.css").read_text()
+    rendered = {"gauge", "gaugetip", "dots", "tip", "plotkey", "keyrows"}
+    clash = rendered & _classes_hidden_by_a_bare_rule(css)
     assert not clash, f"rendered class hidden by another rule: {clash}"
+
+
+def test_the_wells_per_variant_figure_draws_counts_and_the_fit():
+    """Bars for what was counted, a line for what the fit expects."""
+    import numpy as np
+
+    from usortm.report.charts import skew_chart
+    from usortm.report.summary import estimate_skew
+
+    lib_size, depth = 376, 2.86
+    rng = np.random.default_rng(4)
+    sigma = np.log(2.0) / (2 * 1.2815515655446004)
+    abundance = rng.lognormal(0.0, sigma, size=lib_size)
+    abundance = abundance / abundance.mean() * depth
+    wells = rng.poisson(abundance)
+    designed = {f"v{i}" for i in range(lib_size)}
+    well_data = [{"variant": f"v{i}", "reads": 100}
+                 for i, n in enumerate(wells) for _ in range(int(n))]
+
+    est = estimate_skew(well_data, designed)
+    assert est is not None
+    # The estimator keeps what it counted, so the figure need not recount.
+    assert len(est["counts"]) == lib_size
+    assert sum(est["counts"]) == int(wells.sum())
+
+    html = skew_chart(est, lib_size)
+    assert "<polyline" in html          # the fitted distribution
+    assert "<rect" in html              # the counts
+    assert "bars counted, line fitted" in html
+    assert f"{est['skew']:.1f}" in html
+
+
+def test_the_wells_per_variant_figure_needs_a_distribution():
+    """Nothing to fit means no axis is drawn."""
+    from usortm.report.charts import skew_chart
+
+    assert skew_chart({}, 100) == ""
+    assert skew_chart(None, 100) == ""
+    # Every variant in one well is not a distribution.
+    assert skew_chart({"counts": [1, 1, 1], "stats": object()}, 3) == ""

@@ -186,6 +186,74 @@ def read_depth_chart(depths: Sequence[int]) -> str:
     )
 
 
+def skew_chart(est: dict, library_size: int) -> str:
+    """Designed variants against the number of wells that carried them.
+
+    Bars are what was counted.  The line is the same count under the fitted
+    model, which is a log-normal abundance sampled by Poisson, so the two are
+    on the same footing and the gap between them is the fit's residual rather
+    than the sampling's.  Skew is the width the fit gives the log-normal, and
+    this figure is where that width can be checked: at a few wells per variant
+    most of the spread in the bars is Poisson, and a curve drawn from the
+    log-normal alone would sit visibly narrower than the data.
+
+    Returns an empty string when there is nothing to fit, so the page omits
+    the figure rather than drawing an axis with no distribution on it.
+    """
+    counts = (est or {}).get("counts")
+    stats = (est or {}).get("stats")
+    if not counts or stats is None or not library_size:
+        return ""
+    try:
+        from usortm.qc.skew import predicted_count_distribution
+    except Exception:
+        return ""
+
+    k_max = int(max(counts))
+    if k_max < 2:
+        return ""
+    observed = [0] * (k_max + 1)
+    for k in counts:
+        observed[int(k)] += 1
+    try:
+        _, expected = predicted_count_distribution(stats, library_size, k_max)
+    except Exception:
+        return ""
+
+    peak = max(max(observed), float(max(expected))) or 1.0
+    n = k_max + 1
+    width = 640 / n
+    out = []
+    for i, c in enumerate(observed):
+        if not c:
+            continue
+        h = max(round(c / peak * 94), 1)
+        out.append(
+            f'<rect x="{i * width:.2f}" y="{96 - h}" '
+            f'width="{max(width - 1, 0.5):.2f}" height="{h}" '
+            f'fill="var(--good)"></rect>')
+    pts = " ".join(f"{(i + 0.5) * width:.2f},{96 - e / peak * 94:.2f}"
+                   for i, e in enumerate(expected))
+    out.append(f'<polyline points="{pts}" fill="none" '
+               f'stroke="var(--series-1)" stroke-width="2" '
+               f'stroke-linejoin="round" '
+               f'vector-effect="non-scaling-stroke"></polyline>')
+    out.append('<line x1="0" y1="95.5" x2="640" y2="95.5" '
+               'stroke="var(--rule)" stroke-width="1"></line>')
+
+    ci = ""
+    if est.get("ci"):
+        ci = f' (95% {est["ci"][0]:.1f}&ndash;{est["ci"][1]:.1f})'
+    return (
+        f'<svg viewBox="0 0 640 96" preserveAspectRatio="none" '
+        f'class="chart">{"".join(out)}</svg>'
+        f'<div class="axis"><span>0</span>'
+        f'<span>{k_max} wells</span></div>'
+        f'<div class="hint">bars counted, line fitted &middot; skew '
+        f'{est["skew"]:.1f}{ci}</div>'
+    )
+
+
 def recovery_chart(curves: dict, info: str = "") -> str:
     """Simulated recovery against fold sampling, with this run marked.
 
