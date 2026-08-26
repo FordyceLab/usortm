@@ -165,7 +165,7 @@
         <p>The <code>usortm demux</code> command runs a multi-stage pipeline:</p>
         <ol>
           <li><strong>Reference alignment</strong>: Align reads to your variant library with minimap2 to determine read direction</li>
-          <li><strong>Strand splitting</strong>: Separate forward and reverse reads (required because LevSeq barcodes NB13&ndash;NB96 and RB13&ndash;RB96 are reverse complements)</li>
+          <li><strong>Strand splitting</strong>: Separate forward and reverse reads (required because RB13&ndash;RB96 are the same sequences as NB13&ndash;NB96, and RB01&ndash;RB12 are the reverse complements of NB01&ndash;NB12, so a barcode match alone cannot say which end it came from)</li>
           <li><strong>Forward barcode (FBC) demux</strong>: Dorado identifies the forward barcode (96 barcodes = plate columns)</li>
           <li><strong>Reverse barcode (RBC) demux</strong>: Dorado identifies the reverse barcode (4 per plate = plate quadrants)</li>
           <li><strong>Well mapping</strong>: Combine FBC + RBC assignments to map each read to a 384-well plate position</li>

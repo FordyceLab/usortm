@@ -5,11 +5,12 @@ direction), Dorado barcode demux on oriented reads, per-well consensus
 generation, and variant calling.  Wires together the functions in
 utils.py with the barcode config generators in barcodes.py.
 
-Because the first 12 LevSeq forward barcodes (NB01-NB12) differ from the
-reverse barcodes, but NB13-NB96 and RB13-RB96 are reverse complements of
-each other, read direction **must** be resolved before barcode
-demultiplexing.  The pipeline therefore aligns raw reads to a multi-entry
-reference library first, splits by strand, and then feeds the
+A LevSeq barcode does not say on its own whether it is a well barcode or a
+plate one: RB13-RB96 are the same sequences as NB13-NB96, and RB01-RB12 are
+the reverse complements of NB01-NB12.  What separates them is where in the
+read they sit and on which strand, so read direction **must** be resolved
+before barcode demultiplexing.  The pipeline therefore aligns raw reads to a
+multi-entry reference library first, splits by strand, and then feeds the
 direction-resolved FASTQ to Dorado.
 """
 
@@ -438,9 +439,10 @@ def run_levseq_pipeline(
             frame_offset = (len(flank_5p) - first_atg) % 3
 
     # --- Stage 3: Multi-ref alignment + strand split ---
-    # This must happen BEFORE barcode demux because NB13-NB96 and
-    # RB13-RB96 are reverse complements.  Aligning to the library
-    # determines read direction so Dorado sees correct barcode
+    # This must happen BEFORE barcode demux: NB13-NB96 and RB13-RB96 are the
+    # same sequences, and NB01-NB12 and RB01-RB12 are reverse complements, so
+    # a barcode match alone cannot say which end it came from.  Aligning to
+    # the library determines read direction so Dorado sees correct barcode
     # orientation.
     ref_map = None
     oriented_fq = str(fastq)  # default: use raw FASTQ if no reference
