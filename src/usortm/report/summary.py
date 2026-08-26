@@ -375,8 +375,8 @@ def render_summary(project: dict, demux_summary: dict,
     measured["skew_estimate"] = skew_est
     curves = recovery_curves(lib, skew, measured, observed)
 
-    # The two histograms share a column so the row is three wide: a fourth
-    # panel wraps onto a second row and leaves the first two thirds empty.
+    # The two histograms share one column, stacked, so the row is two panels
+    # wide and the curve beside them can stand as tall as the pair.
     stacked = []
     hist_html = read_length_chart(demux_summary.get("read_len_hist") or {}, inp)
     if hist_html:
@@ -392,9 +392,6 @@ def render_summary(project: dict, demux_summary: dict,
                        f'      {depth_html}\n      </div>')
 
     panels = []
-    if stacked:
-        panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
-
     if curves:
         info = _simulation_info(project, measured, deep, lib)
         curve_html = recovery_chart(curves, info)
@@ -413,6 +410,10 @@ def render_summary(project: dict, demux_summary: dict,
         panels.append(
             f'    <div>\n      {_section("Recovery curve", note)}\n'
             f'      {curve_html}\n{hint}    </div>')
+
+    # After the curve: its key's popout opens rightwards, across this column.
+    if stacked:
+        panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
 
     figures_html = ""
     if panels:

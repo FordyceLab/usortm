@@ -22,8 +22,12 @@
 body { margin:0; background:var(--surface-1); color:var(--text-primary);
        font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
 /* Wide enough for two 384-well plates side by side; narrower and the wells
-   stop being large enough to pick a colour out of. */
-main { max-width:1180px; margin:0 auto; padding:2rem; }
+   stop being large enough to pick a colour out of.  The cap is the page's
+   whole width rather than its text's, so the side padding comes out of it and
+   the content stops short of the window edge instead of widening the page. */
+main { max-width:1180px; box-sizing:border-box; margin:0 auto;
+       padding:2rem 3.25rem; }
+@media (max-width: 760px) { main { padding:1.25rem; } }
 h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .meta { display:inline-block; margin:.15rem 0 .5rem; padding:.2rem .5rem;
         border-radius:4px; background:var(--surface-2);
@@ -55,7 +59,14 @@ h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
    puts it in the middle at this size; a dot and a stem always sit where they
    are placed.  Border and mark share one grey so the button reads as a single
    object. */
-.info > summary { list-style:none; cursor:pointer; width:15px; height:15px;
+/* display:block rather than the list-item a summary is by default, so no
+   marker box is reserved beside the circle.  Centring is left to the flex
+   line: measured against the painted glyphs, that puts the circle 0.3px above
+   the centre of the heading's capitals, and a transform to close that would
+   cost more in blur than it gains -- the border is one pixel wide, and a
+   fractional offset renders it across two. */
+.info > summary { list-style:none; display:block; cursor:pointer;
+                  width:15px; height:15px;
                   box-sizing:border-box; border-radius:50%;
                   border:1px solid currentColor; color:var(--text-muted);
                   background:none; position:relative; user-select:none;
@@ -225,8 +236,10 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
    against each other, and a 2-up block keeps each one at a size where its
    axis labels still fit. */
 /* Two panels now that the simulation's numbers hang off the curve's key: the
-   histograms, and the curve sized to stand beside them. */
-.quad { display:grid; grid-template-columns:minmax(0, 1fr) auto;
+   curve, and the histograms stacked beside it.  The curve leads so its key's
+   popout has the histograms' column to open across; against the right edge it
+   would open over the window's. */
+.quad { display:grid; grid-template-columns:auto minmax(0, 1fr);
         gap:0 2.2rem; align-items:start; }
 @media (max-width: 760px) { .quad { grid-template-columns:1fr; } }
 
@@ -375,10 +388,11 @@ details.more table.params { margin-top:.3rem; }
              display:inline-block; flex:0 0 auto; }
 .plotkey i.k3 { width:8px; height:8px; border:0; border-radius:50%;
                 background:var(--bad); }
-/* The popout opens up and to the left: anchored below, it would fall off the
-   bottom of a key that already sits in the bottom corner. */
+/* The popout opens up and to the right, over the histograms rather than off
+   the page: anchored below, it would fall off the bottom of a key that already
+   sits in the bottom corner. */
 .keyinfo { position:static; }
-.keyinfo .pop { top:auto; left:auto; right:0; bottom:calc(100% + .45rem);
+.keyinfo .pop { top:auto; right:auto; left:0; bottom:calc(100% + .45rem);
                 width:22rem; max-height:24rem; overflow-y:auto; }
 .keyinfo .pop p { margin:0 0 .45rem; }
 .keyinfo .pop p:last-child { margin:.45rem 0 0; }
