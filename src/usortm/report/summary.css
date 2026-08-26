@@ -42,6 +42,14 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums; }
 .u { font-size:.8rem; color:var(--text-secondary); font-weight:400; }
 
+/* How deep the sampling went, as a gauge under the number.  An unfilled dot
+   keeps its outline so the scale's length is visible whatever the reading. */
+.dots { display:flex; gap:3px; margin-top:.35rem; }
+.dots i { width:7px; height:7px; border-radius:50%; box-sizing:border-box;
+          border:1px solid var(--rule); background:none; }
+.dots.warn i.on { background:var(--warn); border-color:var(--warn); }
+.dots.good i.on { background:var(--good); border-color:var(--good); }
+
 h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
 .note { color:var(--text-secondary); font-size:.85rem; margin:0 0 .9rem; }
 
@@ -236,11 +244,12 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
    against each other, and a 2-up block keeps each one at a size where its
    axis labels still fit. */
 /* Two panels now that the simulation's numbers hang off the curve's key: the
-   curve, and the histograms stacked beside it.  The curve leads so its key's
-   popout has the histograms' column to open across; against the right edge it
-   would open over the window's. */
-.quad { display:grid; grid-template-columns:auto minmax(0, 1fr);
-        gap:0 2.2rem; align-items:start; }
+   histograms stacked, and the curve beside them.  Both columns are sized to
+   their contents and packed left, so the slack falls to the right of the curve
+   rather than between the two -- which both keeps the pair read as one block
+   and leaves the curve's key somewhere to open its popout. */
+.quad { display:grid; grid-template-columns:19rem auto;
+        justify-content:start; gap:0 2.2rem; align-items:start; }
 @media (max-width: 760px) { .quad { grid-template-columns:1fr; } }
 
 /* The parameters a curve was computed under, kept with the curve so the
@@ -260,7 +269,7 @@ table.params th:not(:first-child) { text-align:right; }
 .plotbox { position:relative; flex:1; aspect-ratio:1; max-width:13rem; }
 .plotbox .sq { width:100%; height:100%; display:block; }
 .yaxis { display:flex; flex-direction:column; justify-content:space-between;
-         text-align:right; font-size:.66rem; color:var(--text-muted);
+         text-align:right; font-size:.72rem; color:var(--text-secondary);
          padding-bottom:.1rem; }
 .yaxis span { line-height:1; }
 .obs { position:absolute; width:9px; height:9px; border-radius:50%;
@@ -268,7 +277,8 @@ table.params th:not(:first-child) { text-align:right; }
        transform:translate(-50%, -50%); }
 .obslab { position:absolute; transform:translate(8px, -170%);
           font-size:.66rem; color:var(--bad); white-space:nowrap; }
-.axis.inset { max-width:13rem; margin-left:2.3rem; font-size:.66rem; }
+.axis.inset { max-width:13rem; margin-left:2.3rem; font-size:.72rem;
+              color:var(--text-secondary); }
 
 /* Plate ticks carry a number and its value, stacked. */
 .axis.plates { justify-content:space-around; align-items:flex-start; }
@@ -292,19 +302,12 @@ table.params th:not(:first-child) { text-align:right; }
    name rather than spaced evenly. */
 .xticks { position:absolute; left:0; right:0; top:100%; height:1rem; }
 .xticks span { position:absolute; transform:translateX(-50%);
-               font-size:.66rem; color:var(--text-muted); line-height:1.6; }
-.xlab { margin-left:2.3rem; font-size:.66rem; color:var(--text-muted);
+               font-size:.72rem; color:var(--text-secondary);
+               line-height:1.6; }
+/* The axis label names the units the ticks are in, so it stays quieter than
+   they are. */
+.xlab { margin-left:2.3rem; font-size:.7rem; color:var(--text-muted);
         margin-top:1rem; }
-
-/* Which line is which, since there are now two. */
-.key { display:flex; flex-wrap:wrap; gap:.15rem .7rem; margin-top:.45rem;
-       font-size:.66rem; color:var(--text-muted); }
-.key span { display:inline-flex; align-items:center; gap:.28rem; }
-.key i { width:13px; height:0; border-top:2px solid var(--series-1);
-         display:inline-block; }
-.key i.k2 { border-top:2px dashed var(--text-muted); }
-.key i.k3 { width:8px; height:8px; border:0; border-radius:50%;
-            background:var(--bad); }
 
 /* The palette switch, and the row a pick was taken from. */
 .themeToggle { position:fixed; top:1rem; right:1rem; z-index:60;

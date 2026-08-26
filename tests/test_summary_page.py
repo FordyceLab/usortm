@@ -391,3 +391,38 @@ def test_the_information_icon_is_drawn_not_typed():
     assert ".info > summary::after" in css
     # One grey for the border and the mark, so it reads as a single object.
     assert "border:1px solid currentColor" in css
+
+
+def test_the_sampling_gauge_fills_with_depth():
+    """One dot at a fold, five well past it, amber until the curve flattens."""
+    from usortm.report.summary import SAMPLING_STEPS, _sampling_dots
+
+    def filled(html):
+        return html.count('<i class="on">')
+
+    total = len(SAMPLING_STEPS) + 1
+    assert filled(_sampling_dots(1.0)) == 1
+    assert filled(_sampling_dots(2.5)) == 2
+    assert filled(_sampling_dots(3.5)) == 3
+    assert filled(_sampling_dots(6.0)) == 4
+    assert filled(_sampling_dots(9.0)) == total
+
+    # Amber where a large share of the library is missed, green past 3x.
+    assert "dots warn" in _sampling_dots(1.0)
+    assert "dots warn" in _sampling_dots(2.9)
+    assert "dots good" in _sampling_dots(3.0)
+
+    # The scale's length is readable at any depth, so every dot is drawn.
+    assert _sampling_dots(1.0).count("<i") == total
+
+
+def test_the_sampling_gauge_reaches_the_top_metrics(run):
+    """The gauge is rendered under the fold-sampling figure, not alongside."""
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1"), _well(1, "A2", "V2")], run, library_size=2)
+    assert "Fold sampling" in html
+    assert 'class="dots' in html
+    # Inside the metric's own block, after its value.
+    i = html.index("Fold sampling")
+    assert 'class="dots' in html[i:i + 400]

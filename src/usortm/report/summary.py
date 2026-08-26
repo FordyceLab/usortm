@@ -210,10 +210,34 @@ def _at(folds, values, x):
     return values[-1]
 
 
-def _stat(label, value, unit=""):
+def _stat(label, value, unit="", extra=""):
     u = f'<span class="u">{unit}</span>' if unit else ""
     return (f'<div><div class="k">{label}</div>'
-            f'<div class="v">{value}{u}</div></div>')
+            f'<div class="v">{value}{u}</div>{extra}</div>')
+
+
+#: Fold sampling read as a five-step gauge.  Each entry is the depth a step
+#: starts at; the simulation behind the recovery curve is what sets them, in
+#: that recovery climbs steeply to about 5x and flattens after roughly 8x.
+SAMPLING_STEPS = (2.0, 3.0, 5.0, 8.0)
+
+
+def _sampling_dots(fold: float) -> str:
+    """A filled-dot gauge for how deeply the library was sampled.
+
+    Five dots, filled to the step this run reached.  Amber below 3x, where the
+    curve predicts a large share of the library is missed however clean the
+    sort is, and green at or above it.  The gauge repeats the number beside it
+    rather than adding anything to it: it is there to be read without stopping
+    to compare against a threshold.
+    """
+    level = 1 + sum(1 for t in SAMPLING_STEPS if fold >= t)
+    tone = "good" if level >= 3 else "warn"
+    dots = "".join(f'<i class="on"></i>' if i < level else "<i></i>"
+                   for i in range(len(SAMPLING_STEPS) + 1))
+    return (f'<div class="dots {tone}" role="img" '
+            f'aria-label="Sampling depth {level} of '
+            f'{len(SAMPLING_STEPS) + 1}">{dots}</div>')
 
 
 def _section(title: str, note: str = "", control: str = "") -> str:
@@ -278,6 +302,12 @@ def render_summary(project: dict, demux_summary: dict,
         stats.append(_stat("Demuxed", f"{demuxed:,}",
                            f" {100 * demuxed / inp:.1f}%"))
     stats.append(_stat(f"Wells &ge;{TIER_READS['C']} reads", f"{len(deep):,}"))
+    if lib:
+        fold = len(deep) / lib
+        # No unit: the figure is wells per designed variant, and "of 376"
+        # beside it reads as a fraction of the library, which it is not.
+        stats.append(_stat("Fold sampling", f"{fold:.1f}&#215;",
+                           extra=_sampling_dots(fold)))
     tier_c = (tiers or {}).get("C", {}).get("count")
     if tier_c is not None and lib:
         stats.append(_stat("Library recovered", f"{tier_c}", f" of {lib}"))
@@ -392,6 +422,9 @@ def render_summary(project: dict, demux_summary: dict,
                        f'      {depth_html}\n      </div>')
 
     panels = []
+    if stacked:
+        panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
+
     if curves:
         info = _simulation_info(project, measured, deep, lib)
         curve_html = recovery_chart(curves, info)
@@ -410,10 +443,6 @@ def render_summary(project: dict, demux_summary: dict,
         panels.append(
             f'    <div>\n      {_section("Recovery curve", note)}\n'
             f'      {curve_html}\n{hint}    </div>')
-
-    # After the curve: its key's popout opens rightwards, across this column.
-    if stacked:
-        panels.append(f'    <div>\n{"".join(stacked)}\n    </div>')
 
     figures_html = ""
     if panels:
