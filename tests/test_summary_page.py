@@ -249,7 +249,9 @@ def test_a_silent_change_is_not_its_own_category(run):
         {"library_size": 1, "round": 1}, {"input_reads": 100},
         [_well(1, "A1", "V1", cons="Silent Mutation")], run, library_size=1)
     assert "Silent mutation" not in html
-    assert "Sequence differs from design" in html
+    # Counted as a mutation, with every other way a well can hold something
+    # other than the sequence designed for it.
+    assert ">Mutation</td>" in html
 
 
 def test_pick_does_not_take_a_silent_change(run):
@@ -391,3 +393,184 @@ def test_the_information_icon_is_drawn_not_typed():
     assert ".info > summary::after" in css
     # One grey for the border and the mark, so it reads as a single object.
     assert "border:1px solid currentColor" in css
+
+
+def test_the_sampling_gauge_fills_with_depth():
+    """One dot at a fold, five well past it, amber until the curve flattens."""
+    import re
+
+    from usortm.report.summary import (SAMPLING_STEPS, _dot_row,
+                                       _sampling_dots)
+
+    total = len(SAMPLING_STEPS) + 1
+
+    def level(fold):
+        # The card draws every band as an example, so the page carries more
+        # filled dots than the reading. Take the level the gauge states.
+        m = re.search(r"Sampling depth (\d+) of (\d+)", _sampling_dots(fold))
+        assert m, "the gauge does not state its level"
+        assert int(m.group(2)) == total
+        return int(m.group(1))
+
+    assert level(1.0) == 1
+    assert level(2.5) == 2
+    assert level(3.5) == 3
+    assert level(6.0) == 4
+    assert level(9.0) == total
+
+    # One row fills exactly what it is asked for, and draws the rest, so the
+    # scale's length is readable at any depth.
+    assert _dot_row(3, total).count('<i class="on">') == 3
+    assert _dot_row(3, total).count("<i") == total
+    assert _dot_row(1, total).count("<i") == total
+
+    # Amber where the curve is still climbing steeply, green past 3x.
+    assert "dots warn" in _dot_row(1, total)
+    assert "dots warn" in _dot_row(2, total)
+    assert "dots good" in _dot_row(3, total)
+
+
+def test_the_sampling_card_draws_every_band():
+    """The card shows what each band looks like, with this run's marked."""
+    from usortm.report.summary import (SAMPLING_STEPS, _sampling_bands,
+                                       _sampling_dots)
+
+    bands = _sampling_bands()
+    assert [b[0] for b in bands] == list(range(1, len(SAMPLING_STEPS) + 2))
+    assert bands[0][1] == "under 2"
+    assert bands[-1][1] == "8 and over"
+
+    html = _sampling_dots(6.0)
+    for _, label in bands:
+        assert f">{label}</b>" in html
+    # Exactly one band is this run's.
+    assert html.count('class="now"') == 1
+    assert '<b class="now">5 to 8</b>' in html
+    # The examples sit in the card, not beside the gauge on the page.
+    assert 'class="gaugescale"' in html
+
+
+def test_the_sampling_gauge_card_is_reachable_and_not_read_twice():
+    """The picture is hidden from the label, which carries it in words."""
+    from usortm.report.summary import _sampling_dots
+
+    html = _sampling_dots(6.0)
+    assert "6.0 wells that grew per designed variant" in html
+    # The figure is left to the curve, which alone knows this run's skew.
+    assert "recovery curve below gives" in html
+    # The rule the card draws is spoken for a reader who cannot see it.
+    assert "amber below 3" in html
+    assert 'aria-label="Sampling depth 4 of 5.' in html
+    # Drawn, not left to a title attribute, which never appeared on a glyph
+    # this small.  Its own class: .tip is the plate maps' well hover, which
+    # is display:none until script adds .on.
+    assert 'class="gaugetip"' in html
+    assert 'class="tip"' not in html
+    assert "title=" not in html
+    assert 'aria-hidden="true"' in html
+    # Reachable without a pointer.
+    assert 'tabindex="0"' in html
+
+
+def test_the_sampling_gauge_reaches_the_top_metrics(run):
+    """The gauge is rendered under the fold-sampling figure, not alongside."""
+    html = render_summary(
+        {"library_size": 2, "round": 1}, {"input_reads": 100},
+        [_well(1, "A1", "V1"), _well(1, "A2", "V2")], run, library_size=2)
+    assert "Fold sampling" in html
+    assert 'class="dots' in html
+    # Inside the metric's own block, after its value.
+    i = html.index("Fold sampling")
+    assert 'class="dots' in html[i:i + 400]
+
+
+def _classes_hidden_by_a_bare_rule(css):
+    """Classes whose own rule sets display:none, from a stylesheet's text.
+
+    Comments go first: a note about a display:none rule is not one, and the
+    note explaining this very check contains the words.  The walk back from
+    each match beats a brace-matching regex, which the @media blocks break.
+    """
+    import re
+
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    hidden = set()
+    for m in re.finditer(r"display\s*:\s*none", css):
+        brace = css.rfind("{", 0, m.start())
+        if brace < 0:
+            continue
+        start = max(css.rfind("}", 0, brace), css.rfind("{", 0, brace)) + 1
+        for part in css[start:brace].split(","):
+            part = part.strip()
+            if re.fullmatch(r"\.[A-Za-z0-9_-]+", part):
+                hidden.add(part[1:])
+    return hidden
+
+
+def test_the_hidden_class_scan_sees_what_it_is_for():
+    """The scan, against the shape of stylesheet that caused the bug."""
+    fixture = """
+    /* a note mentioning display:none, which is not a rule */
+    @media (prefers-color-scheme: dark) { :root { --x:#000; } }
+    .decoy > summary::-webkit-details-marker { display:none; }
+    .plate[hidden] { display:none; }
+    .card { display:none; }
+    .card.on { display:block; }
+    """
+    assert _classes_hidden_by_a_bare_rule(fixture) == {"card"}
+
+
+def test_no_rendered_class_is_hidden_by_another_rule():
+    """A class the page renders must not be one another rule sets display:none.
+
+    The sampling gauge's card was first written as ``.tip``, which the plate
+    maps' well hover owned further down the stylesheet: that rule was
+    ``display:none`` until script added ``.on``, and it won on order alone, so
+    the card never painted while its markup, its cursor and its tests all
+    looked right.  The failure is silent, so it is worth a test.
+    """
+    css = (Path(__file__).parents[1] / "src" / "usortm" / "report"
+           / "summary.css").read_text()
+    rendered = {"gauge", "gaugetip", "dots", "tip", "plotkey", "keyrows"}
+    clash = rendered & _classes_hidden_by_a_bare_rule(css)
+    assert not clash, f"rendered class hidden by another rule: {clash}"
+
+
+def test_the_wells_per_variant_figure_draws_counts_and_the_fit():
+    """Bars for what was counted, a line for what the fit expects."""
+    import numpy as np
+
+    from usortm.report.charts import skew_chart
+    from usortm.report.summary import estimate_skew
+
+    lib_size, depth = 376, 2.86
+    rng = np.random.default_rng(4)
+    sigma = np.log(2.0) / (2 * 1.2815515655446004)
+    abundance = rng.lognormal(0.0, sigma, size=lib_size)
+    abundance = abundance / abundance.mean() * depth
+    wells = rng.poisson(abundance)
+    designed = {f"v{i}" for i in range(lib_size)}
+    well_data = [{"variant": f"v{i}", "reads": 100}
+                 for i, n in enumerate(wells) for _ in range(int(n))]
+
+    est = estimate_skew(well_data, designed)
+    assert est is not None
+    # The estimator keeps what it counted, so the figure need not recount.
+    assert len(est["counts"]) == lib_size
+    assert sum(est["counts"]) == int(wells.sum())
+
+    html = skew_chart(est, lib_size)
+    assert "<polyline" in html          # the fitted distribution
+    assert "<rect" in html              # the counts
+    assert "bars counted, line fitted" in html
+    assert f"{est['skew']:.1f}" in html
+
+
+def test_the_wells_per_variant_figure_needs_a_distribution():
+    """Nothing to fit means no axis is drawn."""
+    from usortm.report.charts import skew_chart
+
+    assert skew_chart({}, 100) == ""
+    assert skew_chart(None, 100) == ""
+    # Every variant in one well is not a distribution.
+    assert skew_chart({"counts": [1, 1, 1], "stats": object()}, 3) == ""

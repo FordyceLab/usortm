@@ -99,8 +99,13 @@ def bar(pct: float, tone: str = "") -> str:
     return f'<span class="{cls}"><i style="width:{max(0.0, min(100.0, pct)):.1f}%"></i></span>'
 
 
-def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None) -> str:
-    """A histogram's bars, drawn against the tallest bin."""
+def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None,
+              fill: str = "var(--series-1)") -> str:
+    """A histogram's bars, drawn against the tallest bin.
+
+    *colours* gives a fill per bin; *fill* is the one every bin takes when it
+    is not given.  Both are CSS colours, so a token follows the theme.
+    """
     if not counts:
         return ""
     peak = max(counts) or 1
@@ -112,10 +117,10 @@ def _bars_svg(counts: Sequence[int], colours: Optional[Sequence[str]] = None) ->
         h = round(c / peak * 94)
         if h < 1:
             h = 1
-        fill = colours[i] if colours else "var(--series-1)"
+        paint = colours[i] if colours else fill
         out.append(
             f'<rect x="{i * width:.2f}" y="{96 - h}" '
-            f'width="{max(width - 1, 0.5):.2f}" height="{h}" fill="{fill}"></rect>'
+            f'width="{max(width - 1, 0.5):.2f}" height="{h}" fill="{paint}"></rect>'
         )
     out.append('<line x1="0" y1="95.5" x2="640" y2="95.5" '
                'stroke="var(--rule)" stroke-width="1"></line>')
@@ -152,7 +157,15 @@ def read_length_chart(hist: dict, run_reads: int) -> str:
 
 
 def read_depth_chart(depths: Sequence[int]) -> str:
-    """Per-well depth, in the plate maps' colours so the two read together."""
+    """Per-well depth, in one green from the plate maps' ramp.
+
+    Filling each bin with the ramp colour for its own depth hid the left of
+    the distribution: the ramp opens at white, so the bins holding wells that
+    returned few reads were painted the colour of the page behind them, and
+    only the deep end of the histogram could be seen.  Those bins are the ones
+    a reader is checking for.  A single fill keeps the tie to the plate maps
+    and leaves the depth to the axis, which already states it.
+    """
     depths = [d for d in depths if d and d > 0]
     if not depths:
         return ""
@@ -160,13 +173,12 @@ def read_depth_chart(depths: Sequence[int]) -> str:
     counts = [0] * n_bins
     for d in depths:
         counts[min(int(d / DEPTH_CEILING * n_bins), n_bins - 1)] += 1
-    colours = [cmap_hex((i + 0.5) / n_bins) for i in range(n_bins)]
     ordered = sorted(depths)
     median = ordered[len(ordered) // 2]
     n20 = sum(1 for d in depths if d >= TIER_READS["C"])
     n100 = sum(1 for d in depths if d >= TIER_READS["A"])
     return (
-        f'{_bars_svg(counts, colours)}'
+        f'{_bars_svg(counts, fill="var(--good)")}'
         f'<div class="axis"><span>0</span><span>{DEPTH_CEILING // 2}</span>'
         f'<span>&ge;{DEPTH_CEILING} reads</span></div>'
         f'<div class="hint">median {median:,} reads &middot; {n20:,} wells '
@@ -174,12 +186,82 @@ def read_depth_chart(depths: Sequence[int]) -> str:
     )
 
 
-def recovery_chart(curves: dict) -> str:
-    """Two simulated curves against fold sampling, with this run marked.
+def skew_chart(est: dict, library_size: int) -> str:
+    """Designed variants against the number of wells that carried them.
 
-    *curves* carries ``fold_samplings`` and, under ``design`` and ``measured``,
-    the mean and standard deviation at each; ``sampling`` and ``observed`` place
-    the run's own point.
+    Bars are what was counted.  The line is the same count under the fitted
+    model, which is a log-normal abundance sampled by Poisson, so the two are
+    on the same footing and the gap between them is the fit's residual rather
+    than the sampling's.  Skew is the width the fit gives the log-normal, and
+    this figure is where that width can be checked: at a few wells per variant
+    most of the spread in the bars is Poisson, and a curve drawn from the
+    log-normal alone would sit visibly narrower than the data.
+
+    Returns an empty string when there is nothing to fit, so the page omits
+    the figure rather than drawing an axis with no distribution on it.
+    """
+    counts = (est or {}).get("counts")
+    stats = (est or {}).get("stats")
+    if not counts or stats is None or not library_size:
+        return ""
+    try:
+        from usortm.qc.skew import predicted_count_distribution
+    except Exception:
+        return ""
+
+    k_max = int(max(counts))
+    if k_max < 2:
+        return ""
+    observed = [0] * (k_max + 1)
+    for k in counts:
+        observed[int(k)] += 1
+    try:
+        _, expected = predicted_count_distribution(stats, library_size, k_max)
+    except Exception:
+        return ""
+
+    peak = max(max(observed), float(max(expected))) or 1.0
+    n = k_max + 1
+    width = 640 / n
+    out = []
+    for i, c in enumerate(observed):
+        if not c:
+            continue
+        h = max(round(c / peak * 94), 1)
+        out.append(
+            f'<rect x="{i * width:.2f}" y="{96 - h}" '
+            f'width="{max(width - 1, 0.5):.2f}" height="{h}" '
+            f'fill="var(--good)"></rect>')
+    pts = " ".join(f"{(i + 0.5) * width:.2f},{96 - e / peak * 94:.2f}"
+                   for i, e in enumerate(expected))
+    out.append(f'<polyline points="{pts}" fill="none" '
+               f'stroke="var(--series-1)" stroke-width="2" '
+               f'stroke-linejoin="round" '
+               f'vector-effect="non-scaling-stroke"></polyline>')
+    out.append('<line x1="0" y1="95.5" x2="640" y2="95.5" '
+               'stroke="var(--rule)" stroke-width="1"></line>')
+
+    ci = ""
+    if est.get("ci"):
+        ci = (f' &middot; 95% CI {est["ci"][0]:.1f}&ndash;'
+              f'{est["ci"][1]:.1f}')
+    return (
+        f'<svg viewBox="0 0 640 96" preserveAspectRatio="none" '
+        f'class="chart">{"".join(out)}</svg>'
+        f'<div class="axis"><span>0</span>'
+        f'<span>{k_max} wells</span></div>'
+        f'<div class="hint">bars counted, line fitted &middot; skew '
+        f'Q90/Q10 {est["skew"]:.1f}{ci}</div>'
+    )
+
+
+def recovery_chart(curves: dict, info: str = "") -> str:
+    """Simulated recovery against fold sampling, with this run marked.
+
+    *curves* carries ``fold_samplings`` and, under ``measured``, the mean and
+    standard deviation at each; ``sampling`` and ``observed`` place the run's
+    own point.  *info* is the conditions the curve was computed under, folded
+    into the key rather than set beside the figure.
     """
     folds = curves.get("fold_samplings") or []
     if not folds:
@@ -193,14 +275,17 @@ def recovery_chart(curves: dict) -> str:
     def py(v):
         return 100 - v
 
+    # --grid, not --rule: the rules that separate content sit on top of the
+    # page, and at this density they read as a mesh the curve has to compete
+    # with.
     out = []
     for pct in (25, 50, 75):
         out.append(f'<line x1="0" y1="{py(pct):.2f}" x2="100" y2="{py(pct):.2f}" '
-                   f'stroke="var(--rule)" stroke-width="1" '
+                   f'stroke="var(--grid)" stroke-width="1" '
                    f'vector-effect="non-scaling-stroke"></line>')
     for v in range(2, int(x_max) + 1, 2):
         out.append(f'<line x1="{px(v):.2f}" y1="0" x2="{px(v):.2f}" y2="100" '
-                   f'stroke="var(--rule)" stroke-width="1" '
+                   f'stroke="var(--grid)" stroke-width="1" '
                    f'vector-effect="non-scaling-stroke"></line>')
 
     def series(key, colour, dashed, band):
@@ -224,7 +309,6 @@ def recovery_chart(curves: dict) -> str:
                      f'vector-effect="non-scaling-stroke"></polyline>')
         return "".join(marks)
 
-    out.append(series("design", "var(--text-muted)", True, False))
     out.append(series("measured", "var(--series-1)", False, True))
 
     ox = curves.get("sampling")
@@ -251,10 +335,13 @@ def recovery_chart(curves: dict) -> str:
         f'<div class="plotbox">'
         f'<svg viewBox="0 0 100 100" preserveAspectRatio="none" class="sq">'
         f'{"".join(out)}</svg>{marker}'
+        f'<div class="plotkey">'
+        f'<div class="keyrows">'
+        f'<i class="k1"></i><span>simulated</span>'
+        f'<i class="k3"></i><span>recovered</span>'
+        f'</div>{info}</div>'
         f'<div class="xticks">{ticks}</div></div></div>'
-        f'<div class="xlab">fold sampling of wells that grew</div>'
-        f'<div class="key">'
-        f'<span><i class="k1"></i>simulated, this run</span>'
-        f'<span><i class="k2"></i>simulated, published</span>'
-        f'<span><i class="k3"></i>recovered</span></div>'
+        # Which wells are counted is stated in the note above the plot, so
+        # the axis names the quantity and leaves the qualifier there.
+        f'<div class="xlab">fold sampling</div>'
     )

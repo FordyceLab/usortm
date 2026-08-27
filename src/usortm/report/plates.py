@@ -11,10 +11,35 @@ import html
 import os
 from typing import Dict, List, Optional, Sequence
 
+from usortm.cli.report import NOT_THE_DESIGNED_SEQUENCE
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 MIXED_TEMPLATE_WATCH, column_agreement_class)
 
 from .charts import TIER_READS, depth_colour
+
+
+def carries_designed_sequence(w: dict, designed: set) -> bool:
+    """Whether a well holds the member it was assigned, read cleanly.
+
+    One rule for the plate maps' flag and for the parameters the recovery
+    curve is drawn on.  A well flagged on the map and counted as on-target in
+    the same report is a contradiction a reader has no way to settle, and the
+    two tests were written out twice before.  Mirrors the tier test in
+    :func:`usortm.cli.report._compute_quality_bins`.
+
+    A well missing flank or agreement data is not failed for missing it: the
+    fields arrive from stages that a run may not have reached.
+    """
+    if w.get("variant") not in designed:
+        return False
+    if (w.get("consensus_fraction") or 0) <= 0.9:
+        return False
+    if w.get("cons_check", "") in NOT_THE_DESIGNED_SEQUENCE:
+        return False
+    if (w.get("flank_check", "OK") or "OK") != "OK":
+        return False
+    return column_agreement_class(w.get("max_mismatch_frac")) != "mixed"
+
 
 ROWS = "ABCDEFGHIJKLMNOP"
 COLS = 24
@@ -119,15 +144,20 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
                     variant = w.get("variant") or ""
                     klass = column_agreement_class(
                         w.get("max_mismatch_frac"))
+                    # One flag for every way a well can fail to hold its
+                    # designed sequence.  Drawn apart they were four colours
+                    # over most of the plate, and which of them a well had is
+                    # a question for a well, not for a plate.  The parent
+                    # keeps its own: it carries no mutation, and a plate of
+                    # parent wells is a sorting problem rather than a
+                    # sequencing one.
                     if variant == "Parent":
                         cls += " parent"
-                    elif variant == "unassigned" or variant not in designed:
-                        cls += " uncalled"
-                    elif klass == "mixed":
+                    elif not carries_designed_sequence(w, designed):
                         cls += " mut"
-                    # Independent of what the well holds, and drawn in the
-                    # opposite corner: a parent well can also read uncleanly,
-                    # and one corner cannot say both.
+                    # Independent of what the well holds, and drawn as the
+                    # well's edge: a parent well can also read uncleanly, and
+                    # one corner cannot say both.
                     if klass == "watch":
                         cls += " watch"
                 href = links.get(f"{plate}_{label}")
@@ -152,10 +182,12 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
             "Wells link to their pileup once <code>usortm pick</code> has "
             "generated them.")
     return {
-        "note": (f"Read depth per well. A corner marks what the well contains: "
-                 f"red a mixed template, amber the parent, grey an insert that "
-                 f"could not be called; a blue corner opposite marks a well "
-                 f"worth checking. {note}"),
+        "note": (f"Read depth per well. A red corner marks a mutation: the "
+                 f"well does not hold the sequence designed for it. That "
+                 f"covers a well matching no library member, a consensus "
+                 f"differing from the design, a mixed template, and failed "
+                 f"flanks. Amber marks the parent, which carries no mutation. "
+                 f"A blue edge marks a well worth checking. {note}"),
         # The page steps through these one at a time rather than offering a
         # button per plate: fourteen buttons is a wall, and a plate map is read
         # in sequence far more often than jumped to.
@@ -163,10 +195,8 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
         "grids": "".join(grids),
         "legend": (
             '<div class="legend">'
-            '<span class="ls"><i class="swatch mut"></i>mixed template</span>'
+            '<span class="ls"><i class="swatch mut"></i>mutation</span>'
             '<span class="ls"><i class="swatch parent"></i>parent</span>'
-            '<span class="ls"><i class="swatch uncalled"></i>not in library'
-            '</span>'
             '<span class="ls"><i class="swatch watch"></i>worth checking</span>'
             '</div>'),
     }

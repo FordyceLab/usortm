@@ -224,7 +224,10 @@ def test_report_html_content(mock_project_with_library):
         assert "uSort-M Summary" in html_content
         assert "Library size" in html_content
         assert "Input reads" in html_content
-        assert "Wells &ge;20 reads" in html_content
+        # The well count is stated by fold sampling, as the figure it
+        # divides, rather than as a metric of its own.
+        assert "Fold sampling" in html_content
+        assert "wells &ge;20 reads" in html_content
         assert "Library recovery" in html_content
         assert "Demux plate maps" in html_content
 
