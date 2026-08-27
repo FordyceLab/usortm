@@ -412,7 +412,10 @@ def run_levseq_pipeline(
     if subsample is not None:
         _progress(f"Subsampling to {subsample:,} reads...")
         sub_path = output_dir / "subsampled.fastq"
-        n_extracted = _extract_reads_gzip_aware(str(fastq), str(sub_path), subsample)
+        # Not str(fastq): a pooled segment arrives as a list of paths, and
+        # str() of a list is one filename that does not exist.  The extractor
+        # resolves lists, directories and single files itself.
+        n_extracted = _extract_reads_gzip_aware(fastq, str(sub_path), subsample)
         fastq = sub_path
         pipeline_stats["input_reads"] = n_extracted
         logger.info("Subsampled %d reads to %s", n_extracted, sub_path)
@@ -443,7 +446,26 @@ def run_levseq_pipeline(
     # determines read direction so Dorado sees correct barcode
     # orientation.
     ref_map = None
-    oriented_fq = str(fastq)  # default: use raw FASTQ if no reference
+    # Default when there is no reference to align against.  A single path or a
+    # directory passes through, both of which Dorado reads.  A pooled list has
+    # no single path to stand for it -- the alignment is what merges those
+    # files into one oriented FASTQ -- so without a reference there is nothing
+    # to hand downstream and saying so beats passing a list Dorado cannot read.
+    if isinstance(fastq, (list, tuple)):
+        if len(fastq) == 1:
+            oriented_fq = str(fastq[0])
+        elif reference is None:
+            raise ValueError(
+                f"{len(fastq)} FASTQ files are pooled for this segment and "
+                f"there is no reference to align them against; the alignment "
+                f"is what merges them into one file."
+            )
+        else:
+            # Set by the alignment below, which runs whenever there is a
+            # reference.
+            oriented_fq = None
+    else:
+        oriented_fq = str(fastq)
 
     # Auto-orient against vector backbone when --vector-fasta is provided
     # and no explicit --orient-ref was given.
@@ -478,7 +500,10 @@ def run_levseq_pipeline(
 
         oriented_fq, ref_map, align_stats = utils.align_and_split_by_strand(
             multi_ref_fasta=align_ref,
-            fastq=str(fastq),
+            # Not str(fastq).  align_and_split_by_strand resolves lists,
+            # directories and single paths, and minimap2 takes many query
+            # files; str() of a pooled list reached it as one long filename.
+            fastq=fastq,
             output_dir=str(align_dir),
             minimap2_path=tool_paths["minimap2"],
             samtools_path=tool_paths["samtools"],
