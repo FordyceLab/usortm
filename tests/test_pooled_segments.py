@@ -85,3 +85,55 @@ def test_order_is_kept():
         _map(("first", {"1": 1}), ("second", {"1": 2}), ("third", {"1": 3})),
         base_dir=Path("."))
     assert [s.name for s in segs] == ["first", "second", "third"]
+
+
+def test_the_pipeline_hands_the_aligner_every_pooled_file(tmp_path, monkeypatch):
+    """A pooled segment reaches minimap2 as many files, not one long name.
+
+    parse_plate_map pools two FASTQs covering one sort plate into a segment
+    carrying both paths, and the tests above stop there.  Between that and the
+    aligner the list passed through a ``str()``, which turned it into a single
+    filename -- ``[PosixPath('a.fastq'), PosixPath('b.fastq')]`` -- that
+    nothing could open, so every pooled run died at the orientation step with
+    a minimap2 exit status and nothing saying why.
+
+    Asserted against the pipeline rather than against the aligner: the aligner
+    always resolved a list correctly, and a test calling it with one passes
+    just as well on the broken code.
+    """
+    from usortm.demux import pipeline as pl
+
+    monkeypatch.setattr(
+        pl, "check_all_dependencies",
+        lambda: {"dorado": "dorado", "minimap2": "minimap2",
+                 "samtools": "samtools"})
+
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _capture(**kwargs):
+        seen.update(kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(pl.utils, "align_and_split_by_strand", _capture)
+
+    reads = []
+    for name in ("a", "b"):
+        p = tmp_path / f"{name}.fastq"
+        p.write_text("@r1\nACGT\n+\nIIII\n")
+        reads.append(p)
+    ref = tmp_path / "ref.fasta"
+    ref.write_text(">r\nACGTACGTACGT\n")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    with pytest.raises(_Stop):
+        pl.run_levseq_pipeline(
+            fastq=reads, output_dir=out, reference=ref,
+            n_plates=1, threads=1, workers=1)
+
+    # The list itself, not a string standing in for it.
+    assert not isinstance(seen["fastq"], (str, bytes))
+    assert [str(p) for p in seen["fastq"]] == [str(p) for p in reads]
