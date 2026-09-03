@@ -129,7 +129,7 @@
       </span>
     </div>
     <main class="main">
-      <div class="content">
+      <div class="content content--wrap-tables">
         <h1>PCR Barcoding Protocol</h1>
 
         <p>
@@ -137,23 +137,8 @@
           This enables multiplexed amplicon sequencing to determine the sequence identity of each well.
         </p>
 
-        <h2>Overview</h2>
-
-        <p>The barcoding strategy involves:</p>
-        <ol>
-          <li>Well-specific primers containing unique DNA barcodes</li>
-          <li>PCR amplification of the variable region from bacterial lysate</li>
-          <li>Pooling of barcoded amplicons across all plates</li>
-          <li>Sequencing of the pooled library</li>
-          <li>Computational demultiplexing to assign reads to wells</li>
-        </ol>
-
-        <h2>Barcode Design</h2>
-
-        <p>We recommend ordering primers described in <a href="https://doi.org/10.1021/acssynbio.4c00625" target="_blank">Long et al. 2024</a> 
-          which have been optimized for multiplexed, long-read amplicon sequencing. The adaptor region can be designed to target a common 
-          promoter-terminator pair to sequence the entire gene on a single amplicon.</p>
-
+        <div class="doc-split">
+          <div class="doc-split__aside">
         <h2>Materials</h2>
 
         <div class="table-wrapper table-wrapper--overflow">
@@ -219,18 +204,60 @@
           </tbody>
         </table>
         </div>
+          </div>
+          <div class="doc-split__text">
+        <h2>Overview</h2>
+
+        <p>The barcoding strategy involves:</p>
+        <ol>
+          <li>Well-specific primers containing unique DNA barcodes</li>
+          <li>PCR amplification of the variable region from bacterial lysate</li>
+          <li>Pooling of barcoded amplicons across all plates</li>
+          <li>Sequencing of the pooled library</li>
+          <li>Computational demultiplexing to assign reads to wells</li>
+        </ol>
+
+        <h2>Barcode Design</h2>
+
+        <p>We recommend ordering primers described in <a href="https://doi.org/10.1021/acssynbio.4c00625" target="_blank">Long et al. 2024</a> 
+          which have been optimized for multiplexed, long-read amplicon sequencing. The adaptor region can be designed to target a common 
+          promoter-terminator pair to sequence the entire gene on a single amplicon.</p>
+          </div>
+        </div>
 
         <h2>Protocol</h2>
 
-        <h3>1. Prepare plates</h3>
+        <div class="protocol-steps">
+          <div class="protocol-step">
+            <div class="protocol-step-content">
+              <h4>Prepare plates</h4>
         <ol>
           <li>Spin all plates at <strong>4,000×g for 2 minutes</strong>.</li>
           <li><strong>Glycerol plates:</strong> aliquot <strong>10 µL</strong> of filtered <strong>50% glycerol</strong> per well.</li>
           <li><strong>PCR plates:</strong> prepare a large tub of ice and arrange PCR plates on ice.</li>
         </ol>
-
-        <h3>2. Barcoding PCR setup (10 µL total reaction)</h3>
-
+            </div>
+          </div>
+        <div class="protocol-row">
+          <div class="protocol-step">
+            <div class="protocol-step-content">
+              <h4>Barcoding PCR setup (10 µL total reaction)</h4>
+              <ol>
+          <li>Prepare PCR master mix for plates</li>
+          <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
+          <li><strong>Liquid handler workflow</strong> (minimize tips; do not change tips for each 384 or 96-well equivalent to prevent cross-contamination):
+            <ol>
+              <li>Add <strong>2 µL</strong> LevSeq barcodes to the PCR plate.</li>
+              <li>Set tip volume to <strong>10 µL</strong>; resuspend cultures in the sort plate by mixing.</li>
+              <li>Add <strong>10 µL</strong> cultures to glycerol plate and mix.</li>
+              <li>Set tip volume to <strong>1 µL</strong>; add <strong>1 µL</strong> cultures to the PCR plate.</li>
+              <li>Set tip volume to <strong>7 µL</strong>; mix PCR reactions.</li>
+            </ol>
+          </li>
+              </ol>
+            </div>
+          </div>
+          <div class="protocol-aside">
         <div class="mmix-calc-wrapper">
           <span class="mmix-calc-label">Plates to prepare:</span>
           <div class="mmix-ticker">
@@ -248,17 +275,12 @@
           </div>
           <span class="mmix-hint" id="mmixHint">384 wells × 1 plate + 10% excess = <strong>423 rxns</strong></span>
         </div>
-
-        <ol>
-          <li>Prepare PCR master mix for plates</li>
-        </ol>
-        <!-- <p><strong>Master mix (7 µL per reaction; includes 10% excess):</strong></p> -->
         <div class="table-wrapper">
-          <table>
+          <table class="table--compact table--labelfirst">
           <thead>
             <tr>
               <th>Component</th>
-              <th>Per rxn (µL)</th>
+              <th>Rxn (µL)</th>
               <th class="mmix-total-col" id="mmixTotalHeader">Total (µL) <span class="mmix-rxn-badge" id="mmixBadge">423 rxns</span></th>
               <th class="mmix-check-col">Added</th>
             </tr>
@@ -277,6 +299,112 @@
             </tr>
           </tbody>
         </table>
+        </div>
+          </div>
+        </div>
+        <div class="protocol-row">
+          <div class="protocol-step">
+            <div class="protocol-step-content">
+              <h4>Thermocycler program (touchdown)</h4>
+        <p class="ext-calc-note">
+          <strong>Note:</strong> Adjust extension time based on expected amplicon length.
+          Highlighted cells (<span class="ext-highlight-inline">30 sec/kb</span>) update automatically when a length is entered above.
+        </p>
+        <div class="callout">
+          <strong>Note:</strong> Touchdown step decreases from 65°C to 55°C over 10 cycles (ΔT = −1°C/cycle). PCR takes ~1 hour. During PCR, measure ODs of sort plates and store glycerol stocks at −80°C.
+        </div>
+            </div>
+          </div>
+          <div class="protocol-aside">
+        <div class="ext-calc-wrapper">
+          <label for="ampliconLength" class="ext-calc-label">
+            Amplicon length (bp):
+          </label>
+          <div class="ext-calc-input-row">
+            <input
+              type="number"
+              id="ampliconLength"
+              class="ext-calc-input"
+              placeholder="e.g. 1500"
+              min="100"
+              max="20000"
+              step="100"
+            />
+            <span class="ext-calc-hint" id="extHint">Enter length to calculate extension times</span>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="table--compact">
+        <thead>
+          <tr>
+            <th>Cycles</th>
+            <th>Temperature (°C)</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <tr>
+            <td>1</td>
+            <td>98</td>
+            <td>2 min</td>
+          </tr>
+
+          <tr>
+            <td rowspan="3">10</td>
+            <td>98</td>
+            <td>10 sec</td>
+          </tr>
+          <tr>
+            <td>65 → 55*</td>
+            <td>30 sec</td>
+          </tr>
+          <tr>
+            <td>72</td>
+            <td class="ext-cell" id="extCell1">30 sec/kb</td>
+          </tr>
+
+          <tr>
+            <td rowspan="3">25</td>
+            <td>98</td>
+            <td>10 sec</td>
+          </tr>
+          <tr>
+            <td>66</td>
+            <td>30 sec</td>
+          </tr>
+          <tr>
+            <td>72</td>
+            <td class="ext-cell" id="extCell2">30 sec/kb</td>
+          </tr>
+
+          <tr>
+            <td rowspan="2">1</td>
+            <td>72</td>
+            <td>3 min</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>hold</td>
+          </tr>
+
+        </tbody>
+      </table>
+        </div>
+          </div>
+        </div>
+          <div class="protocol-step">
+            <div class="protocol-step-content">
+              <h4>Pooling + cleanup</h4>
+        <ol>
+          <li>Aliquot <strong>30 µL</strong> of <strong>100 mM EDTA</strong> into <strong>two</strong> 8×200 µL strip tubes per plate.</li>
+          <li>Pipette <strong>5 µL</strong> from each well row-wise into the associated strip tube.</li>
+          <li>Pool <strong>75 µL</strong> from strip tubes into a single 1.5 mL Eppendorf.</li>
+          <li>Repeat for each plate.</li>
+          <li>Perform bead cleanup with <strong>SPRIselect</strong> using a <strong>&gt;300 bp cutoff</strong> (per Beckman Coulter protocol).</li>
+        </ol>
+            </div>
+          </div>
         </div>
 
         <style>
@@ -344,7 +472,7 @@
           .mmix-input::-webkit-outer-spin-button { -webkit-appearance: none; }
           .mmix-hint {
             font-size: 0.82em;
-            color: var(--color-muted, #888);
+            color: var(--color-text-muted);
             font-style: italic;
           }
           .mmix-total-col {
@@ -385,7 +513,7 @@
             accent-color: #4096E3;
           }
           tr.mmix-row-checked td {
-            color: var(--color-muted, #888);
+            color: var(--color-text-muted);
           }
           tr.mmix-row-checked td:not(.mmix-check-cell) {
             text-decoration: line-through;
@@ -416,24 +544,31 @@
               return (Math.round(v * 10) / 10).toFixed(1);
             }
 
-            const MIN = 1;
+            // The buttons move between whole plates; a fraction of a plate is typed in
+            // directly (MIN), which is why the two floors differ. Wells round UP: you
+            // cannot set up part of a well, and every rounding here goes up so the
+            // master mix is never short.
+            const MIN = 0.5;      // lowest value that can be typed
+            const BTN_MIN = 1;    // the buttons stay in whole plates
 
             function render(n) {
-              const wells = WELLS_PER_PLATE * n;
-              const rawRxns = wells * EXCESS;
-              const rxnsDisplay = Math.round(rawRxns);
+              const wells = Math.ceil(WELLS_PER_PLATE * n);
+              const rxns = Math.ceil(wells * EXCESS);
               const plateLabel = n === 1 ? 'plate' : 'plates';
-              badge.textContent = rxnsDisplay.toLocaleString() + ' rxns';
-              hint.innerHTML = `${n} ${plateLabel} = <strong>${wells.toLocaleString()} wells</strong> + 10% excess = <strong>${rxnsDisplay.toLocaleString()} rxns</strong>`;
+              badge.textContent = rxns.toLocaleString() + ' rxns';
+              hint.innerHTML = `${n} ${plateLabel} = <strong>${wells.toLocaleString()} wells</strong> + 10% excess = <strong>${rxns.toLocaleString()} rxns</strong>`;
               PER_RXN.forEach((vol, i) => {
-                cells[i].textContent = formatVol(vol * rawRxns);
+                cells[i].textContent = formatVol(vol * rxns);
               });
-              minus.disabled = n <= MIN;
+              minus.disabled = n <= BTN_MIN;
             }
 
             input.addEventListener('input', () => {
               const n = parseFloat(input.value);
-              if (!isNaN(n) && n >= MIN) render(n);
+              // Clamp rather than ignore: bailing out on a sub-minimum value left the
+              // table showing the PREVIOUS plate count's numbers. blur then tidies
+              // the field itself, so the two never disagree.
+              if (!isNaN(n)) render(Math.max(MIN, n));
             });
 
             input.addEventListener('blur', () => {
@@ -442,9 +577,11 @@
               render(n);
             });
 
+            // From a fraction, the buttons snap outward to the neighbouring whole
+            // plate: 1.5 minus -> 1, 1.5 plus -> 2, 0.5 plus -> 1.
             minus.addEventListener('click', () => {
               const cur = parseFloat(input.value) || 1;
-              const n = Math.max(MIN, Math.floor(cur) === cur ? cur - 1 : Math.floor(cur));
+              const n = Math.max(BTN_MIN, Math.floor(cur) === cur ? cur - 1 : Math.floor(cur));
               input.value = n;
               render(n);
             });
@@ -464,108 +601,6 @@
             });
           })();
         </script>
-
-        <ol start="2">
-          <li>Gently invert master mix to mix, then aliquot <strong>7 µL</strong> across PCR plates (repeat-dispense on Integra pipette).</li>
-          <li><strong>Liquid handler workflow</strong> (minimize tips; do not change tips for each 384 or 96-well equivalent to prevent cross-contamination):
-            <ol>
-              <!-- Pick up from last number in above list -->
-              <li>Add <strong>2 µL</strong> LevSeq barcodes to the PCR plate.</li>
-              <li>Set tip volume to <strong>10 µL</strong>; resuspend cultures in the sort plate by mixing.</li>
-              <li>Add <strong>10 µL</strong> cultures to glycerol plate and mix.</li>
-              <li>Set tip volume to <strong>1 µL</strong>; add <strong>1 µL</strong> cultures to the PCR plate.</li>
-              <li>Set tip volume to <strong>7 µL</strong>; mix PCR reactions.</li>
-            </ol>
-          </li>
-        </ol>
-
-        <h3>3. Thermocycler program (touchdown)</h3>
-
-        <div class="ext-calc-wrapper">
-          <label for="ampliconLength" class="ext-calc-label">
-            Amplicon length (bp):
-          </label>
-          <div class="ext-calc-input-row">
-            <input
-              type="number"
-              id="ampliconLength"
-              class="ext-calc-input"
-              placeholder="e.g. 1500"
-              min="100"
-              max="20000"
-              step="100"
-            />
-            <span class="ext-calc-hint" id="extHint">Enter length to calculate extension times</span>
-          </div>
-        </div>
-
-        <p class="ext-calc-note">
-          <strong>Note:</strong> Adjust extension time based on expected amplicon length.
-          Highlighted cells (<span class="ext-highlight-inline">30 sec/kb</span>) update automatically when a length is entered above.
-        </p>
-
-        <div class="table-wrapper">
-          <table>
-        <thead>
-          <tr>
-            <th>Cycles</th>
-            <th>Temperature (°C)</th>
-            <th>Time</th>
-          </tr>
-        </thead>
-        <tbody>
-
-          <tr>
-            <td>1</td>
-            <td>98</td>
-            <td>2 min</td>
-          </tr>
-
-          <tr>
-            <td rowspan="3">10</td>
-            <td>98</td>
-            <td>10 sec</td>
-          </tr>
-          <tr>
-            <td>65 → 55*</td>
-            <td>30 sec</td>
-          </tr>
-          <tr>
-            <td>72</td>
-            <td class="ext-cell" id="extCell1">30 sec/kb</td>
-          </tr>
-
-          <tr>
-            <td rowspan="3">25</td>
-            <td>98</td>
-            <td>10 sec</td>
-          </tr>
-          <tr>
-            <td>66</td>
-            <td>30 sec</td>
-          </tr>
-          <tr>
-            <td>72</td>
-            <td class="ext-cell" id="extCell2">30 sec/kb</td>
-          </tr>
-
-          <tr>
-            <td rowspan="2">1</td>
-            <td>72</td>
-            <td>3 min</td>
-          </tr>
-          <tr>
-            <td>4</td>
-            <td>hold</td>
-          </tr>
-
-        </tbody>
-      </table>
-        </div>
-
-        <div class="callout">
-          <strong>Note:</strong> Touchdown step decreases from 65°C to 55°C over 10 cycles (ΔT = −1°C/cycle). PCR takes ~1 hour. During PCR, measure ODs of sort plates and store glycerol stocks at −80°C.
-        </div>
 
         <style>
           .ext-calc-wrapper {
@@ -603,13 +638,13 @@
           }
           .ext-calc-hint {
             font-size: 0.82em;
-            color: var(--color-muted, #888);
+            color: var(--color-text-muted);
             font-style: italic;
             transition: opacity 0.2s;
           }
           .ext-calc-note {
             font-size: 0.88em;
-            color: var(--color-muted, #666);
+            color: var(--color-text-muted);
             margin-bottom: 10px;
           }
           .ext-highlight-inline {
@@ -689,139 +724,142 @@
           })();
         </script>
 
-        <h3>4. Pooling + cleanup</h3>
-        <ol>
-          <li>Aliquot <strong>30 µL</strong> of <strong>100 mM EDTA</strong> into <strong>two</strong> 8×200 µL strip tubes per plate.</li>
-          <li>Pipette <strong>5 µL</strong> from each well row-wise into the associated strip tube.</li>
-          <li>Pool <strong>75 µL</strong> from strip tubes into a single 1.5 mL Eppendorf.</li>
-          <li>Repeat for each plate.</li>
-          <li>Perform bead cleanup with <strong>SPRIselect</strong> using a <strong>&gt;300 bp cutoff</strong> (per Beckman Coulter protocol).</li>
-        </ol>
-
-        <h2>Sequencing Submission</h2>
-
-        <p>Submit the pooled, purified amplicon library for sequencing. The total amount of sequencing data you need depends on how many wells you sorted, the length of your amplicon, and the read depth required to confidently call each well. Use the calculator below to estimate your sequencing need.</p>
-
+        <div class="doc-split">
+          <div class="doc-split__aside">
         <div class="seq-calc-card">
           <div class="seq-calc-title">Sequencing Need Calculator</div>
+          <p class="seq-calc-sub">Wells sorted &times; amplicon length &times; read depth per well.</p>
           <div class="seq-calc-inputs">
             <div class="seq-calc-field">
               <label for="seqWells">Wells sorted</label>
-              <input type="number" id="seqWells" class="seq-calc-input" placeholder="e.g. 384" min="1" max="1000000" step="1">
+              <input type="number" id="seqWells" class="seq-calc-input" placeholder="e.g. 384" min="1" max="1000000" step="1" inputmode="numeric">
             </div>
-            <div class="seq-calc-sep">×</div>
             <div class="seq-calc-field">
-              <label for="seqAmplicon">Amplicon length (bp)</label>
-              <input type="number" id="seqAmplicon" class="seq-calc-input" placeholder="e.g. 1500" min="100" max="20000" step="100">
+              <label for="seqAmplicon">Amplicon length</label>
+              <input type="number" id="seqAmplicon" class="seq-calc-input" placeholder="e.g. 1500" min="100" max="20000" step="100" inputmode="numeric">
             </div>
-            <div class="seq-calc-sep">×</div>
             <div class="seq-calc-field">
-              <label for="seqDepth">Read depth per well</label>
-              <input type="number" id="seqDepth" class="seq-calc-input" value="100" min="1" max="10000" step="10">
+              <label for="seqDepth">Read depth</label>
+              <input type="number" id="seqDepth" class="seq-calc-input" value="100" min="1" max="10000" step="10" inputmode="numeric">
             </div>
           </div>
           <div class="seq-calc-result">
-            <span class="seq-calc-result-label">Total sequencing need:</span>
-            <span class="seq-calc-result-value" id="seqResultValue">—</span>
+            <span class="seq-calc-result-label">Total sequencing need</span>
+            <span class="seq-calc-result-value" id="seqResultValue">&mdash;</span>
+            <span class="seq-calc-formula" id="seqFormula"></span>
           </div>
-          <div class="seq-calc-note" id="seqDepthNote"></div>
+          <p class="seq-calc-note" id="seqDepthNote"></p>
+        </div>
+          </div>
+          <div class="doc-split__text">
+        <h2>Sequencing Submission</h2>
+
+        <p>Submit the pooled, purified amplicon library for sequencing. The total amount of sequencing data you need depends on how many wells you sorted, the length of your amplicon, and the read depth required to confidently call each well. Use the calculator to estimate your sequencing need.</p>
+          </div>
         </div>
 
         <style>
+          /* Sequencing need calculator.
+             The three fields sit on an auto-fit grid: three across at full width,
+             folding to two and then one as the column narrows. No breakpoints, and
+             no separator glyphs to strand on their own line mid-wrap — the formula
+             is stated once in the subtitle and echoed under the result instead.
+             Colours come from the accent tokens, which are defined per theme. */
           .seq-calc-card {
             background: var(--color-card-bg);
             border: 1px solid var(--color-border);
             border-radius: 10px;
-            padding: 1.25rem 1.5rem;
+            padding: 1.25rem 1.4rem;
             margin: 1.25rem 0 1.75rem;
           }
           .seq-calc-title {
             font-weight: 600;
             font-size: 0.95em;
-            margin-bottom: 1rem;
             color: var(--color-text);
           }
+          .seq-calc-sub {
+            font-size: 0.82em;
+            color: var(--color-text-muted);
+            margin: 0.2rem 0 1rem;
+          }
           .seq-calc-inputs {
-            display: flex;
-            align-items: flex-end;
-            gap: 10px;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+            align-items: end;
+            gap: 0.85rem;
           }
           .seq-calc-field {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 5px;
+            min-width: 0;
           }
           .seq-calc-field label {
-            font-size: 0.78em;
+            font-size: 0.75em;
             font-weight: 600;
             color: var(--color-text-muted);
             text-transform: uppercase;
             letter-spacing: 0.04em;
           }
           .seq-calc-input {
-            width: 130px;
-            padding: 6px 10px;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 7px 10px;
             border: 2px solid var(--color-border);
             border-radius: 6px;
             font-size: 0.9em;
+            font-variant-numeric: tabular-nums;
             background: var(--color-card-bg);
             color: var(--color-text);
             transition: border-color 0.2s, box-shadow 0.2s;
-            outline: none;
             -moz-appearance: textfield;
           }
           .seq-calc-input::-webkit-inner-spin-button,
           .seq-calc-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-          .seq-calc-input:placeholder-shown {
-            border-color: #4096E3;
-            background: rgba(64, 150, 227, 0.04);
-          }
-          .seq-calc-input:focus {
-            border-color: #4096E3;
-            box-shadow: 0 0 0 3px rgba(64,150,227,0.15);
-            background: var(--color-card-bg);
-          }
-          [data-theme="dark"] .seq-calc-input:placeholder-shown {
-            background: rgba(64, 150, 227, 0.07);
-          }
-          .seq-calc-sep {
-            font-size: 1.3em;
-            font-weight: 300;
-            color: var(--color-text-muted);
-            padding-bottom: 6px;
-            user-select: none;
+          .seq-calc-input:placeholder-shown { border-color: var(--color-accent); }
+          .seq-calc-input:focus,
+          .seq-calc-input:focus-visible {
+            outline: none;
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px var(--color-accent-light);
           }
           .seq-calc-result {
             display: flex;
+            flex-wrap: wrap;
             align-items: baseline;
-            gap: 8px;
-            margin-top: 1rem;
-            padding-top: 0.9rem;
-            border-top: 1px solid var(--color-border);
+            gap: 0.15rem 0.6rem;
+            margin-top: 1.1rem;
+            padding: 0.8rem 1rem;
+            border-radius: 8px;
+            background: var(--color-accent-light);
           }
           .seq-calc-result-label {
-            font-size: 0.85em;
+            flex: 1 0 100%;
+            font-size: 0.72em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
             color: var(--color-text-muted);
-            white-space: nowrap;
           }
           .seq-calc-result-value {
-            font-size: 1.5em;
+            font-size: 1.6em;
             font-weight: 700;
-            color: #4096E3;
+            line-height: 1.15;
+            color: var(--color-accent);
+            font-variant-numeric: tabular-nums;
+          }
+          .seq-calc-formula {
+            font-size: 0.8em;
+            color: var(--color-text-muted);
             font-variant-numeric: tabular-nums;
           }
           .seq-calc-note {
             font-size: 0.8em;
-            margin-top: 0.4rem;
+            margin: 0.55rem 0 0;
             min-height: 1em;
           }
-          .seq-calc-note.warn {
-            color: #d97706;
-          }
-          .seq-calc-note.ok {
-            color: var(--color-success);
-          }
+          .seq-calc-note.warn { color: #d97706; }
+          .seq-calc-note.ok { color: var(--color-success); }
         </style>
 
         <script>
@@ -831,6 +869,7 @@
             const depthInput   = document.getElementById('seqDepth');
             const resultValue  = document.getElementById('seqResultValue');
             const noteEl       = document.getElementById('seqDepthNote');
+            const formulaEl    = document.getElementById('seqFormula');
             const MIN_DEPTH    = 100;
 
             // Pre-populate amplicon length from the thermocycler calculator if already set
@@ -856,6 +895,7 @@
 
               if (!wells || !amplicon || !depth || wells <= 0 || amplicon <= 0 || depth <= 0) {
                 resultValue.textContent = '—';
+                formulaEl.textContent = '';
                 noteEl.textContent = '';
                 noteEl.className = 'seq-calc-note';
                 return;
@@ -863,6 +903,8 @@
 
               const total = wells * amplicon * depth;
               resultValue.textContent = formatBases(total);
+              formulaEl.textContent = `${wells.toLocaleString()} wells × `
+                + `${amplicon.toLocaleString()} bp × ${depth.toLocaleString()} reads`;
 
               if (depth < MIN_DEPTH) {
                 noteEl.textContent = `⚠ A depth of ${MIN_DEPTH} reads per well is recommended for reliable demultiplexing.`;
@@ -893,13 +935,8 @@
 
         <h2>Quality Control</h2>
 
-        <h3>Expected Metrics</h3>
-        <ul>
-          <li><strong>PCR success rate</strong>: 95–98% of wells with growth should amplify</li>
-          <li><strong>Pooled concentration</strong>: 50–200 ng/µL after purification</li>
-          <li><strong>Fragment size</strong>: Insert + ~40 bp (primers + barcodes)</li>
-        </ul>
-
+        <div class="doc-split">
+          <div class="doc-split__aside">
         <h3>Troubleshooting</h3>
 
         <div class="table-wrapper">
@@ -934,6 +971,16 @@
             </tr>
           </tbody>
         </table>
+        </div>
+          </div>
+          <div class="doc-split__text">
+        <h3>Expected Metrics</h3>
+        <ul>
+          <li><strong>PCR success rate</strong>: 95–98% of wells with growth should amplify</li>
+          <li><strong>Pooled concentration</strong>: 50–200 ng/µL after purification</li>
+          <li><strong>Fragment size</strong>: Insert + ~40 bp (primers + barcodes)</li>
+        </ul>
+          </div>
         </div>
 
         <h2>Next Steps</h2>
