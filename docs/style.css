@@ -387,6 +387,11 @@ pre,
 /* Main content */
 .main {
   flex: 1;
+  /* A flex item defaults to min-width:auto and will not shrink below its own
+     content. The sidebar is position:fixed, so it leaves the flex flow and
+     .main overhung the viewport between the 900px sidebar breakpoint and
+     ~1256px, scrolling the whole page sideways. */
+  min-width: 0;
   margin-left: var(--sidebar-width);
   padding: 2rem 3rem;
 }
