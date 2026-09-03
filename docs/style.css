@@ -929,7 +929,7 @@ pre:hover .code-copy-btn {
 .protocol-step {
   counter-increment: protocol-step;
   position: relative;
-  padding: 1.25rem 1.25rem 1.25rem 3.75rem;
+  padding: 1.25rem 1.25rem 1.25rem 4.5rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   margin-bottom: 0.75rem;
@@ -947,17 +947,17 @@ pre:hover .code-copy-btn {
 .protocol-step::before {
   content: counter(protocol-step);
   position: absolute;
-  left: 1rem;
-  top: 1.25rem;
-  width: 1.75rem;
-  height: 1.75rem;
+  left: 1.15rem;
+  top: 1.05rem;
+  width: 2.25rem;
+  height: 2.25rem;
   background: var(--color-accent);
   color: white;
   border-radius: 50%;
   font-weight: 700;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   text-align: center;
-  line-height: 1.75rem;
+  line-height: 2.25rem;
 }
 
 .protocol-step h4 {
@@ -1297,5 +1297,121 @@ pre:hover .code-copy-btn {
     display: block;
     text-align: center;
     margin-bottom: 0.5rem;
+  }
+}
+
+
+/* ===========================================================================
+   A table alongside its text
+   ---------------------------------------------------------------------------
+   .doc-split pairs a block of prose with a table that floats beside it, so the
+   prose wraps around the table instead of breaking around a full-width block.
+
+   The aside is FIRST in the DOM on purpose: a float only affects content that
+   follows it in source order, so the table has to precede the prose for the
+   prose to wrap. Opt a page in with .content--wrap-tables on its .content
+   wrapper — the clearing and flow-root rules below would otherwise change the
+   layout of every page.
+   =========================================================================== */
+.doc-split { display: block; }
+.doc-split__text { display: contents; }
+
+.doc-split__aside {
+  float: right;
+  width: 46%;
+  margin: 0 0 1rem 2rem;
+}
+
+.doc-split__aside .table-wrapper {
+  margin-top: 0;
+  margin-bottom: 0;
+  text-align: left;
+}
+
+/* Headings clear the float so a tall table can't bleed into the next section.
+   A heading INSIDE a split is a column title, though, and must not clear the
+   very float it sits beside — it would drop below the table. */
+.content--wrap-tables h2,
+.content--wrap-tables h3 { clear: both; }
+.content--wrap-tables .doc-split h2,
+.content--wrap-tables .doc-split h3 { clear: none; }
+
+/* Beside a float, a plain block only shortens its LINE boxes — its border box
+   still spans the full width and slides underneath, so a callout's tinted
+   background runs behind the table. flow-root gives these their own block
+   formatting context, which shrinks the box to the space the float leaves. */
+.content--wrap-tables .callout,
+.content--wrap-tables pre,
+.content--wrap-tables .seq-calc-card { display: flow-root; }
+
+/* `table` above is display:inline-block, which makes width:100% stretch an
+   outer box around a content-width table and leave a dead strip inside the
+   right border. display:table distributes the width across the COLUMNS.
+   No max-width: capping below min-content clips rather than scrolls, because
+   `table` carries overflow:hidden for its border radius. */
+.content .doc-split__aside table,
+.content .protocol-aside table {
+  margin: 0;
+  display: table;
+  width: 100%;
+}
+
+/* Value cells never wrap, so the label column absorbs the slack instead of
+   every cell breaking to three lines. Headers stay wrappable on purpose:
+   pinning "Total (µL) [422 rxns]" to one line pushes the table past its
+   track and forces a horizontal scroll. */
+.doc-split__aside table.table--compact td,
+.protocol-aside table.table--compact td { white-space: nowrap; }
+.doc-split__aside table.table--compact td:first-child,
+.protocol-aside table.table--compact td:first-child { white-space: normal; }
+
+/* With auto table layout, width:100% on one column makes it absorb all slack
+   after the others take their content width. Only for tables whose first
+   column is a label — on a table of short values it just balloons. */
+table.table--labelfirst td:first-child,
+table.table--labelfirst th:first-child { width: 100%; }
+
+/* A protocol step's table sits OUTSIDE its card, in a row beside it, so the
+   chip wraps the written instructions and nothing else. Table rows are painted
+   with --color-card-bg, the same token as the chip, so a table inside a chip
+   has no ground of its own and its edges dissolve. */
+.protocol-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem 2rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+.protocol-row > .protocol-step { margin-bottom: 0; }
+
+.protocol-aside > *:first-child { margin-top: 0; }
+.protocol-aside > *:last-child { margin-bottom: 0; }
+
+.protocol-aside .table-wrapper {
+  margin-top: 0;
+  margin-bottom: 0;
+  text-align: left;
+}
+
+.protocol-aside .mmix-calc-wrapper,
+.protocol-aside .ext-calc-wrapper { margin-bottom: 0.85rem; }
+
+/* Below 1250px the row still fits two-up, but the aside lands around 400px and
+   a 4-column table has to scroll inside it; stacking is the better read. */
+@media (max-width: 1250px) {
+  .protocol-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The content column is ~840px in an 1100px window, and half of that cannot
+   hold a 4-column table without a horizontal scroll. */
+@media (max-width: 1150px) {
+  .content--wrap-tables .doc-split { display: flex; flex-direction: column; }
+  .content--wrap-tables .doc-split__text  { order: 0; display: block; }
+  .content--wrap-tables .doc-split__aside {
+    order: 1;
+    float: none;
+    width: auto;
+    margin: 1.5rem 0;
   }
 }
