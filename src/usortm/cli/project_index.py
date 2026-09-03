@@ -18,6 +18,8 @@ import html as html_mod
 from datetime import datetime
 from pathlib import Path
 
+from usortm.paths import integra_dir
+
 INDEX_FILE = "index.html"
 
 
@@ -45,8 +47,9 @@ def _collect(project_dir: Path, round_num: int = 1) -> list:
                 else f"last written {int(age // 60)} min ago")
         found.append(("While running", "Live dashboard", live, note))
 
-    if (report / "summary.html").exists():
-        found.append(("Results", "Summary report", report / "summary.html",
+    summary = report.parent / "summary.html"
+    if summary.exists():
+        found.append(("Results", "Summary report", summary,
                       "recovery, read depth, plate maps"))
     if (demux / "plate_map.html").exists():
         found.append(("Results", "Plate map", demux / "plate_map.html",
@@ -76,7 +79,7 @@ def _collect(project_dir: Path, round_num: int = 1) -> list:
         ("Per-read table", demux / "read_df.csv",
          "one row per read; no sequences"),
         ("Run summary", demux / "demux_summary.json", "aggregate counts"),
-        ("Hit-picking list", pick / "Integra ASSIST Input",
+        ("Hit-picking list", integra_dir(pick),
          "Integra ASSIST transfer files"),
     ):
         if path.exists():

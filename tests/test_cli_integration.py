@@ -512,7 +512,7 @@ def test_demux_requires_a_reference(tmp_path, mock_fastq):
 
 def _hitlist_dir(project_dir):
     """Return the default hitlist output directory."""
-    return project_dir / "pick" / "Integra ASSIST Input"
+    return project_dir / "pick" / "integra_assist_input"
 
 
 def _first_hitlist(project_dir):

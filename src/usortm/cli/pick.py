@@ -15,7 +15,7 @@ from rich import box
 from usortm.cli.theme import get_console, BORDER_STYLE, section
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD, MIXED_TEMPLATE_WATCH,
                                 column_agreement_class)
-from usortm.paths import input_file
+from usortm.paths import INTEGRA_DIRNAME, input_file
 
 console = get_console()
 
@@ -367,7 +367,7 @@ def pick(
     pick_dir = pick_dir_base
     pick_dir.mkdir(parents=True, exist_ok=True)
 
-    integra_dir = pick_dir / "Integra ASSIST Input"
+    integra_dir = pick_dir / INTEGRA_DIRNAME
     integra_dir.mkdir(exist_ok=True)
 
     output_dir = integra_dir
@@ -378,7 +378,7 @@ def pick(
     # Save pick list in Integra ASSIST PLUS format (one file per target plate)
     written_files = _save_pick_list(pick_list, output_dir, volume)
 
-    # Write README for the Integra ASSIST Input folder
+    # Write README for the hitlist folder
     _write_integra_readme(integra_dir, written_files, volume, target_format)
 
     # Generate per-well pileup HTMLs for picked hits
@@ -449,12 +449,22 @@ def pick(
                 for _row in csv.DictReader(_sf):
                     streakout_well_keys.add(f"{_row['plate']}_{_row['well']}")
 
-        mutation_well_data = [
-            w for w in well_data
-            if w.get("cons_check", "") in ("Other Error", "Error")
-            and w.get("reads", 0) >= 20
-            and f"{w['plate']}_{w['well']}" not in streakout_well_keys
-        ]
+        # A well is worth a pileup when something is wrong with it that the
+        # summary cannot settle.  That is an error call, and also a column
+        # holding a second template: those are excluded from the pick for
+        # exactly the reason someone would want to look at them, and they had
+        # no pileup at all.
+        def _wants_a_pileup(w) -> bool:
+            if w.get("reads", 0) < 20:
+                return False
+            if f"{w['plate']}_{w['well']}" in streakout_well_keys:
+                return False
+            if w.get("cons_check", "") in ("Other Error", "Error"):
+                return True
+            return column_agreement_class(
+                w.get("max_mismatch_frac")) == "mixed"
+
+        mutation_well_data = [w for w in well_data if _wants_a_pileup(w)]
         if mutation_well_data:
             try:
                 from usortm.demux.streakout import generate_pick_pileups

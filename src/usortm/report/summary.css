@@ -4,6 +4,8 @@
   --surface-1:#fcfcfb; --surface-2:#f3f3f0; --rule:#dedcd5;
   --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#75736c;
   --series-1:#2a78d6; --good:#1baf7a; --warn:#eb6834; --bad:#d1495b;
+  /* Lighter than --rule: a chart's grid is read past, not read. */
+  --grid:#ebeae4;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
@@ -11,6 +13,7 @@
     --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
     --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
     --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+    --grid:#2a2a28;
   }
 }
 :root[data-theme="dark"] {
@@ -18,12 +21,17 @@
   --surface-1:#1a1a19; --surface-2:#232322; --rule:#3a3a37;
   --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#96948a;
   --series-1:#3987e5; --good:#199e70; --warn:#d95926; --bad:#c2415a;
+  --grid:#2a2a28;
 }
 body { margin:0; background:var(--surface-1); color:var(--text-primary);
        font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
 /* Wide enough for two 384-well plates side by side; narrower and the wells
-   stop being large enough to pick a colour out of. */
-main { max-width:1180px; margin:0 auto; padding:2rem; }
+   stop being large enough to pick a colour out of.  The cap is the page's
+   whole width rather than its text's, so the side padding comes out of it and
+   the content stops short of the window edge instead of widening the page. */
+main { max-width:1180px; box-sizing:border-box; margin:0 auto;
+       padding:2rem 3.25rem; }
+@media (max-width: 760px) { main { padding:1.25rem; } }
 h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .meta { display:inline-block; margin:.15rem 0 .5rem; padding:.2rem .5rem;
         border-radius:4px; background:var(--surface-2);
@@ -33,13 +41,117 @@ h1 { font-size:1.15rem; margin:0 0 .2rem; font-weight:600; }
 .sub { color:var(--text-secondary); font-size:.9rem; margin:0 0 1.75rem; }
 
 .stats { display:flex; flex-wrap:wrap; gap:1.75rem; margin-bottom:2rem; }
+/* Each metric holds its own width.  As shrinkable flex items they give way
+   to the widest one in the row, and a metric squeezed below the width of its
+   value breaks the value off its unit and clips the number rather than
+   wrapping it.  The row wraps whole metrics instead. */
+.stats > div { flex:0 0 auto; }
 .k { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
      color:var(--text-muted); }
-.v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums; }
+.v { font-size:1.3rem; font-weight:600; font-variant-numeric:tabular-nums;
+     white-space:nowrap; }
 .u { font-size:.8rem; color:var(--text-secondary); font-weight:400; }
+
+/* How deep the sampling went, as a gauge under the number.  An unfilled dot
+   keeps its outline so the scale's length is visible whatever the reading. */
+/* The dots are 7px tall, so the gauge takes padding to hover and to focus
+   against; without it the target is the glyph itself and the card flickers
+   as the pointer crosses the gaps between dots. */
+.gauge { position:relative; display:inline-block; cursor:help;
+         padding:.35rem .25rem .25rem 0; }
+.gauge:focus-visible { outline:2px solid var(--series-1); outline-offset:2px;
+                       border-radius:3px; }
+.dots { display:flex; gap:3px; width:max-content; }
+/* Its own class rather than .tip, which the plate maps' well hover already
+   owns further down this file: that rule sets display:none and toggles a
+   .on class from script, and it won this one on order alone.
+
+   Hidden by visibility rather than display, so the text stays in the box the
+   card is measured against and does not reflow when it opens. */
+.gaugetip { position:absolute; z-index:50; top:calc(100% + .3rem); left:0;
+       width:17rem; padding:.55rem .7rem; border-radius:5px;
+       border:1px solid var(--rule); background:var(--surface-1);
+       box-shadow:0 3px 12px rgba(0,0,0,.18); color:var(--text-secondary);
+       font-size:.75rem; line-height:1.45; font-weight:400;
+       white-space:normal; text-transform:none; letter-spacing:normal;
+       opacity:0; visibility:hidden; pointer-events:none;
+       transform:translateY(-3px);
+       /* Visibility does not interpolate, so it is held at its old value for
+          the length of the fade and switched at the end.  Without that the
+          card is taken out of sight on the first frame and the fade out is
+          never seen. */
+       transition:opacity .14s ease, transform .14s ease,
+                  visibility 0s linear .14s; }
+.gauge:hover .gaugetip,
+.gauge:focus-visible .gaugetip {
+  opacity:1; visibility:visible; transform:translateY(0);
+  transition:opacity .14s ease, transform .14s ease,
+             visibility 0s linear 0s; }
+/* Every band drawn, with this run's marked: the gauge is a picture, and a
+   picture is read against other pictures faster than against a rule stated
+   in words.  A grid so the examples line up down one column and the depths
+   they stand for down another. */
+.gaugescale { display:grid; grid-template-columns:auto 1fr;
+              gap:.3rem .55rem; align-items:center; margin-top:.5rem; }
+.gaugescale b { font-weight:400; color:var(--text-muted); }
+.gaugescale b.now { font-weight:600; color:var(--text-primary); }
+.dots i { width:7px; height:7px; border-radius:50%; box-sizing:border-box;
+          border:1px solid var(--rule); background:none; }
+.dots.warn i.on { background:var(--warn); border-color:var(--warn); }
+.dots.good i.on { background:var(--good); border-color:var(--good); }
 
 h2 { font-size:.95rem; margin:2.25rem 0 .2rem; font-weight:600; }
 .note { color:var(--text-secondary); font-size:.85rem; margin:0 0 .9rem; }
+
+/* A section's explanation, folded into a button beside its heading.  Two
+   sections stand side by side and their notes wrap to different heights, so a
+   note in the flow started one table lower than the other and no two rows
+   lined up; out of the flow neither note can move a table.  A <details>
+   rather than a scripted popover: it opens from the keyboard and stays open
+   while it is read, which a hover card does not. */
+.head { position:relative; display:flex; align-items:center; gap:.4rem;
+        margin:2.25rem 0 .2rem; }
+.head h2 { margin:0; }
+/* The glyph is drawn rather than typed.  A letter i is centred on its own
+   bearings, not on the circle, and no combination of line-height and padding
+   puts it in the middle at this size; a dot and a stem always sit where they
+   are placed.  Border and mark share one grey so the button reads as a single
+   object. */
+/* display:block rather than the list-item a summary is by default, so no
+   marker box is reserved beside the circle.  Centring is left to the flex
+   line: measured against the painted glyphs, that puts the circle 0.3px above
+   the centre of the heading's capitals, and a transform to close that would
+   cost more in blur than it gains -- the border is one pixel wide, and a
+   fractional offset renders it across two. */
+.info > summary { list-style:none; display:block; cursor:pointer;
+                  width:15px; height:15px;
+                  box-sizing:border-box; border-radius:50%;
+                  border:1px solid currentColor; color:var(--text-muted);
+                  background:none; position:relative; user-select:none;
+                  flex:0 0 auto; }
+.info > summary::before, .info > summary::after {
+  content:""; position:absolute; left:50%; transform:translateX(-50%);
+  background:currentColor; }
+.info > summary::before { top:2.5px; width:1.5px; height:1.5px;
+                          border-radius:50%; }
+.info > summary::after { top:5.5px; width:1.5px; height:5px;
+                         border-radius:.75px; }
+.info > summary::-webkit-details-marker { display:none; }
+.info > summary:hover,
+.info[open] > summary { color:var(--text-primary); }
+.info > summary:focus-visible { outline:2px solid var(--series-1);
+                                outline-offset:2px; }
+/* Hung from the heading rather than from the button, so it opens inside its
+   own column wherever that column sits: under the button it would run off the
+   page from a heading in the first column. */
+.info .pop { position:absolute; z-index:45; top:calc(100% + .45rem); left:0;
+             width:min(21rem, 100%);
+             padding:.55rem .7rem; border-radius:5px;
+             border:1px solid var(--rule); background:var(--surface-1);
+             box-shadow:0 3px 12px rgba(0,0,0,.18);
+             color:var(--text-secondary); font-size:.8rem; line-height:1.45; }
+.info .pop code { font-family:SF Mono,Menlo,Consolas,monospace;
+                  font-size:.92em; color:var(--text-primary); }
 
 table { border-collapse:collapse; font-size:.85rem; width:100%;
         margin-bottom:.5rem; }
@@ -49,6 +161,15 @@ th { text-align:left; font-weight:600; color:var(--text-muted);
 td { padding:.35rem .6rem .35rem 0; border-bottom:1px solid var(--rule);
      font-variant-numeric:tabular-nums; }
 td.name { font-variant-numeric:normal; }
+
+/* Not recovered, on the pick plate: the fill says the well is empty and the
+   outline says the emptiness was counted.  Solid and in the text's own ink
+   rather than dashed and grey, which read as another shade of absent among
+   the pale end of the depth ramp. */
+.w.none  { background:var(--surface-2); border-style:solid;
+           border-color:var(--text-primary); }
+.swatch.none { background:var(--surface-2); border-style:solid;
+               border-color:var(--text-primary); }
 
 /* A share shown as a bar as well as a number: comparing rows is the point,
    and the eye does that faster than arithmetic. */
@@ -67,9 +188,12 @@ td.name { font-variant-numeric:normal; }
         color:var(--text-muted); margin-top:.3rem; }
 .hint { color:var(--text-secondary); font-size:.75rem; margin-top:.15rem; }
 
+/* Held inside the line it sits on: at the inherited line height the chip's
+   own box plus its padding stands taller than the row's text, and the
+   recovery table's rows then miss those of the table beside it. */
 .chip { display:inline-block; padding:.05rem .45rem; border-radius:10px;
-        font-size:.72rem; font-weight:600; background:var(--surface-2);
-        color:var(--text-secondary); }
+        font-size:.72rem; line-height:1.35; font-weight:600;
+        background:var(--surface-2); color:var(--text-secondary); }
 .chip.a { color:var(--good); }
 .chip.b { color:var(--series-1); }
 .chip.c { color:var(--warn); }
@@ -125,22 +249,23 @@ a.w { cursor:pointer; }
 /* Lifted while hovered: cells paint in document order, so without this the
    next well's background covers the half of the outline that overlaps it. */
 a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
-.w.mut::after, .w.parent::after, .w.uncalled::after {
+.w.mut::after, .w.parent::after {
   content:""; position:absolute; inset:0; border-radius:1px;
   clip-path:polygon(0 0, 100% 0, 0 100%);
 }
 .w.mut::after      { background:#dc2626; }
-/* Worth checking sits in the opposite corner from what the well contains, so a
-   well can say both at once: a library member that reads uncleanly is not the
-   same as one that is not a library member. */
-.w.watch::before { content:""; position:absolute; inset:0; border-radius:1px;
-                   clip-path:polygon(100% 100%, 100% 35%, 35% 100%);
-                   background:var(--series-1); }
-.swatch.watch { background:var(--series-1); }
+/* Worth checking is the well's own edge, so it says nothing about what the
+   well holds and the corner is left to that: a library member that reads
+   uncleanly is not the same as one that is not a library member, and both
+   can be true of one well.  An edge also reads against any fill, where a
+   mark laid over the well competed with the dark end of the depth ramp.
+   Drawn as a border plus an inset ring rather than a thicker border, which
+   would grow the cell and pull the plate out of its grid. */
+.w.watch { border-color:var(--series-1);
+           box-shadow:inset 0 0 0 1px var(--series-1); }
+.swatch.watch { background:var(--surface-2); border-color:var(--series-1);
+                box-shadow:inset 0 0 0 1px var(--series-1); }
 .w.parent::after   { background:#d97706; }
-.w.uncalled::after { background:var(--text-muted); }
-.w.none  { background:var(--surface-2); border-style:dashed;
-           border-color:var(--text-muted); }
 .w.blank { background:repeating-linear-gradient(45deg,
              var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 
@@ -152,8 +277,6 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
         border:1px solid var(--rule); display:inline-block; }
 .swatch.mut      { background:#dc2626; }
 .swatch.parent   { background:#d97706; }
-.swatch.uncalled { background:var(--text-muted); }
-.swatch.none     { background:var(--surface-2); border-style:dashed; }
 .swatch.blank    { background:repeating-linear-gradient(45deg,
                      var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 
@@ -164,12 +287,20 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
 /* The plate-map hover, positioned by script: a pale card with a thin border
    and dark text in either theme, since the hover markup carries its own
    colours and would otherwise fight the surface behind it. */
-.tip { position:absolute; z-index:50; display:none; max-width:22rem;
+/* Faded rather than switched on: the tip follows the pointer across a
+   plate of 384 wells, and appearing outright at each one reads as flicker.
+   Opacity only, since the position is set from script on every move and a
+   transform would be fighting it.  Laid out at all times now rather than
+   display:none, which also means script can measure it before it is shown. */
+.tip { position:absolute; z-index:50; max-width:22rem;
        padding:.45rem .6rem; border-radius:5px; pointer-events:none;
        background:#fff; color:#111; border:1px solid #c8c8c8;
        box-shadow:0 2px 8px rgba(0,0,0,.16);
-       font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif; }
-.tip.on { display:block; }
+       font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
+       opacity:0; visibility:hidden;
+       transition:opacity .1s ease, visibility 0s linear .1s; }
+.tip.on { opacity:1; visibility:visible;
+          transition:opacity .1s ease, visibility 0s linear 0s; }
 
 /* Charts that carry their own text: unlike the sparklines these keep their
    aspect ratio, or the labels stretch with the box. */
@@ -178,10 +309,14 @@ footer code { font-family:SF Mono,Menlo,Consolas,monospace; }
 /* Four plots on one grid rather than stacked in two columns: they are read
    against each other, and a 2-up block keeps each one at a size where its
    axis labels still fit. */
-.quad { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
-        gap:0 1.8rem; align-items:start; }
-@media (max-width: 900px) { .quad { grid-template-columns:repeat(2, 1fr); } }
-@media (max-width: 620px) { .quad { grid-template-columns:1fr; } }
+/* Two panels now that the simulation's numbers hang off the curve's key: the
+   histograms stacked, and the curve beside them.  Both columns are sized to
+   their contents and packed left, so the slack falls to the right of the curve
+   rather than between the two -- which both keeps the pair read as one block
+   and leaves the curve's key somewhere to open its popout. */
+.quad { display:grid; grid-template-columns:19rem auto 19rem;
+        justify-content:start; gap:0 2.2rem; align-items:start; }
+@media (max-width: 760px) { .quad { grid-template-columns:1fr; } }
 
 /* The parameters a curve was computed under, kept with the curve so the
    figure and its conditions cannot be separated.  A table rather than a
@@ -195,12 +330,20 @@ table.params td:not(.name) { text-align:right; font-weight:600;
 table.params td.name { font-weight:400; color:var(--text-secondary); }
 table.params th:not(:first-child) { text-align:right; }
 
-/* A square plot, with its scale in HTML beside it rather than inside it. */
+/* A square plot, with its scale in HTML beside it rather than inside it.
+
+   The plot carries its own width rather than flexing into what is left.  On
+   flex:1 its basis is zero, so it counted for nothing when the column it sits
+   in was measured, and the column came out as wide as the caption under the
+   plot instead: at some window widths that left the square a tall, narrow
+   sliver.  align-self keeps the height the aspect ratio asks for, which
+   stretch would otherwise override. */
 .plotwrap { display:flex; gap:.5rem; align-items:stretch; margin-top:.2rem; }
-.plotbox { position:relative; flex:1; aspect-ratio:1; max-width:13rem; }
+.plotbox { position:relative; flex:0 0 auto; align-self:flex-start;
+           width:13rem; aspect-ratio:1; }
 .plotbox .sq { width:100%; height:100%; display:block; }
 .yaxis { display:flex; flex-direction:column; justify-content:space-between;
-         text-align:right; font-size:.66rem; color:var(--text-muted);
+         text-align:right; font-size:.72rem; color:var(--text-secondary);
          padding-bottom:.1rem; }
 .yaxis span { line-height:1; }
 .obs { position:absolute; width:9px; height:9px; border-radius:50%;
@@ -208,7 +351,8 @@ table.params th:not(:first-child) { text-align:right; }
        transform:translate(-50%, -50%); }
 .obslab { position:absolute; transform:translate(8px, -170%);
           font-size:.66rem; color:var(--bad); white-space:nowrap; }
-.axis.inset { max-width:13rem; margin-left:2.3rem; font-size:.66rem; }
+.axis.inset { max-width:13rem; margin-left:2.3rem; font-size:.72rem;
+              color:var(--text-secondary); }
 
 /* Plate ticks carry a number and its value, stacked. */
 .axis.plates { justify-content:space-around; align-items:flex-start; }
@@ -219,26 +363,26 @@ table.params th:not(:first-child) { text-align:right; }
 /* Small-to-medium: the four panels are read side by side, so each plot is
    held well short of its column rather than stretched across it. */
 .quad .chart, .quad .axis, .quad .hint { max-width:19rem; }
-.quad .plotbox { max-width:12rem; }
-.quad .axis.inset { max-width:12rem; }
+/* Square, and sized to the histograms' own plot area rather than to their
+   column: the square's top and bottom spines land on the top of the upper
+   chart and the bottom of the lower one.  That span measures 274px -- two
+   76px charts plus the axis, caption and heading between them -- so the
+   curve's own tick row hangs below the pair, which is the side of the trade
+   that keeps the three plots reading as one row.  Re-measure this if the
+   charts change height or a caption gains a line. */
+.quad .plotbox { width:17.125rem; max-width:none; }
+.quad .axis.inset { max-width:17.125rem; margin-left:2.3rem; }
 
 /* Fold-sampling ticks under the square, positioned to the gridlines they
    name rather than spaced evenly. */
 .xticks { position:absolute; left:0; right:0; top:100%; height:1rem; }
 .xticks span { position:absolute; transform:translateX(-50%);
-               font-size:.66rem; color:var(--text-muted); line-height:1.6; }
-.xlab { margin-left:2.3rem; font-size:.66rem; color:var(--text-muted);
+               font-size:.72rem; color:var(--text-secondary);
+               line-height:1.6; }
+/* The axis label names the units the ticks are in, so it stays quieter than
+   they are. */
+.xlab { margin-left:2.3rem; font-size:.7rem; color:var(--text-muted);
         margin-top:1rem; }
-
-/* Which line is which, since there are now two. */
-.key { display:flex; flex-wrap:wrap; gap:.15rem .7rem; margin-top:.45rem;
-       font-size:.66rem; color:var(--text-muted); }
-.key span { display:inline-flex; align-items:center; gap:.28rem; }
-.key i { width:13px; height:0; border-top:2px solid var(--series-1);
-         display:inline-block; }
-.key i.k2 { border-top:2px dashed var(--text-muted); }
-.key i.k3 { width:8px; height:8px; border:0; border-radius:50%;
-            background:var(--bad); }
 
 /* The palette switch, and the row a pick was taken from. */
 .themeToggle { position:fixed; top:1rem; right:1rem; z-index:60;
@@ -251,13 +395,91 @@ tr.sel td { background:var(--surface-2); }
 /* The two plate maps on one line, with the depth ramp standing once to the
    left of both.  Grids are the only things in the row, so they start together;
    headings and tabs sit above it, where their differing heights cost nothing. */
-.platerow { display:flex; align-items:flex-start; gap:1.1rem;
-            margin-bottom:1.25rem; }
-.platerow .pcol { flex:1 1 0; min-width:0; }
+/* Heading, plate and legend each sit in their plate's own column, and the
+   ramp occupies the middle one across the plate row.  Laid out apart, the
+   headings ran on two columns while the plates ran on three, so a heading
+   began half way across the page and its plate began somewhere else. */
+.platewrap { display:grid; grid-template-columns:1fr auto 1fr;
+             grid-template-rows:auto auto auto;
+             column-gap:1.1rem; margin-bottom:1.25rem;
+             align-items:start; }
+/* Column and row are both stated for every part.  Pinning only the row let
+   the second heading flow into the ramp's column, which put a title over a
+   colour scale and left its plate somewhere else entirely. */
+.platewrap .phead { grid-row:1; }
+.platewrap .pgrid { grid-row:2; min-width:0; }
+.platewrap .pleg  { grid-row:3; }
+.platewrap .left  { grid-column:1; }
+.platewrap .right { grid-column:3; }
+/* The ramp spans the plate row only: over the headings it would stand taller
+   than the thing it is a scale for. */
+.platewrap .cbcol { grid-column:2; grid-row:2; }
+.platewrap .phead h2 { margin-top:0; }
 /* Centred between the plates rather than flush against one, so it reads as
    belonging to both. */
 .cbcol { display:flex; flex-direction:column; align-items:center;
-         flex:0 0 auto; align-self:stretch; }
+         align-self:stretch; }
 .cbcol .cbar { flex:1; }
 .cbcol .cblab { font-size:.66rem; color:var(--text-muted); margin-top:.4rem;
                 line-height:1.2; text-align:center; }
+
+/* Detail a reader asks for rather than one they scroll past: the model
+   parameters are the point, and the well accounting is what you open when a
+   parameter looks wrong. */
+details.more { margin-top:.7rem; }
+details.more > summary { cursor:pointer; font-size:.72rem;
+                         color:var(--text-secondary); list-style:none;
+                         padding:.15rem 0; }
+details.more > summary::-webkit-details-marker { display:none; }
+details.more > summary::before { content:"\25B8"; display:inline-block;
+                                 width:1em; color:var(--text-muted); }
+details.more[open] > summary::before { content:"\25BE"; }
+details.more > summary:hover { color:var(--text-primary); }
+details.more table.params { margin-top:.3rem; }
+
+/* One plate at a time, stepped from the heading.  Sits in the heading row so
+   the demux and pick titles stay on one line and their grids start together. */
+.stepper { display:flex; align-items:center; gap:.3rem; margin-left:.15rem; }
+.stepper button { font:inherit; font-size:.78rem; line-height:1;
+                  width:1.15rem; height:1.15rem; padding:0; cursor:pointer;
+                  display:flex; align-items:center; justify-content:center;
+                  border:1px solid var(--rule); border-radius:4px;
+                  background:var(--surface-1); color:var(--text-secondary); }
+.stepper button:hover:not(:disabled) { background:var(--surface-2);
+                                       color:var(--text-primary); }
+.stepper button:disabled { opacity:.35; cursor:default; }
+.stepper .count { font-size:.72rem; color:var(--text-muted);
+                  font-variant-numeric:tabular-nums; min-width:2.6rem;
+                  text-align:center; }
+.stepper .count b { color:var(--text-primary); font-weight:600; }
+
+/* The curve's key, in the corner the curve leaves empty.  Inside the plot
+   because it names what is drawn there, and a key set below the axis reads as
+   another row of the page. */
+.plotkey { position:absolute; right:.5rem; bottom:.5rem; z-index:4;
+           display:flex; align-items:center; gap:.45rem;
+           padding:.35rem .5rem; border-radius:5px;
+           border:1px solid var(--rule); background:var(--surface-1);
+           font-size:.68rem; color:var(--text-secondary); }
+/* A grid, not a row of inline pairs: the marks are a 13px rule and an 8px
+   dot, so laid out inline each label started where its own mark ended and no
+   two lines began together.  One column sized to the wider mark centres both
+   against it and starts both labels on the same edge. */
+.keyrows { display:grid; grid-template-columns:13px auto;
+           align-items:center; gap:.15rem .3rem; }
+.plotkey i { width:13px; height:0; border-top:2px solid var(--series-1);
+             display:block; justify-self:center; }
+.plotkey i.k3 { width:8px; height:8px; border:0; border-radius:50%;
+                background:var(--bad); }
+/* The card opens beside the plot rather than over it.  Its own numbers are
+   read against the curve, so covering the curve to show them defeats the
+   comparison; the slack to the right of the column is where it goes.  Held to
+   the square's height so it cannot reach past either spine, and scrolled
+   inside if its tables run longer -- it opens on a click and stays open, so
+   scrolling it is no worse than reading it. */
+.keyinfo { position:static; }
+.keyinfo .pop { top:auto; right:auto; bottom:-.5rem;
+                left:calc(100% + .95rem); box-sizing:border-box;
+                width:17rem; max-height:17.125rem; overflow-y:auto; }
+.keyinfo .pop p { margin:0 0 .45rem; }
+.keyinfo .pop p:last-child { margin:.45rem 0 0; }

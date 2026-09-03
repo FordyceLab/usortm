@@ -29,7 +29,7 @@ This module defines that configuration, read from a TOML file::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 import tomllib
@@ -81,6 +81,14 @@ class Segment:
     name: str
     path: Path
     plates: dict[int, int] = field(default_factory=dict)
+    #: Further FASTQs read together with *path*, when more than one covers the
+    #: same sort plate.  Empty for a segment that stands alone.
+    extra_paths: list[Path] = field(default_factory=list)
+
+    @property
+    def all_paths(self) -> list[Path]:
+        """Every FASTQ this segment reads."""
+        return [self.path, *self.extra_paths]
 
     @property
     def barcode_plates(self) -> list[int]:
@@ -223,7 +231,12 @@ def parse_plate_map(doc: dict, base_dir: Optional[Path] = None) -> list[Segment]
             Segment(name=name, path=path, plates=_coerce_plates(entry.get("plates"), where))
         )
 
-    _validate_across_segments(segments)
+    segments, pooling_notes = _pool_shared_plates(segments)
+    # Carried on the list so the caller can say what was pooled: the run has
+    # fewer segments than the file has FASTQ entries, and that should not be
+    # something a reader has to notice for themselves.
+    segments = _WithNotes(segments)
+    segments.notes = pooling_notes
     return segments
 
 
@@ -232,22 +245,99 @@ def check_segment_paths(segments: list) -> list:
     return [seg for seg in segments if not Path(seg.path).exists()]
 
 
-def _validate_across_segments(segments: list[Segment]) -> None:
-    """Check invariants that span segments.
+class _WithNotes(list):
+    """A list of segments that remembers what was said while building it."""
 
-    A sort plate may be produced by only one segment; otherwise two different
-    FASTQs would write to the same wells and silently merge.
+    notes: list = []
+
+
+def _pool_shared_plates(segments: list[Segment]) -> tuple[list[Segment],
+                                                          list[str]]:
+    """Fold segments covering the same sort plate into one.
+
+    Two FASTQs can legitimately carry the same plate -- a re-PCR, a second run
+    for depth -- and their reads belong together.  Left as separate segments
+    they would each write per-well files named by sort plate and well, and the
+    merged view replaces on collision, so one segment's reads would vanish
+    without a word.
+
+    Returns the folded segments and a note for each pooling performed.
+
+    Raises:
+        PlateMapError: If two segments route different barcode plates to one
+            sort plate, which no pooling can resolve.
     """
-    owner: dict[int, str] = {}
+    # Segments are joined when they share a sort plate, and joining is
+    # transitive: a third FASTQ sharing a plate with either belongs with both.
+    groups: list[list[Segment]] = []
     for seg in segments:
-        for sort_plate in seg.sort_plates:
-            if sort_plate in owner:
+        touching = [g for g in groups
+                    if set(g_seg_plates(g)) & set(seg.sort_plates)]
+        if not touching:
+            groups.append([seg])
+            continue
+        merged = [seg]
+        for g in touching:
+            merged.extend(g)
+            groups.remove(g)
+        groups.append(merged)
+
+    # Groups come back in the order their first segment appeared.
+    groups.sort(key=lambda g: min(segments.index(s) for s in g))
+
+    folded: list[Segment] = []
+    notes: list[str] = []
+    for group in groups:
+        group = sorted(group, key=segments.index)
+        if len(group) == 1:
+            folded.append(group[0])
+            continue
+
+        plates: dict[int, int] = {}
+        for seg in group:
+            for barcode, sort_plate in seg.plates.items():
+                if plates.get(barcode, sort_plate) != sort_plate:
+                    raise PlateMapError(
+                        f"Barcode plate {barcode} maps to sort plate "
+                        f"{plates[barcode]} in one FASTQ and {sort_plate} in "
+                        f"'{seg.name}'. The FASTQs share a sort plate, so "
+                        "their reads must be read together, and that needs "
+                        "one mapping."
+                    )
+                plates[barcode] = sort_plate
+
+        by_sort: dict[int, int] = {}
+        for barcode, sort_plate in plates.items():
+            if sort_plate in by_sort:
                 raise PlateMapError(
-                    f"Sort plate {sort_plate} is claimed by both "
-                    f"'{owner[sort_plate]}' and '{seg.name}'. Each sort plate "
-                    "must come from exactly one FASTQ."
+                    f"Sort plate {sort_plate} is reached from barcode plates "
+                    f"{by_sort[sort_plate]} and {barcode} across FASTQs that "
+                    "share a plate. Which barcode a read carries would decide "
+                    "which well it lands in, so this cannot be pooled."
                 )
-            owner[sort_plate] = seg.name
+            by_sort[sort_plate] = barcode
+
+        head, rest = group[0], group[1:]
+        shared = sorted(set(head.sort_plates).intersection(
+            *(set(s.sort_plates) for s in rest)))
+        notes.append(
+            f"{', '.join(s.name for s in group)} cover sort plate"
+            f"{'s' if len(shared) > 1 else ''} "
+            f"{', '.join(str(p) for p in shared)} between them; their reads "
+            f"are pooled."
+        )
+        folded.append(replace(
+            head,
+            plates=plates,
+            extra_paths=[*head.extra_paths, *(s.path for s in rest),
+                         *(p for s in rest for p in s.extra_paths)],
+        ))
+    return folded, notes
+
+
+def g_seg_plates(group: list[Segment]) -> list[int]:
+    """Every sort plate a group of segments covers."""
+    return [p for seg in group for p in seg.sort_plates]
 
 
 def load_plate_map(path: Path) -> list[Segment]:

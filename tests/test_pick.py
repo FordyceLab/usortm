@@ -12,7 +12,7 @@ runner = CliRunner()
 
 def _hitlist_path(project_dir):
     """Return the first per-plate hitlist file."""
-    d = project_dir / "pick" / "Integra ASSIST Input"
+    d = project_dir / "pick" / "integra_assist_input"
     files = sorted(d.glob("hitlist_plate_*.csv"))
     return files[0] if files else d / "hitlist_plate_0.csv"
 
