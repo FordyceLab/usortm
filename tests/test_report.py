@@ -688,3 +688,40 @@ def test_a_summary_left_in_the_report_directory_is_dropped(mock_project_with_lib
                         "--format", "html"])
 
     assert not stale.exists()
+
+
+def test_a_variant_seen_only_in_mixed_wells_is_missing():
+    """A mixed template does not recover the variant it was called as.
+
+    The classifier behind missing_variants.csv and library_recovery.csv
+    dropped error and flank-failed wells but never tested how far the worst
+    column disagreed, while the recovery tiers did.  A variant supported only
+    by mixed wells was therefore recovered by one and missing by the other; on
+    a real run that was 9 of 38 dropouts, which is 9 constructs that would not
+    have been re-ordered.
+    """
+    from usortm.cli.report import _classify_variants
+
+    def well(variant, frac):
+        return {"variant": variant, "reads": 500, "consensus_fraction": 0.99,
+                "cons_check": "Perfect Match", "flank_check": "OK",
+                "max_mismatch_frac": frac}
+
+    library = ["CLEAN", "MIXED"]
+    rows = {r["name"]: r["status"] for r in _classify_variants(
+        library, [well("CLEAN", 0.01), well("MIXED", 0.40)], "C")}
+
+    assert rows["CLEAN"] == "recovered"
+    assert rows["MIXED"] == "missing"
+
+
+def test_a_watched_well_still_recovers_its_variant():
+    """Only past the mixed threshold does the well stop counting."""
+    from usortm.cli.report import _classify_variants
+    from usortm.demux.utils import MIXED_TEMPLATE_THRESHOLD
+
+    row = {"variant": "V", "reads": 500, "consensus_fraction": 0.99,
+           "cons_check": "Perfect Match", "flank_check": "OK",
+           "max_mismatch_frac": MIXED_TEMPLATE_THRESHOLD - 0.01}
+    got = _classify_variants(["V"], [row], "C")
+    assert got[0]["status"] == "recovered"

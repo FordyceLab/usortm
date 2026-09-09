@@ -626,15 +626,24 @@ def _classify_variants(
     pick_tier = (pick_tier or "A").upper()
     pick_tier_rank = _TIER_ORDER.index(pick_tier) if pick_tier in _TIER_ORDER else 0
 
-    # Best tier per variant across all wells (exclude mutation and flank-error wells)
-    has_flank_data = any(w.get("flank_check") for w in well_data)
+    # Best tier per variant, over the wells that hold their designed sequence.
+    # The same predicate the recovery tiers and the plate maps use: judged
+    # separately this excluded error and flank-failed wells but never tested
+    # how far the worst column disagreed, so a variant supported only by mixed
+    # templates was counted recovered here and missing by the tier table.  On
+    # one run that was 9 of 38 dropouts, which is 9 constructs that would not
+    # have been re-ordered.
+    from usortm.report.plates import carries_designed_sequence
+
+    designed = set(library_names)
     best: dict[str, str] = {}
     for w in well_data:
-        if w.get("cons_check", "") in ("Other Error", "Error"):
+        # The predicate matches on the assigned name, which carries no suffix
+        # in current output but did in older runs; the split is why this is
+        # tested against a normalised row rather than the row itself.
+        name = str(w.get("variant") or "").split("|")[0]
+        if not carries_designed_sequence({**w, "variant": name}, designed):
             continue
-        if has_flank_data and w.get("flank_check", "") != "OK":
-            continue
-        name = w["variant"].split("|")[0]
         t = _best_tier(w["reads"], w["consensus_fraction"])
         if t:
             prev = best.get(name, "")
