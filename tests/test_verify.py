@@ -9,7 +9,8 @@ import csv
 
 import pytest
 
-from usortm.verify import (CONFIRMED, EMPTY, LAYOUTS, QUADRANTS, WRONG,
+from usortm.verify import (CONFIRMED, EMPTY, FAILURE_REASONS, LAYOUTS,
+                           QUADRANTS, WRONG, failure_reason,
                            OrderedWell, Replicate, ReplicateMapError,
                            expected_wells, infer_layout, parse_replicate_map,
                            read_order_layout, read_replicate_map,
@@ -336,3 +337,59 @@ def test_replicates_are_counted_apart():
     assert got["by_replicate"][2] == {CONFIRMED: 0, WRONG: 0, EMPTY: 2}
     # The constructs are still recovered, on replicate 1 alone.
     assert got["confirmed"] == {"G3F", "S8M"}
+
+
+# --- why a well failed ----------------------------------------------------
+
+def _verdict(status, expected="G3F"):
+    from usortm.verify import WellVerdict
+    return WellVerdict(1, "A1", expected, None, 100, status, 1)
+
+
+def test_a_confirmed_well_has_no_reason():
+    assert failure_reason({"variant": "G3F"}, _verdict(CONFIRMED)) is None
+
+
+def test_the_reasons_send_you_to_different_places():
+    """A plate of parents is an assembly problem, of flanks a cloning one."""
+    def reason(row):
+        return failure_reason(row, _verdict(WRONG))
+
+    base = {"variant": "G3F", "consensus_fraction": 1.0, "flank_check": "OK",
+            "max_mismatch_frac": 0.01}
+
+    assert reason({**base, "variant": "Parent"}) == "parent"
+    assert reason({**base, "max_mismatch_frac": 0.40}) == "mixed template"
+    assert reason({**base, "flank_check": "3' mismatch"}) == "flank mismatch"
+    assert reason({**base, "variant": "S8M"}) == "another variant"
+    assert reason({**base, "flank_check": "No alignment"}) == "no alignment"
+    assert reason({**base, "consensus_fraction": 0.0}) == "no alignment"
+    assert reason(base) == "sequence differs"
+
+
+def test_a_well_that_never_grew_reads_as_no_reads():
+    assert failure_reason(None, _verdict(EMPTY)) == "no reads"
+    assert failure_reason({"variant": "G3F"}, _verdict(EMPTY)) == "no reads"
+
+
+def test_the_most_decisive_reason_wins():
+    """An empty vector also reads as another variant; it is not reported so."""
+    row = {"variant": "Parent", "consensus_fraction": 1.0,
+           "flank_check": "3' mismatch", "max_mismatch_frac": 0.40}
+    assert failure_reason(row, _verdict(WRONG)) == "parent"
+    # Without the backbone, two templates outrank a bad junction.
+    assert failure_reason({**row, "variant": "G3F"},
+                          _verdict(WRONG)) == "mixed template"
+
+
+def test_a_missing_mismatch_figure_is_not_a_mixed_template():
+    """The column is absent on runs that never measured it."""
+    row = {"variant": "G3F", "consensus_fraction": 1.0, "flank_check": "OK",
+           "max_mismatch_frac": float("nan")}
+    assert failure_reason(row, _verdict(WRONG)) == "sequence differs"
+
+
+def test_every_reason_is_declared():
+    assert set(FAILURE_REASONS) == {
+        "no reads", "no alignment", "parent", "mixed template",
+        "flank mismatch", "another variant", "sequence differs"}

@@ -411,6 +411,54 @@ def verify(well_data: Sequence[dict],
                                       _split_well(v.well)))
 
 
+#: Why a well did not confirm its order, most decisive first.  A well can
+#: fail several tests at once -- an empty vector also reads as a different
+#: variant -- so the reason is the first that applies rather than a list, and
+#: the order is by what a bench response would be: nothing grew, nothing
+#: aligned, the assembly gave the backbone, two templates are present, the
+#: junction is wrong, and only then the sequence itself.
+FAILURE_REASONS = ("no reads", "no alignment", "parent", "mixed template",
+                   "flank mismatch", "another variant", "sequence differs")
+
+
+def failure_reason(row: Optional[dict], verdict: "WellVerdict",
+                   mixed_threshold: float = 0.25) -> Optional[str]:
+    """Why a well did not hold the construct ordered for it.
+
+    Returns None for a confirmed well.  The reasons are separated because they
+    send you to different places: a plate of parents is an assembly problem, a
+    plate of flank mismatches a cloning one, and a plate of empty wells a
+    growth or picking one.
+
+    Args:
+        row: The well's demux record, or None if it was never sequenced.
+        verdict: The well's :class:`WellVerdict`.
+        mixed_threshold: Worst-column disagreement past which a well holds
+            more than one template.
+
+    Returns:
+        One of :data:`FAILURE_REASONS`, or None.
+    """
+    if verdict.status == CONFIRMED:
+        return None
+    if row is None or verdict.status == EMPTY:
+        return "no reads"
+    if (row.get("flank_check") or "") == "No alignment" or (
+            row.get("consensus_fraction") or 0) <= 0:
+        return "no alignment"
+    observed = row.get("variant") or ""
+    if observed == "Parent":
+        return "parent"
+    worst = row.get("max_mismatch_frac")
+    if worst is not None and worst == worst and float(worst) > mixed_threshold:
+        return "mixed template"
+    if (row.get("flank_check") or "OK") != "OK":
+        return "flank mismatch"
+    if observed != verdict.expected:
+        return "another variant"
+    return "sequence differs"
+
+
 def summarise(verdicts: Sequence[WellVerdict]) -> dict:
     """Counts by outcome, by replicate, and the variants each accounts for.
 
