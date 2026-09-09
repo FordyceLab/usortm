@@ -13,11 +13,17 @@ variant to the library, and the other two fail for different reasons -- a wrong
 sequence is an assembly or cloning problem, an empty well a growth or picking
 one -- so they are counted apart rather than together as "not recovered".
 
-The ordered layout comes from the synthesis order itself, which is written as a
-plate: :func:`read_order_layout` reads it back.  Where a 96-well order plate
-lands in the 384-well coordinates a LevSeq run reports is a property of how the
-cultures were arrayed rather than of the order, so it is stated separately and
-can be read off the data with :func:`infer_layout`.
+Two records fix which well holds what.  The synthesis order is already written
+as a plate, so it says which construct was ordered into which well of a 96-well
+plate; :func:`read_order_layout` reads it back.  The replicate map says where
+each picked colony of that plate was arrayed into the 384-well coordinates a
+LevSeq run reports -- a quadrant per replicate, since four 96-well plates
+interleave into one 384.  The two are separate because the order is fixed when
+the constructs are bought and the arraying is decided at the bench afterwards.
+
+A provided map is still checked against the reads: :func:`infer_layout` asks
+which arraying puts the constructs on wells that grew, which catches a map that
+describes a different plate than the one sequenced.
 """
 from __future__ import annotations
 
@@ -29,21 +35,20 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 ORDER_ROWS = "ABCDEFGH"
 ORDER_COLS = 12
 
-#: Rows and columns of the 384-well plate a LevSeq run addresses.  Four
-#: 96-well plates interleave into one of these, which is why a quadrant needs
-#: naming.
+#: Rows and columns of the 384-well plate a LevSeq run addresses.
 SEQ_ROWS = "ABCDEFGHIJKLMNOP"
 SEQ_COLS = 24
 
-#: How a 96-well order plate was arrayed into the sequenced plate.
+#: Where a 96-well plate sits inside the 384-well plate it was arrayed into.
 #:
-#: ``block`` is a straight copy into the top-left 96 wells, which is what
-#: transferring a 96-well culture plate one-for-one gives.  ``q1`` to ``q4``
-#: are the interleaved quadrants of a 384-well plate, which is what a 96-to-384
-#: head produces; the quadrant is set by the offset the head was placed at.
-LAYOUTS = ("block", "q1", "q2", "q3", "q4")
+#: Four 96-well plates interleave into one 384, and a quadrant is named by the
+#: 384-well its own A1 lands on -- the vocabulary a bench protocol uses.
+#: ``block`` is the other case: a straight copy into the top-left 96 wells,
+#: which is what moving a 96-well plate one-for-one gives.
+QUADRANTS = ("A1", "A2", "B1", "B2")
+LAYOUTS = ("block",) + QUADRANTS
 
-_QUADRANT_OFFSETS = {"q1": (0, 0), "q2": (0, 1), "q3": (1, 0), "q4": (1, 1)}
+_QUADRANT_OFFSETS = {"A1": (0, 0), "A2": (0, 1), "B1": (1, 0), "B2": (1, 1)}
 
 
 def _split_well(well: str) -> Tuple[int, int]:
@@ -90,6 +95,25 @@ class OrderedWell:
     variant: str
 
 
+@dataclass(frozen=True)
+class Replicate:
+    """One picked colony of every construct, and where it was arrayed."""
+
+    n: int
+    plate: int
+    quadrant: str
+
+
+@dataclass(frozen=True)
+class ExpectedWell:
+    """The construct and replicate intended for one sequenced well."""
+
+    plate: int
+    well: str
+    variant: str
+    replicate: int
+
+
 def read_order_layout(path) -> List[OrderedWell]:
     """Read the plate a synthesis order was written on.
 
@@ -130,49 +154,170 @@ def read_order_layout(path) -> List[OrderedWell]:
     return out
 
 
-def expected_wells(order: Iterable[OrderedWell], layout: str = "block",
+class ReplicateMapError(ValueError):
+    """A replicate map that cannot describe a plate."""
+
+
+def parse_replicate_map(doc: dict) -> List[Replicate]:
+    """Build the replicate map from an already-parsed TOML document.
+
+    Args:
+        doc: Parsed TOML mapping with ``[[replicate]]`` tables, each naming
+            the replicate number ``n``, the sequenced ``plate`` it went to,
+            and the ``quadrant`` of that plate it occupies.
+
+    Returns:
+        One :class:`Replicate` per entry, ordered by replicate number.
+
+    Raises:
+        ReplicateMapError: If an entry is malformed, a replicate number
+            repeats, or two replicates claim one quadrant of one plate --
+            which would put two colonies in the same well.
+    """
+    entries = doc.get("replicate")
+    if not entries:
+        raise ReplicateMapError(
+            "No [[replicate]] entries found. Each replicate needs 'n', "
+            "'plate' and 'quadrant'."
+        )
+    if not isinstance(entries, list):
+        raise ReplicateMapError("'replicate' must be a list of tables.")
+
+    out: List[Replicate] = []
+    seen_n: Dict[int, int] = {}
+    seen_slot: Dict[Tuple[int, str], int] = {}
+    for i, entry in enumerate(entries):
+        where = f"[[replicate]] #{i + 1}"
+        if not isinstance(entry, dict):
+            raise ReplicateMapError(f"{where} is not a table.")
+        try:
+            n = int(entry["n"])
+            plate = int(entry["plate"])
+        except KeyError as exc:
+            raise ReplicateMapError(f"{where} is missing {exc.args[0]!r}.")
+        except (TypeError, ValueError):
+            raise ReplicateMapError(f"{where}: 'n' and 'plate' must be whole "
+                                    f"numbers.")
+        quadrant = str(entry.get("quadrant", "")).strip().upper()
+        if quadrant not in QUADRANTS:
+            raise ReplicateMapError(
+                f"{where}: quadrant {entry.get('quadrant')!r} is not one of "
+                f"{', '.join(QUADRANTS)}."
+            )
+        if n in seen_n:
+            raise ReplicateMapError(
+                f"{where}: replicate {n} is already defined by "
+                f"[[replicate]] #{seen_n[n]}."
+            )
+        slot = (plate, quadrant)
+        if slot in seen_slot:
+            raise ReplicateMapError(
+                f"{where}: plate {plate} quadrant {quadrant} is already taken "
+                f"by [[replicate]] #{seen_slot[slot]}; two replicates there "
+                f"would share every well."
+            )
+        seen_n[n] = i + 1
+        seen_slot[slot] = i + 1
+        out.append(Replicate(n=n, plate=plate, quadrant=quadrant))
+    return sorted(out, key=lambda r: r.n)
+
+
+def read_replicate_map(path) -> List[Replicate]:
+    """Read the replicate map from a TOML file.
+
+    Args:
+        path: The map file, as passed to ``usortm demux --replicate-map``.
+
+    Returns:
+        One :class:`Replicate` per entry.
+
+    Raises:
+        ReplicateMapError: If the file is not valid TOML, or does not describe
+            a plate.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:            # pragma: no cover - Python < 3.11
+        import tomli as tomllib
+    try:
+        with open(path, "rb") as fh:
+            doc = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ReplicateMapError(f"{path} is not valid TOML: {exc}")
+    return parse_replicate_map(doc)
+
+
+def single_replicate(plate: int = 1, quadrant: str = "block") -> List[Replicate]:
+    """The map for a plate picked once per construct rather than in replicate.
+
+    Args:
+        plate: The sequenced plate the constructs went to.
+        quadrant: Where the 96-well plate sits in it, or ``block`` for a
+            one-for-one copy.
+    """
+    return [Replicate(n=1, plate=plate, quadrant=quadrant)]
+
+
+def expected_wells(order: Iterable[OrderedWell],
+                   replicates: Sequence[Replicate],
                    plate_of: Optional[Dict[int, int]] = None
-                   ) -> Dict[Tuple[int, str], str]:
-    """The variant intended for each sequenced well.
+                   ) -> Dict[Tuple[int, str], ExpectedWell]:
+    """The construct and replicate intended for each sequenced well.
 
     Args:
         order: The ordered layout, from :func:`read_order_layout`.
-        layout: How the order plate was arrayed; one of :data:`LAYOUTS`.
-        plate_of: Maps an order plate number to the sequenced plate number it
-            became.  Defaults to the identity, which holds when the order
-            plates were sequenced in the order they were made.
+        replicates: Where each picked colony was arrayed.
+        plate_of: Maps an order plate number to the sequenced plate it became,
+            for an order spanning several plates.  The replicate's own plate
+            is used when this is not given.
 
     Returns:
-        ``{(plate, well): variant}`` in the coordinates the demux reports.
+        ``{(plate, well): ExpectedWell}`` in the coordinates the demux reports.
+
+    Raises:
+        ReplicateMapError: If two constructs would land in one well, which
+            means the order and the map disagree about the plate.
     """
-    out: Dict[Tuple[int, str], str] = {}
-    for item in order:
-        plate = (plate_of or {}).get(item.plate, item.plate)
-        out[(plate, to_seq_well(item.well, layout))] = item.variant
+    out: Dict[Tuple[int, str], ExpectedWell] = {}
+    for rep in replicates:
+        for item in order:
+            plate = (plate_of or {}).get(item.plate, rep.plate)
+            layout = rep.quadrant if rep.quadrant in LAYOUTS else "block"
+            key = (plate, to_seq_well(item.well, layout))
+            if key in out:
+                clash = out[key]
+                raise ReplicateMapError(
+                    f"plate {plate} well {key[1]} is claimed by both "
+                    f"{clash.variant} (replicate {clash.replicate}) and "
+                    f"{item.variant} (replicate {rep.n})."
+                )
+            out[key] = ExpectedWell(plate=plate, well=key[1],
+                                    variant=item.variant, replicate=rep.n)
     return out
 
 
 def infer_layout(order: Iterable[OrderedWell], well_data: Sequence[dict],
-                 min_reads: int = 20,
-                 plate_of: Optional[Dict[int, int]] = None) -> dict:
-    """Read the arraying off the data rather than being told it.
+                 min_reads: int = 20, plate: int = 1) -> dict:
+    """Read one replicate's arraying off the data rather than being told it.
 
-    Each candidate layout puts the ordered constructs in different wells, and
-    only one lines up with where the reads landed.  Scoring is the share of
-    intended wells that grew: the right layout puts nearly every construct on a
-    well with reads, a wrong one scatters them over wells that were never
-    filled.
+    Each candidate quadrant puts the ordered constructs in different wells, and
+    only the right one lines up with where the reads landed.  Scoring is the
+    share of intended wells that grew: the right quadrant puts nearly every
+    construct on a well with reads, a wrong one scatters them over wells that
+    were never filled.
 
-    A run where most of the plate grew cannot separate the layouts, since every
+    A plate where every quadrant grew cannot separate them, since each
     candidate then scores well.  The margin over the runner-up says whether the
-    answer means anything and is returned rather than resolved here.
+    answer means anything and is returned rather than resolved here.  This is
+    the check on a provided map rather than a replacement for it: with three
+    replicates every quadrant is occupied, and the margin correctly collapses.
 
     Args:
         order: The ordered layout.
         well_data: Per-well rows from the demux, needing ``plate``, ``well``
             and ``reads``.
         min_reads: Reads a well needs before it counts as grown.
-        plate_of: As for :func:`expected_wells`.
+        plate: The sequenced plate to score against.
 
     Returns:
         ``layout`` (the best candidate), ``score`` (its share of intended wells
@@ -187,7 +332,7 @@ def infer_layout(order: Iterable[OrderedWell], well_data: Sequence[dict],
     order = list(order)
     scores = {}
     for candidate in LAYOUTS:
-        wanted = expected_wells(order, candidate, plate_of)
+        wanted = expected_wells(order, [Replicate(1, plate, candidate)])
         hit = sum(1 for key in wanted if key in grew)
         scores[candidate] = hit / len(wanted) if wanted else 0.0
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
@@ -217,16 +362,19 @@ class WellVerdict:
     observed: Optional[str]
     reads: int
     status: str
+    replicate: int = 1
 
 
-def verify(well_data: Sequence[dict], expected: Dict[Tuple[int, str], str],
+def verify(well_data: Sequence[dict],
+           expected: Dict[Tuple[int, str], ExpectedWell],
            designed: set, min_reads: int = 20,
            is_clean=None) -> List[WellVerdict]:
     """Judge each intended well against what was sequenced in it.
 
     Args:
         well_data: Per-well rows from the demux.
-        expected: ``{(plate, well): variant}``, from :func:`expected_wells`.
+        expected: ``{(plate, well): ExpectedWell}``, from
+            :func:`expected_wells`.
         designed: The library's members, used to judge whether a well was read
             cleanly enough for its call to stand.
         min_reads: Reads a well needs before its call is used at all.
@@ -236,9 +384,9 @@ def verify(well_data: Sequence[dict], expected: Dict[Tuple[int, str], str],
             confirmed here.
 
     Returns:
-        One :class:`WellVerdict` per intended well, ordered by plate and well.
-        Wells that were sequenced but never ordered are left out; they are not
-        part of the question this asks.
+        One :class:`WellVerdict` per intended well, ordered by plate, replicate
+        and well.  Wells that were sequenced but never ordered are left out;
+        they are not part of the question this asks.
     """
     if is_clean is None:
         from usortm.report.plates import carries_designed_sequence
@@ -251,34 +399,48 @@ def verify(well_data: Sequence[dict], expected: Dict[Tuple[int, str], str],
         row = seen.get((plate, well))
         reads = int((row or {}).get("reads") or 0)
         if row is None or reads < min_reads:
-            out.append(WellVerdict(plate, well, want, None, reads, EMPTY))
+            out.append(WellVerdict(plate, well, want.variant, None, reads,
+                                   EMPTY, want.replicate))
             continue
         got = row.get("variant") or ""
-        status = (CONFIRMED if got == want and is_clean(row, designed)
+        status = (CONFIRMED if got == want.variant and is_clean(row, designed)
                   else WRONG)
-        out.append(WellVerdict(plate, well, want, got, reads, status))
-    return sorted(out, key=lambda v: (v.plate, _split_well(v.well)))
+        out.append(WellVerdict(plate, well, want.variant, got, reads, status,
+                               want.replicate))
+    return sorted(out, key=lambda v: (v.plate, v.replicate,
+                                      _split_well(v.well)))
 
 
 def summarise(verdicts: Sequence[WellVerdict]) -> dict:
-    """Counts by outcome, and the variants each outcome accounts for.
+    """Counts by outcome, by replicate, and the variants each accounts for.
 
-    A variant ordered into more than one well is confirmed when any of its
-    wells holds it, so the variant counts are not the well counts.
+    A construct picked in triplicate is recovered when any one of its colonies
+    holds it, so the variant counts are not the well counts.  The per-replicate
+    counts are the reason to pick in triplicate at all: a replicate that fails
+    far more often than the others points at the picking or the plate rather
+    than at the constructs.
 
     Returns:
-        ``n_wells`` and ``wells`` by status; ``n_variants`` ordered, and the
-        sets ``confirmed`` and ``not_confirmed``.
+        ``n_wells`` and ``wells`` by status; ``by_replicate`` giving the same
+        counts per replicate; ``n_variants`` ordered, and the sets
+        ``confirmed`` and ``not_confirmed``.
     """
-    wells = {CONFIRMED: 0, WRONG: 0, EMPTY: 0}
+    def _tally():
+        return {CONFIRMED: 0, WRONG: 0, EMPTY: 0}
+
+    wells = _tally()
+    by_replicate: Dict[int, dict] = {}
     for v in verdicts:
         wells[v.status] = wells.get(v.status, 0) + 1
+        rep = by_replicate.setdefault(v.replicate, _tally())
+        rep[v.status] = rep.get(v.status, 0) + 1
 
     ordered = {v.expected for v in verdicts}
     confirmed = {v.expected for v in verdicts if v.status == CONFIRMED}
     return {
         "n_wells": len(verdicts),
         "wells": wells,
+        "by_replicate": dict(sorted(by_replicate.items())),
         "n_variants": len(ordered),
         "confirmed": confirmed,
         "not_confirmed": ordered - confirmed,

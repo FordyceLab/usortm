@@ -9,9 +9,11 @@ import csv
 
 import pytest
 
-from usortm.verify import (CONFIRMED, EMPTY, LAYOUTS, WRONG, OrderedWell,
-                           expected_wells, infer_layout, read_order_layout,
-                           summarise, to_seq_well, verify)
+from usortm.verify import (CONFIRMED, EMPTY, LAYOUTS, QUADRANTS, WRONG,
+                           OrderedWell, Replicate, ReplicateMapError,
+                           expected_wells, infer_layout, parse_replicate_map,
+                           read_order_layout, read_replicate_map,
+                           single_replicate, summarise, to_seq_well, verify)
 
 
 def _clean(row, designed):
@@ -24,6 +26,10 @@ def _well(plate, well, variant, reads=200, **kw):
             **kw}
 
 
+def _order(*wells):
+    return [OrderedWell(1, w, v) for w, v in wells]
+
+
 # --- where a 96-well plate lands -----------------------------------------
 
 def test_block_layout_is_a_straight_copy():
@@ -33,16 +39,29 @@ def test_block_layout_is_a_straight_copy():
     assert to_seq_well("C7", "block") == "C7"
 
 
-def test_quadrants_interleave():
-    """Four 96-well plates make one 384, so each quadrant is offset by one."""
-    assert to_seq_well("A1", "q1") == "A1"
-    assert to_seq_well("A1", "q2") == "A2"
-    assert to_seq_well("A1", "q3") == "B1"
-    assert to_seq_well("A1", "q4") == "B2"
-    # Second column of the order plate is the third of the sequenced one.
-    assert to_seq_well("A2", "q1") == "A3"
+def test_a_quadrant_is_named_by_the_well_its_own_a1_lands_on():
+    """Four 96-well plates interleave into one 384, offset by one each way."""
+    assert to_seq_well("A1", "A1") == "A1"
+    assert to_seq_well("A1", "A2") == "A2"
+    assert to_seq_well("A1", "B1") == "B1"
+    assert to_seq_well("A1", "B2") == "B2"
+    # Interleaved, so the order plate's second column is the run's third.
+    assert to_seq_well("A2", "A1") == "A3"
+    assert to_seq_well("B1", "A1") == "C1"
     # The far corner still lands inside the plate.
-    assert to_seq_well("H12", "q4") == "P24"
+    assert to_seq_well("H12", "B2") == "P24"
+
+
+def test_the_quadrants_never_share_a_well():
+    """Which is what makes three replicates on one plate possible."""
+    seen = {}
+    for quadrant in QUADRANTS:
+        for row in "ABCDEFGH":
+            for col in range(1, 13):
+                landed = to_seq_well(f"{row}{col}", quadrant)
+                assert landed not in seen, f"{quadrant} collides with {seen.get(landed)}"
+                seen[landed] = quadrant
+    assert len(seen) == 384
 
 
 def test_a_well_outside_the_order_plate_is_refused():
@@ -88,10 +107,6 @@ def test_each_order_plate_keeps_its_own_number(tmp_path):
     order = read_order_layout(path)
     assert [(o.plate, o.variant) for o in order] == [
         (1, "one"), (2, "two"), (3, "three")]
-    # The same well on two plates is two different constructs.
-    wanted = expected_wells(order, "block")
-    assert wanted[(1, "A1")] == "one"
-    assert wanted[(2, "A1")] == "two"
 
 
 def test_a_file_with_no_constructs_is_refused(tmp_path):
@@ -102,38 +117,113 @@ def test_a_file_with_no_constructs_is_refused(tmp_path):
         read_order_layout(path)
 
 
-def test_order_plates_can_be_sequenced_as_other_plates(tmp_path):
-    """The order's plate 1 need not be the run's plate 1."""
-    path = tmp_path / "order.csv"
-    _order_csv(path, [[("A1", "one")], [("A1", "two")]])
-    order = read_order_layout(path)
+# --- the replicate map ----------------------------------------------------
 
-    wanted = expected_wells(order, "block", plate_of={1: 16, 2: 17})
-    assert wanted == {(16, "A1"): "one", (17, "A1"): "two"}
+def test_the_replicate_map_places_each_colony():
+    """Three colonies of every construct, one per quadrant of one plate."""
+    reps = parse_replicate_map({"replicate": [
+        {"n": 1, "plate": 1, "quadrant": "A1"},
+        {"n": 2, "plate": 1, "quadrant": "A2"},
+        {"n": 3, "plate": 1, "quadrant": "B1"},
+    ]})
+    assert reps == [Replicate(1, 1, "A1"), Replicate(2, 1, "A2"),
+                    Replicate(3, 1, "B1")]
+
+
+def test_two_replicates_cannot_share_a_quadrant():
+    """They would occupy the same wells, so one colony would be invisible."""
+    with pytest.raises(ReplicateMapError, match="already taken"):
+        parse_replicate_map({"replicate": [
+            {"n": 1, "plate": 1, "quadrant": "A1"},
+            {"n": 2, "plate": 1, "quadrant": "A1"},
+        ]})
+
+
+def test_a_replicate_number_cannot_repeat():
+    with pytest.raises(ReplicateMapError, match="already defined"):
+        parse_replicate_map({"replicate": [
+            {"n": 1, "plate": 1, "quadrant": "A1"},
+            {"n": 1, "plate": 1, "quadrant": "A2"},
+        ]})
+
+
+def test_the_same_quadrant_on_another_plate_is_fine():
+    """Replicates spread over plates are a different arraying, not a clash."""
+    reps = parse_replicate_map({"replicate": [
+        {"n": 1, "plate": 1, "quadrant": "A1"},
+        {"n": 2, "plate": 2, "quadrant": "A1"},
+    ]})
+    assert [r.plate for r in reps] == [1, 2]
+
+
+def test_a_malformed_replicate_map_says_what_is_wrong():
+    with pytest.raises(ReplicateMapError, match="No \\[\\[replicate\\]\\]"):
+        parse_replicate_map({})
+    with pytest.raises(ReplicateMapError, match="missing 'plate'"):
+        parse_replicate_map({"replicate": [{"n": 1, "quadrant": "A1"}]})
+    with pytest.raises(ReplicateMapError, match="not one of"):
+        parse_replicate_map({"replicate": [
+            {"n": 1, "plate": 1, "quadrant": "C3"}]})
+
+
+def test_the_replicate_map_reads_from_toml(tmp_path):
+    path = tmp_path / "replicates.toml"
+    path.write_text(
+        '[[replicate]]\nn = 1\nplate = 1\nquadrant = "A1"\n\n'
+        '[[replicate]]\nn = 2\nplate = 1\nquadrant = "B1"\n'
+    )
+    assert read_replicate_map(path) == [Replicate(1, 1, "A1"),
+                                        Replicate(2, 1, "B1")]
+
+
+def test_a_plate_picked_once_needs_no_map():
+    assert single_replicate(plate=3, quadrant="A2") == [Replicate(1, 3, "A2")]
+
+
+# --- what each well should hold -------------------------------------------
+
+def test_every_construct_appears_once_per_replicate():
+    order = _order(("A1", "G3F"), ("A2", "S8M"))
+    reps = [Replicate(1, 1, "A1"), Replicate(2, 1, "A2"), Replicate(3, 1, "B1")]
+
+    wanted = expected_wells(order, reps)
+    assert len(wanted) == 6
+    # G3F's three colonies, one per quadrant.
+    assert wanted[(1, "A1")].variant == "G3F" and wanted[(1, "A1")].replicate == 1
+    assert wanted[(1, "A2")].variant == "G3F" and wanted[(1, "A2")].replicate == 2
+    assert wanted[(1, "B1")].variant == "G3F" and wanted[(1, "B1")].replicate == 3
+    # S8M sits one order-column over, which is two 384 columns.
+    assert wanted[(1, "A3")].variant == "S8M"
+
+
+def test_a_map_that_puts_two_constructs_in_one_well_is_refused():
+    """Which is what a block layout beside a quadrant one would do."""
+    order = _order(("A1", "G3F"))
+    with pytest.raises(ReplicateMapError, match="claimed by both"):
+        expected_wells(order, [Replicate(1, 1, "block"),
+                               Replicate(2, 1, "A1")])
 
 
 # --- reading the arraying off the data -----------------------------------
 
 def test_the_layout_is_inferred_from_where_the_reads_landed():
     """Only the right arraying puts the constructs on wells that grew."""
-    order = [OrderedWell(1, w, f"v{i}")
-             for i, w in enumerate(["A1", "A2", "B1", "B2"])]
-    # Cultures arrayed into quadrant 4: A1 -> B2, A2 -> B4, B1 -> D2, B2 -> D4.
+    order = _order(("A1", "v0"), ("A2", "v1"), ("B1", "v2"), ("B2", "v3"))
+    # Arrayed into the B2 quadrant: A1 -> B2, A2 -> B4, B1 -> D2, B2 -> D4.
     grown = [_well(1, w, "x") for w in ("B2", "B4", "D2", "D4")]
 
     got = infer_layout(order, grown)
-    assert got["layout"] == "q4"
+    assert got["layout"] == "B2"
     assert got["score"] == 1.0
     assert got["margin"] > 0
     assert set(got["scores"]) == set(LAYOUTS)
 
 
-def test_a_plate_that_all_grew_cannot_say_which_layout_it_is():
-    """Every candidate lands on a filled well, so the margin goes to zero."""
-    order = [OrderedWell(1, w, f"v{i}")
-             for i, w in enumerate(["A1", "A2", "B1"])]
+def test_a_plate_that_all_grew_cannot_say_which_quadrant_it_is():
+    """With three replicates every quadrant is filled, so the margin goes."""
+    order = _order(("A1", "v0"), ("A2", "v1"), ("B1", "v2"))
     everywhere = [_well(1, f"{r}{c}", "x")
-                  for r in "ABCDEFGH" for c in range(1, 13)]
+                  for r in "ABCDEFGHIJKLMNOP" for c in range(1, 25)]
 
     got = infer_layout(order, everywhere)
     assert got["score"] == 1.0
@@ -142,7 +232,7 @@ def test_a_plate_that_all_grew_cannot_say_which_layout_it_is():
 
 def test_wells_below_the_read_floor_are_not_grown():
     """A well with a handful of reads did not grow, whatever it was called."""
-    order = [OrderedWell(1, "A1", "v0")]
+    order = _order(("A1", "v0"))
     assert infer_layout(order, [_well(1, "A1", "v0", reads=3)])["score"] == 0.0
     assert infer_layout(order, [_well(1, "A1", "v0", reads=20)])["score"] == 1.0
 
@@ -151,7 +241,8 @@ def test_wells_below_the_read_floor_are_not_grown():
 
 def test_the_three_outcomes_are_separated():
     """Ordered and got it, ordered and got something else, ordered and empty."""
-    expected = {(1, "A1"): "G3F", (1, "A2"): "S8M", (1, "A3"): "Y11*"}
+    order = _order(("A1", "G3F"), ("A2", "S8M"), ("A3", "Y11*"))
+    wanted = expected_wells(order, single_replicate(1, "block"))
     designed = {"G3F", "S8M", "Y11*"}
     data = [
         _well(1, "A1", "G3F"),                 # what was ordered
@@ -159,70 +250,89 @@ def test_the_three_outcomes_are_separated():
         _well(1, "A3", "Y11*", reads=4),       # never grew
     ]
 
-    verdicts = {v.well: v for v in verify(data, expected, designed,
-                                          is_clean=_clean)}
-    assert verdicts["A1"].status == CONFIRMED
-    assert verdicts["A2"].status == WRONG
-    assert verdicts["A2"].observed == "Parent"
-    assert verdicts["A3"].status == EMPTY
-    assert verdicts["A3"].observed is None
+    got = {v.well: v for v in verify(data, wanted, designed, is_clean=_clean)}
+    assert got["A1"].status == CONFIRMED
+    assert got["A2"].status == WRONG and got["A2"].observed == "Parent"
+    assert got["A3"].status == EMPTY and got["A3"].observed is None
 
 
 def test_a_well_read_uncleanly_is_not_confirmed():
     """The call has to stand on its own before it can confirm an order."""
-    expected = {(1, "A1"): "G3F"}
-    data = [_well(1, "A1", "G3F", dirty=True)]
-
-    got = verify(data, expected, {"G3F"}, is_clean=_clean)
+    wanted = expected_wells(_order(("A1", "G3F")), single_replicate(1, "block"))
+    got = verify([_well(1, "A1", "G3F", dirty=True)], wanted, {"G3F"},
+                 is_clean=_clean)
     assert got[0].status == WRONG
 
 
 def test_a_well_never_sequenced_is_empty_not_missing():
     """An intended well absent from the run still has to be accounted for."""
-    got = verify([], {(1, "A1"): "G3F"}, {"G3F"}, is_clean=_clean)
+    wanted = expected_wells(_order(("A1", "G3F")), single_replicate(1, "block"))
+    got = verify([], wanted, {"G3F"}, is_clean=_clean)
     assert [v.status for v in got] == [EMPTY]
     assert got[0].reads == 0
 
 
 def test_wells_that_were_never_ordered_are_not_judged():
     """The run covers a whole plate; the question is only about the order."""
+    wanted = expected_wells(_order(("A1", "G3F")), single_replicate(1, "block"))
     data = [_well(1, "A1", "G3F"), _well(1, "H9", "something else")]
-    got = verify(data, {(1, "A1"): "G3F"}, {"G3F"}, is_clean=_clean)
-    assert [v.well for v in got] == ["A1"]
+    assert [v.well for v in verify(data, wanted, {"G3F"}, is_clean=_clean)] == ["A1"]
 
 
-def test_verdicts_come_back_in_plate_order():
-    """A10 sorts after A9, which string order gets wrong."""
-    expected = {(1, "A10"): "a", (1, "A9"): "b", (2, "A1"): "c"}
-    got = verify([], expected, set(), is_clean=_clean)
-    assert [(v.plate, v.well) for v in got] == [(1, "A9"), (1, "A10"), (2, "A1")]
+def test_the_verdict_carries_its_replicate():
+    order = _order(("A1", "G3F"))
+    reps = [Replicate(1, 1, "A1"), Replicate(2, 1, "A2")]
+    got = verify([], expected_wells(order, reps), set(), is_clean=_clean)
+    assert [(v.replicate, v.well) for v in got] == [(1, "A1"), (2, "A2")]
 
 
 # --- counting -------------------------------------------------------------
 
-def test_a_variant_is_confirmed_by_any_of_its_wells():
-    """Several colonies of one construct recover it once, not twice."""
-    expected = {(1, "A1"): "G3F", (1, "A2"): "G3F", (1, "A3"): "S8M"}
+def test_a_variant_is_confirmed_by_any_of_its_colonies():
+    """Three colonies recover a construct once, not three times."""
+    order = _order(("A1", "G3F"), ("A2", "S8M"))
+    reps = [Replicate(1, 1, "A1"), Replicate(2, 1, "A2"), Replicate(3, 1, "B1")]
+    wanted = expected_wells(order, reps)
     data = [
-        _well(1, "A1", "Parent"),     # this colony failed
-        _well(1, "A2", "G3F"),        # this one did not
-        _well(1, "A3", "S8M"),
+        _well(1, "A1", "Parent"),     # G3F replicate 1 failed
+        _well(1, "A2", "G3F"),        # replicate 2 worked
+        _well(1, "B1", "G3F"),        # so did 3
+        _well(1, "A3", "S8M"), _well(1, "A4", "S8M"), _well(1, "B3", "S8M"),
     ]
 
-    got = summarise(verify(data, expected, {"G3F", "S8M"}, is_clean=_clean))
-    assert got["n_wells"] == 3
-    assert got["wells"] == {CONFIRMED: 2, WRONG: 1, EMPTY: 0}
-    # Two constructs ordered, both recovered, though one well of one failed.
+    got = summarise(verify(data, wanted, {"G3F", "S8M"}, is_clean=_clean))
+    assert got["n_wells"] == 6
+    assert got["wells"] == {CONFIRMED: 5, WRONG: 1, EMPTY: 0}
+    # Two constructs ordered, both recovered.
     assert got["n_variants"] == 2
     assert got["confirmed"] == {"G3F", "S8M"}
     assert got["not_confirmed"] == set()
 
 
-def test_a_construct_that_failed_in_every_well_is_not_confirmed():
-    expected = {(1, "A1"): "G3F", (1, "A2"): "G3F"}
+def test_a_construct_that_failed_in_every_colony_is_not_confirmed():
+    order = _order(("A1", "G3F"))
+    reps = [Replicate(1, 1, "A1"), Replicate(2, 1, "A2")]
     data = [_well(1, "A1", "Parent"), _well(1, "A2", "G3F", reads=2)]
 
-    got = summarise(verify(data, expected, {"G3F"}, is_clean=_clean))
+    got = summarise(verify(data, expected_wells(order, reps), {"G3F"},
+                           is_clean=_clean))
     assert got["wells"] == {CONFIRMED: 0, WRONG: 1, EMPTY: 1}
-    assert got["confirmed"] == set()
     assert got["not_confirmed"] == {"G3F"}
+
+
+def test_replicates_are_counted_apart():
+    """A replicate failing far more than the others points at the picking."""
+    order = _order(("A1", "G3F"), ("A2", "S8M"))
+    reps = [Replicate(1, 1, "A1"), Replicate(2, 1, "A2")]
+    data = [
+        _well(1, "A1", "G3F"), _well(1, "A3", "S8M"),     # replicate 1, both
+        _well(1, "A2", "G3F", reads=1),                   # replicate 2, empty
+        _well(1, "A4", "S8M", reads=1),
+    ]
+
+    got = summarise(verify(data, expected_wells(order, reps), {"G3F", "S8M"},
+                           is_clean=_clean))
+    assert got["by_replicate"][1] == {CONFIRMED: 2, WRONG: 0, EMPTY: 0}
+    assert got["by_replicate"][2] == {CONFIRMED: 0, WRONG: 0, EMPTY: 2}
+    # The constructs are still recovered, on replicate 1 alone.
+    assert got["confirmed"] == {"G3F", "S8M"}
