@@ -2463,15 +2463,23 @@ def _check_column_agreement(
                 # No base to compare against; scanning it would count every
                 # read as disagreeing.
                 continue
-            counts = Counter()
-            for read in col.pileups:
-                if not read.is_del and not read.is_refskip:
-                    base = read.alignment.query_sequence[read.query_position].upper()
-                    counts[base] += 1
-            total = sum(counts.values())
+            # The whole column in one call.  Looping col.pileups in Python
+            # and indexing each read's sequence is what this stage's time went
+            # on: over a 1,942-base construct rather than a 294-base ORF it
+            # ran a round of 2,605 wells to nearly five hours, against about
+            # 30 ms a well this way for the same answers.  Deletions come back
+            # as "*" and reference skips as "", neither being a base that
+            # disagrees.
+            total = 0
+            ref_count = 0
+            for base in col.get_query_sequences(add_indels=False):
+                if not base or base == "*":
+                    continue
+                total += 1
+                if base.upper() == ref_base:
+                    ref_count += 1
             if total < min_depth:
                 continue
-            ref_count = counts.get(ref_base, 0)
             agreement = ref_count / total
             mismatch_frac = 1.0 - agreement
             if agreement < min_agree:
