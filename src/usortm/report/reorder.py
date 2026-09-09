@@ -12,6 +12,7 @@ import html
 from collections import Counter
 from typing import Dict, List, Optional, Sequence
 
+from usortm.demux.utils import column_agreement_class
 from usortm.verify import (CONFIRMED, EMPTY, ORDER_COLS, ORDER_ROWS, WRONG,
                            failure_reason)
 
@@ -89,8 +90,13 @@ def _tip(v, row, reason, label=None) -> str:
     plate drawn is the 96-well one the construct was assembled in, and the
     reads came from a different position in the consolidated plate.
     """
+    # Both coordinates on the first line.  The plate is the 96-well one the
+    # constructs were assembled in and the pileup is named for the well the
+    # reads came from, so a click moves between two coordinate systems: B5 on
+    # colony 1 opens 1C9, which reads as the wrong page unless the hop is
+    # stated before it is made rather than at the end of the block.
     lines = [f'<div style="font-size:13px;">{label or v.well} &middot; colony '
-             f'{v.replicate}</div>',
+             f'{v.replicate} &rarr; well {v.plate}{v.well}</div>',
              f'<div style="margin-top:4px;">ordered <b>{v.expected}</b></div>']
     if v.status == CONFIRMED:
         lines.append('<div style="font-size:11px;color:#1baf7a;'
@@ -103,9 +109,12 @@ def _tip(v, row, reason, label=None) -> str:
             lines.append(f'<div style="font-size:11px;color:#dc2626;">'
                          f'{reason}</div>')
     if row is not None:
+        worst = row.get("max_mismatch_frac")
+        agree = ""
+        if worst is not None and worst == worst:
+            agree = f' &nbsp;|&nbsp; worst column {float(worst):.0%}'
         lines.append(f'<div style="font-size:11px;color:#666;margin-top:2px;">'
-                     f'Reads: {int(row.get("reads") or 0):,} '
-                     f'&nbsp;|&nbsp; sequenced {v.well}</div>')
+                     f'Reads: {int(row.get("reads") or 0):,}{agree}</div>')
     return html.escape(f'<div style="line-height:1.2">{"".join(lines)}</div>',
                        quote=True)
 
@@ -156,10 +165,22 @@ def reorder_plate(verdicts: Sequence, rows: Dict,
                 reason = failure_reason(row, v)
                 depth = int((row or {}).get("reads") or 0)
                 cls = "w"
-                if v.status == WRONG:
-                    cls += " mut"
-                elif v.status == EMPTY:
+                # A wrong junction is not a wrong construct: the insert is the
+                # one ordered and the flanks around it are not, which sends
+                # you to the cloning rather than to the assembly.  Drawn apart
+                # for that reason, and here it is the commonest failure.
+                if v.status == EMPTY:
                     cls += " none"
+                elif reason == "flank mismatch":
+                    cls += " flank"
+                elif v.status == WRONG:
+                    cls += " mut"
+                # Independent of the outcome, and in the opposite corner, as
+                # on the sort's maps: a well can hold its construct and still
+                # be worth a look.
+                if column_agreement_class(
+                        (row or {}).get("max_mismatch_frac")) == "watch":
+                    cls += " watch"
                 style = f"--f:{depth_colour(depth)}"
                 tip = _tip(v, row, reason, label)
                 href = links.get(_key(v.plate, v.well))
@@ -177,17 +198,24 @@ def reorder_plate(verdicts: Sequence, rows: Dict,
             f'</div></div>')
 
     return {
-        "note": (f"One plate per picked colony, {len(colonies)} in all, in the "
-                 f"96-well positions the constructs were ordered and "
+        "note": (f"One plate per picked colony, {len(colonies)} in all, in "
+                 f"the 96-well positions the constructs were ordered and "
                  f"assembled in. Filled by read depth. A red corner marks a "
-                 f"well that held something other than the construct ordered "
-                 f"for it; a grey well grew too little to call. Hatched wells "
-                 f"were not part of the order."),
+                 f"well holding something other than the construct ordered "
+                 f"for it, an amber corner the construct with flanks that "
+                 f"failed, and a blue edge a well worth checking. A grey well "
+                 f"grew too little to call; hatched wells were not part of "
+                 f"the order. Pileups are named for the well the reads came "
+                 f"from on the sequenced plate, which is not this plate's "
+                 f"well: the hover gives both."),
         "plates": [str(c) for c in colonies],
         "grids": "".join(grids),
         "legend": (
             '<div class="legend">'
             '<span class="ls"><i class="swatch mut"></i>held something else'
+            '</span>'
+            '<span class="ls"><i class="swatch flank"></i>flanks failed</span>'
+            '<span class="ls"><i class="swatch watch"></i>worth checking'
             '</span>'
             '<span class="ls"><i class="swatch none"></i>nothing grew</span>'
             '<span class="ls"><i class="swatch blank"></i>not ordered</span>'

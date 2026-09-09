@@ -265,7 +265,7 @@ a.w { cursor:pointer; }
 /* Lifted while hovered: cells paint in document order, so without this the
    next well's background covers the half of the outline that overlaps it. */
 a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
-.w.mut::after, .w.parent::after {
+.w.mut::after, .w.parent::after, .w.flank::after {
   content:""; position:absolute; inset:0; border-radius:1px;
   clip-path:polygon(0 0, 100% 0, 0 100%);
 }
@@ -282,6 +282,10 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
 .swatch.watch { background:var(--surface-2); border-color:var(--series-1);
                 box-shadow:inset 0 0 0 1px var(--series-1); }
 .w.parent::after   { background:#d97706; }
+/* The construct is right and its flanks are not, which is a cloning problem
+   rather than an assembly one.  Amber for the same reason the parent is: not
+   a failure of the sequence itself. */
+.w.flank::after    { background:#d97706; }
 .w.blank { background:repeating-linear-gradient(45deg,
              var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 
@@ -293,6 +297,7 @@ a.w:hover { outline:2px solid var(--series-1); outline-offset:1px; z-index:3; }
         border:1px solid var(--rule); display:inline-block; }
 .swatch.mut      { background:#dc2626; }
 .swatch.parent   { background:#d97706; }
+.swatch.flank    { background:#d97706; }
 .swatch.blank    { background:repeating-linear-gradient(45deg,
                      var(--surface-2) 0 3px, var(--surface-1) 3px 6px); }
 

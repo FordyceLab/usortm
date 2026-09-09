@@ -1056,8 +1056,18 @@ def _render_pileup_html(well_pos: str, candidate: dict,
     if flank_lengths and not (flank_lengths[0] or flank_lengths[1]):
         flank_lengths = None
     ref_len = max((len(g["ref_seq"]) for g in groups), default=0) or None
+    # A well can be known by more than one name.  Colonies re-ordered as
+    # separate constructs are assembled in one plate and consolidated into
+    # another to be sequenced, so the well the reads came from is not the well
+    # anyone handled; the page leads with the one that was handled and keeps
+    # the sequenced one beside it.
+    where = candidate.get("label") or (
+        f"Plate {candidate['plate']} Well {candidate['well']}")
+    alias = candidate.get("alias")
+    if alias:
+        where = f"{where} ({alias})"
     view = PileupView(
-        title=f"Pileup: Plate {candidate['plate']} Well {candidate['well']}",
+        title=f"Pileup: {where}",
         groups=[
             PileupGroup(
                 name=g["ref_id"],
@@ -1099,6 +1109,8 @@ def _generate_one_pick_pileup(
     flank_3p_len: int = 0,
     parent_ref_fasta: str = None,
     features: list = None,
+    label: str = None,
+    alias: str = None,
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
 
@@ -1108,6 +1120,11 @@ def _generate_one_pick_pileup(
             column that disagrees rather than as an absence.
         features: Annotations to draw over the reference bar, in the
             coordinates of the group references.
+        label: What to call the well on the page, when the well the reads came
+            from is not the well anyone worked in.  Defaults to the sequenced
+            plate and well.
+        alias: The other name for the same well, shown in brackets after
+            *label* so the sequenced coordinate stays findable.
 
     Returns *output_path* on success, or None if the reference FASTA is
     missing or alignment produces no rows.
@@ -1148,6 +1165,8 @@ def _generate_one_pick_pileup(
     candidate_info = {
         "plate": source_plate,
         "well": source_well,
+        "label": label,
+        "alias": alias,
         "total_reads": n_variable_reads,
         "top_frac": consensus_fraction,
         "recoverable_variants": [],
@@ -1328,6 +1347,8 @@ def _pick_pileup_worker(task: dict) -> bool:
         flank_3p_len=task["flank_3p_len"],
         parent_ref_fasta=task.get("parent_ref_fasta"),
         features=task.get("features"),
+        label=task.get("label"),
+        alias=task.get("alias"),
     )
     return result is not None
 
@@ -1477,6 +1498,8 @@ def generate_pick_pileups(
             "cons_check": hit.get("cons_check", ""),
             "target_plate": str(hit.get("target_plate", "")),
             "target_well": hit.get("target_well", ""),
+            "label": hit.get("label"),
+            "alias": hit.get("alias"),
         })
 
     # Clear pileups this call will not regenerate.  Each call is authoritative

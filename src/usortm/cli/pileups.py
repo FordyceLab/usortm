@@ -116,6 +116,11 @@ def pileups(
         f"(skipping {skipped_shallow:,} below {min_reads} reads)"
     )
 
+    # A re-ordered round's wells were assembled in one plate and consolidated
+    # into another to be sequenced, so the well a page is named for is not the
+    # well anyone handled.  The page leads with the one that was.
+    named = _reorder_well_names(project_dir, round_num)
+
     pick_list = [
         {
             "source_plate": r["plate"], "source_well": r["well"],
@@ -125,6 +130,9 @@ def pileups(
             # generate_pick_pileups keys output on the source well; pointing
             # target at the same well keeps one file per well.
             "target_plate": r["plate"], "target_well": r["well"],
+            "label": named.get(f'{r["plate"]}_{r["well"]}'),
+            "alias": (f'LevSeq {r["plate"]}{r["well"]}'
+                      if named.get(f'{r["plate"]}_{r["well"]}') else None),
         }
         for r in selected
     ]
@@ -277,6 +285,41 @@ def _relink_plate_map(demux_output: Path, out_dir: Path, wells: list,
         return None
 
     return f"{len(url_map):,} well(s)"
+
+
+def _reorder_well_names(project_dir, round_num: int) -> dict:
+    """What each sequenced well of a re-order round should be called.
+
+    A re-ordered construct is assembled in a 96-well plate and the colonies
+    are consolidated into a 384-well plate to be sequenced, so a page named
+    for the sequenced well names a position nobody handled.  Where the round
+    describes that arraying, each well is named for the plate and colony it
+    was built in instead.
+
+    Returns ``{"<plate>_<well>": label}``, empty when the round does not
+    describe an arraying -- a first round has none, and a re-order round
+    without a replicate map cannot be mapped back.
+    """
+    from pathlib import Path
+
+    root = Path(project_dir)
+    round_dir = root if round_num == 1 else root / "rounds" / str(round_num)
+    rep_file = round_dir / "replicate_map.toml"
+    orders = sorted(root.glob("reorder/reorder_*.csv"))
+    if not (rep_file.exists() and orders):
+        return {}
+
+    try:
+        from usortm.verify import (expected_wells, read_order_layout,
+                                   read_replicate_map)
+
+        wanted = expected_wells(read_order_layout(orders[0]),
+                                read_replicate_map(rep_file))
+    except Exception:
+        return {}
+
+    return {f"{plate}_{well}": f"Colony {e.replicate} well {e.order_well}"
+            for (plate, well), e in wanted.items()}
 
 
 def _write_pileup_index(out_dir: Path, wells: list, min_reads: int) -> Path:
