@@ -56,7 +56,19 @@ PILEUP_SOURCES = (
 
 
 def pileup_links(project_dir) -> Dict[str, str]:
-    """Map ``"<plate>_<well>"`` to the page showing that well's reads."""
+    """Map ``"<plate>_<well>"`` to the page showing that well's reads.
+
+    Three commands write pileups for the same well -- pick writes the hits,
+    the mutation pass writes the flagged, and ``usortm pileups`` writes them
+    all -- into three directories.  The newest wins.
+
+    Taking the first directory that had one instead meant a page written by an
+    earlier command shadowed a later one: a pileup rendered months ago sat in
+    front of the same well re-rendered this morning, and the link opened the
+    old page while the new one sat unread beside it.  Which command produced a
+    page says nothing about how current it is; when it was written does.
+    """
+    newest: Dict[str, float] = {}
     links: Dict[str, str] = {}
     for rel in PILEUP_SOURCES:
         directory = os.path.join(str(project_dir), rel)
@@ -66,7 +78,13 @@ def pileup_links(project_dir) -> Dict[str, str]:
             if not (name.startswith("well_") and name.endswith(".html")):
                 continue
             key = name[len("well_"):-len(".html")]
-            links.setdefault(key, f"{rel}/{name}")
+            try:
+                when = os.path.getmtime(os.path.join(directory, name))
+            except OSError:
+                continue
+            if key not in newest or when > newest[key]:
+                newest[key] = when
+                links[key] = f"{rel}/{name}"
     return links
 
 

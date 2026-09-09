@@ -79,3 +79,61 @@ class TestNamesMatchWhatIsWritten:
                 for t in [{"source_plate": plate, "source_well": well}]}
         _clear_stale_pileups(d, keep=keep)
         assert (d / written).exists()
+
+
+def test_the_newest_pileup_wins(tmp_path):
+    """A page an earlier command wrote must not shadow a later one.
+
+    pick, the mutation pass and `usortm pileups` all write a page for the same
+    well into different directories.  Taken in a fixed order, a pileup rendered
+    by pick months ago sat in front of the same well re-rendered this morning:
+    the link opened the old page while the new one sat unread beside it.  On
+    one run that was 54 of the re-order plate's wells.
+    """
+    import os
+
+    from usortm.report.plates import pileup_links
+
+    old_dir = tmp_path / "pick" / "pileup"
+    new_dir = tmp_path / "demux_output" / "pileups" / "pileup"
+    old_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True)
+
+    (old_dir / "well_1_A1.html").write_text("old")
+    (new_dir / "well_1_A1.html").write_text("new")
+    # pick's page is the older of the two, whatever the search order says.
+    old = 1_000_000
+    os.utime(old_dir / "well_1_A1.html", (old, old))
+    os.utime(new_dir / "well_1_A1.html", (old + 500, old + 500))
+
+    links = pileup_links(tmp_path)
+    assert links["1_A1"] == "demux_output/pileups/pileup/well_1_A1.html"
+
+
+def test_the_first_directory_still_wins_when_it_is_newest(tmp_path):
+    """Freshness decides it, not a preference for one command's output."""
+    import os
+
+    from usortm.report.plates import pileup_links
+
+    old_dir = tmp_path / "demux_output" / "pileups" / "pileup"
+    new_dir = tmp_path / "pick" / "pileup"
+    old_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True)
+    (old_dir / "well_1_A1.html").write_text("old")
+    (new_dir / "well_1_A1.html").write_text("new")
+    old = 1_000_000
+    os.utime(old_dir / "well_1_A1.html", (old, old))
+    os.utime(new_dir / "well_1_A1.html", (old + 500, old + 500))
+
+    assert pileup_links(tmp_path)["1_A1"] == "pick/pileup/well_1_A1.html"
+
+
+def test_a_well_in_only_one_place_is_still_found(tmp_path):
+    from usortm.report.plates import pileup_links
+
+    only = tmp_path / "demux_output" / "mutation" / "pileup"
+    only.mkdir(parents=True)
+    (only / "well_2_B3.html").write_text("x")
+    assert pileup_links(tmp_path)["2_B3"] == (
+        "demux_output/mutation/pileup/well_2_B3.html")
