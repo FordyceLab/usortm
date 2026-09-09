@@ -237,10 +237,11 @@ td.name { font-variant-numeric:normal; }
 .cols24 { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px;
           width:100%; }
 /* The re-order's plates are 96-well, which is the format they were assembled
-   in.  Half the columns of a sort plate, so the wells are held to the size
-   they have there rather than drawn at twice it. */
+   in.  Given the column a sort plate gets, since the two are read in the same
+   place and a plate drawn at half width reads as a smaller result rather than
+   a smaller plate. */
 .cols12 { display:grid; grid-template-columns:repeat(12, 1fr); gap:2px;
-          width:50%; min-width:11rem; }
+          width:100%; }
 
 /* The demux maps and the pick plate, read against each other. */
 .cols.plates > * { flex:1 1 21rem; }

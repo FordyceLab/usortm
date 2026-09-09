@@ -1437,12 +1437,17 @@ def _load_reorder_rounds(project_dir) -> "dict | None":
 
         designed = {o.variant for o in order}
         verdicts = verify(rows, wanted, designed)
+        # Relative to the page, which sits at the project root: the round's
+        # own links are relative to the round, and followed from the page
+        # they would land on round one's pileup of the same plate and well.
+        rel = round_dir.relative_to(root).as_posix()
+        links = {k: f"{rel}/{v}" for k, v in pileup_links(round_dir).items()}
         return {
             "round": round_dir.name,
             "summary": summarise(verdicts),
             "verdicts": verdicts,
             "rows": {f'{r["plate"]}_{r["well"]}': r for r in rows},
-            "links": pileup_links(round_dir),
+            "links": links,
         }
     return None
 

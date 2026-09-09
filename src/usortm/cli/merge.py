@@ -55,7 +55,16 @@ def merge(
     fill_order: str = typer.Option(
         "row",
         "--fill-order",
-        help="Fill order for target plate (row or column).",
+        help="Fill order for target plate (row or column). Ignored with --layout.",
+    ),
+    layout: Optional[Path] = typer.Option(
+        None,
+        "--layout",
+        help=(
+            "CSV giving the destination well for each variant. Defaults to "
+            "the project's inputs/final_plate_layout/*.csv when there is one; "
+            "pass --layout '' to fill sequentially instead."
+        ),
     ),
 ):
     """
@@ -206,7 +215,33 @@ def merge(
                 f"added to pick plate (blue)"
             )
 
-    _assign_target_wells(pick_list, target_format, fill_order)
+    # Onto the layout the library was designed for, when there is one.  A
+    # sequential fill puts each variant wherever the library order happens to
+    # reach it, so the same library merged twice lands in different wells and
+    # neither matches the plate the bench keeps.
+    layout_rows, layout_stats = _resolve_layout(layout, project_dir)
+    if layout_rows:
+        from usortm.cli.pick import _apply_layout
+
+        layout_stats = _apply_layout(pick_list, layout_rows)
+        console.print(
+            f"[green]\u2713[/green] Destination layout: "
+            f"{layout_stats['filled']} of "
+            f"{layout_stats['filled'] + layout_stats['not_recovered']} "
+            f"designed wells filled"
+            + (f", {layout_stats['designed_blank']} left blank by the design"
+               if layout_stats["designed_blank"] else "")
+        )
+        unplaced = layout_stats.get("unplaced") or []
+        if unplaced:
+            shown = ", ".join(unplaced[:6])
+            more = f" and {len(unplaced) - 6} more" if len(unplaced) > 6 else ""
+            console.print(
+                f"[yellow]![/yellow] {len(unplaced)} recovered variant(s) have "
+                f"no well in the layout and were dropped: {shown}{more}"
+            )
+    else:
+        _assign_target_wells(pick_list, target_format, fill_order)
 
     # Write outputs
     merged_dir = project_dir / "merged"
@@ -525,6 +560,45 @@ def _build_merged_pick_list(
             })
 
     return pick_list
+
+
+def _resolve_layout(layout: "Path | None", project_dir: Path):
+    """The destination layout to merge onto, and what reading it said.
+
+    Given explicitly it is used as given.  Otherwise the project's own
+    ``inputs/final_plate_layout`` is looked in: a library designed to sit in
+    named wells keeps that layout in the project, and a merge that ignored it
+    would hand the bench a plate that does not match the one it keeps.
+
+    Passing an empty path turns it off, which is the way back to a sequential
+    fill for a project that has a layout it does not want used.
+
+    Returns ``(rows, stats)`` with rows None when nothing is to be applied.
+    """
+    from usortm.cli.pick import LayoutError, _load_layout
+
+    # An empty --layout is the way to turn it off.  Path("") stringifies to
+    # ".", so the empty string alone never matched what typer hands over.
+    if layout is not None and str(layout) in ("", "."):
+        return None, {}
+
+    candidate = layout
+    if candidate is None:
+        found = sorted((project_dir / "inputs" / "final_plate_layout")
+                       .glob("*.csv"))
+        if not found:
+            return None, {}
+        candidate = found[0]
+        console.print(f"[green]\u2713[/green] Using the project's destination "
+                      f"layout: {candidate.name}")
+
+    try:
+        return _load_layout(candidate), {}
+    except LayoutError as exc:
+        # A layout that cannot be read is worth stopping for: filling
+        # sequentially instead would quietly produce a different plate.
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
 
 
 def _assign_target_wells(pick_list: list, target_format: int, fill_order: str):

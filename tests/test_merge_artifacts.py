@@ -157,3 +157,87 @@ def test_a_blank_mismatch_column_survives_the_loader(tmp_path):
     assert well["max_mismatch_frac"] is None
     # Not measured is not the same as mixed, so the well still counts.
     assert _passes_tier(well, "C", {"V1"})
+
+
+def _layout_csv(path, rows):
+    import csv
+
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["well", "variant"])
+        for well, variant in rows:
+            w.writerow([well, variant])
+
+
+def test_the_project_layout_is_used_when_present(tmp_path):
+    """A library designed to sit in named wells keeps that layout with it.
+
+    Filled sequentially the same library lands in different wells on every
+    merge, and in none of the wells the bench keeps.
+    """
+    from usortm.cli.merge import _resolve_layout
+
+    d = tmp_path / "inputs" / "final_plate_layout"
+    d.mkdir(parents=True)
+    _layout_csv(d / "final.csv", [("B7", "V1"), ("A1", "V2")])
+
+    rows, _ = _resolve_layout(None, tmp_path)
+    assert [(r["well"], r["variant"]) for r in rows] == [("B7", "V1"),
+                                                        ("A1", "V2")]
+
+
+def test_a_project_with_no_layout_fills_in_order(tmp_path):
+    from usortm.cli.merge import _resolve_layout
+
+    rows, _ = _resolve_layout(None, tmp_path)
+    assert rows is None
+
+
+def test_the_layout_can_be_turned_off(tmp_path):
+    """A project may keep a layout it does not want this merge to use."""
+    from pathlib import Path
+
+    from usortm.cli.merge import _resolve_layout
+
+    d = tmp_path / "inputs" / "final_plate_layout"
+    d.mkdir(parents=True)
+    _layout_csv(d / "final.csv", [("A1", "V1")])
+
+    rows, _ = _resolve_layout(Path(""), tmp_path)
+    assert rows is None
+
+
+def test_the_layout_places_hits_and_keeps_blanks(tmp_path):
+    """A designed well with nothing recovered stays a well, not a gap."""
+    from usortm.cli.merge import _resolve_layout
+    from usortm.cli.pick import _apply_layout
+
+    d = tmp_path / "inputs" / "final_plate_layout"
+    d.mkdir(parents=True)
+    _layout_csv(d / "final.csv", [("A1", "V1"), ("A2", "MISSING")])
+    rows, _ = _resolve_layout(None, tmp_path)
+
+    picks = [{"variant": "V1", "reads": 100, "consensus_fraction": 0.99}]
+    stats = _apply_layout(picks, rows)
+
+    assert stats["filled"] == 1
+    assert stats["not_recovered"] == 1
+    placed = {p["target_well"]: p for p in picks}
+    assert placed["A1"]["variant"] == "V1"
+    assert placed["A2"]["empty"] is True
+
+
+def test_a_recovered_variant_with_no_designed_well_is_reported(tmp_path):
+    """A hit with nowhere to go is dropped, so it is named rather than lost."""
+    from usortm.cli.merge import _resolve_layout
+    from usortm.cli.pick import _apply_layout
+
+    d = tmp_path / "inputs" / "final_plate_layout"
+    d.mkdir(parents=True)
+    _layout_csv(d / "final.csv", [("A1", "V1")])
+    rows, _ = _resolve_layout(None, tmp_path)
+
+    picks = [{"variant": "V1", "reads": 100, "consensus_fraction": 0.99},
+             {"variant": "STRAY", "reads": 100, "consensus_fraction": 0.99}]
+    stats = _apply_layout(picks, rows)
+    assert stats["unplaced"] == ["STRAY"]

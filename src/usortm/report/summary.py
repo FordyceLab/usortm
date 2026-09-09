@@ -54,24 +54,42 @@ def _designed_variants(project_dir) -> set:
 
 
 def _current_pick(project_dir) -> Optional[List[dict]]:
-    """The pick for this run, or None when there is none current.
+    """The pick for this project, or None when there is none current.
+
+    A merged pick is preferred when there is one: it spans the rounds, and
+    with a re-order round the single-round pick names only what the sort
+    found, leaving the wells the re-order filled empty on the plate.
 
     pick writes its list from one demux's well assignments and a later demux
-    leaves that file in place, so age is what separates a pick describing these
-    wells from one describing earlier ones.
+    leaves that file in place, so age is what separates a pick describing
+    these wells from one describing earlier ones.  A merged pick is measured
+    against every round's wells, since it draws on all of them.
     """
-    pick_json = os.path.join(str(project_dir), "pick", "pick_list.json")
-    well_csv = os.path.join(str(project_dir), "demux_output",
-                            "well_assignments.csv")
-    if not (os.path.exists(pick_json) and os.path.exists(well_csv)):
+    root = str(project_dir)
+    rounds = sorted(glob.glob(os.path.join(root, "rounds", "*",
+                                           "demux_output",
+                                           "well_assignments.csv")))
+    own = os.path.join(root, "demux_output", "well_assignments.csv")
+    sources = [p for p in [own] + rounds if os.path.exists(p)]
+    if not sources:
         return None
-    if os.path.getmtime(pick_json) < os.path.getmtime(well_csv):
-        return None
-    try:
-        with open(pick_json) as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return None
+    newest = max(os.path.getmtime(p) for p in sources)
+
+    for candidate, against in (
+        (os.path.join(root, "merged", "pick_list.json"), newest),
+        (os.path.join(root, "pick", "pick_list.json"),
+         os.path.getmtime(own) if os.path.exists(own) else 0),
+    ):
+        if not os.path.exists(candidate):
+            continue
+        if os.path.getmtime(candidate) < against:
+            continue
+        try:
+            with open(candidate) as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def estimate_skew(well_data: Sequence[dict],
@@ -581,7 +599,15 @@ def render_summary(project: dict, demux_summary: dict,
             column_agreement_class(w.get("max_mismatch_frac"))
         for w in well_data
     }
-    pick = pick_plate(_current_pick(project_dir), links, well_class)
+    # A merged pick names its source plate by round, "R1_8" or "R2_1", and
+    # both rounds have a plate 1: flattened into one map the rounds' wells
+    # would collide and a pick could link to the other round's reads.
+    pick_links = dict(links)
+    for key, href in links.items():
+        pick_links[f"R1_{key}"] = href
+    for key, href in ((ro or {}).get("links") or {}).items():
+        pick_links[f"R2_{key}"] = href
+    pick = pick_plate(_current_pick(project_dir), pick_links, well_class)
 
     # Headings and the plate tabs sit above the row so the two grids start on
     # the same line: the demux map carries a row of tabs and the pick plate
