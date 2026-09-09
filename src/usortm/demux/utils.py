@@ -2399,6 +2399,7 @@ def _check_column_agreement(
     orf_start: int,
     threshold: float = MIXED_TEMPLATE_WATCH,
     min_depth: int = 10,
+    masked=None,
 ) -> dict:
     """Check per-column read agreement across the whole construct.
 
@@ -2425,6 +2426,13 @@ def _check_column_agreement(
             system (= flank_5p_len).
         threshold: Non-reference fraction past which a column is flagged.
         min_depth: Minimum read depth at a position to evaluate it.
+        masked: ``{0-based position: {bases}}`` naming substitutions that are
+            artefacts of the sequencing rather than of the construct, from
+            :mod:`usortm.demux.qc_mask`.  A masked base counts as agreement
+            where it is at most half the column; any other base at that
+            position, and a masked base that is most of the column, still
+            count as disagreement.  An artefact explains one substitution
+            appearing in a minority of reads, not the position.
 
     Returns:
         Dict with keys: n_flagged_positions, min_agreement, max_mismatch_frac.
@@ -2470,16 +2478,27 @@ def _check_column_agreement(
             # 30 ms a well this way for the same answers.  Deletions come back
             # as "*" and reference skips as "", neither being a base that
             # disagrees.
+            forgiven = (masked or {}).get(pos)
             total = 0
             ref_count = 0
+            forgiven_count = 0
             for base in col.get_query_sequences(add_indels=False):
                 if not base or base == "*":
                     continue
                 total += 1
-                if base.upper() == ref_base:
+                base = base.upper()
+                if base == ref_base:
                     ref_count += 1
+                elif forgiven and base in forgiven:
+                    forgiven_count += 1
             if total < min_depth:
                 continue
+            # An artefact is a minority signal: it appears in a share of the
+            # reads whatever the well holds.  Where the masked base is most of
+            # the column the construct carries it, and forgiving it would
+            # report a substitution the well really has as a clean position.
+            if forgiven_count * 2 <= total:
+                ref_count += forgiven_count
             agreement = ref_count / total
             mismatch_frac = 1.0 - agreement
             if agreement < min_agree:
@@ -2510,7 +2529,8 @@ def _count_aligned_reads(bam_path: str, samtools_path: str = "samtools"):
 
 
 def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
-                         frame_offset, has_flanks, parent_protein=""):
+                         frame_offset, has_flanks, parent_protein="",
+                         masked=None):
     """Work out one well's checks, returning the columns to set.
 
     Split out of :func:`extract_matches` so wells can be handled in parallel:
@@ -2573,7 +2593,7 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
     # reference, over the whole construct rather than the ORF alone.
     if has_flanks and status in ("Perfect Match", "Silent Mutation") and ref_seq:
         col_result = _check_column_agreement(
-            well, consensus_dir, ref_seq, flank_5p_len,
+            well, consensus_dir, ref_seq, flank_5p_len, masked=masked,
         )
         out["n_flagged_positions"] = col_result["n_flagged_positions"]
         out["max_mismatch_frac"] = col_result["max_mismatch_frac"]
@@ -2629,7 +2649,7 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
 def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
                     consensus_dir: str = None, frame_offset: int = 0,
                     workers: int = 4, progress_callback=None,
-                    library_inserts=None):
+                    library_inserts=None, masked=None):
     """Extract reference matches using consensus CIGAR string.
 
     When flank lengths are provided (from --vector-fasta), also checks
@@ -2701,7 +2721,7 @@ def extract_matches(well_df, flank_5p_len: int = 0, flank_3p_len: int = 0,
         for index, row in rows
     ]
     args = (flank_5p_len, flank_3p_len, consensus_dir, frame_offset,
-            has_flanks, parent_protein)
+            has_flanks, parent_protein, masked)
 
     for index, result in _map_well_checks(tasks, args, workers):
         if result is None:

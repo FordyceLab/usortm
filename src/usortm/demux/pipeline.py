@@ -314,6 +314,7 @@ def run_levseq_pipeline(
     live_report=None,
     resume: bool = False,
     streakout: bool = False,
+    qc_mask_file=None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
 
@@ -404,6 +405,19 @@ def run_levseq_pipeline(
     rbc_toml = write_levseq_rbc_toml(config_dir, n_barcodes=n_rbc, masks=rbc_masks, scoring=scoring)
     fbc_fasta = write_levseq_fbc_fasta(config_dir)
     rbc_fasta = write_levseq_rbc_fasta(config_dir, n_barcodes=n_rbc)
+
+    # Positions where a change is the sequencing's rather than the
+    # construct's.  Read once here: the workers are separate processes and
+    # would each otherwise open the file.
+    qc_mask, qc_masked = [], None
+    if qc_mask_file:
+        from usortm.demux.qc_mask import as_lookup, describe, read_qc_mask
+
+        qc_mask = read_qc_mask(qc_mask_file)
+        qc_masked = as_lookup(qc_mask)
+        if qc_mask:
+            _progress(f"QC mask: {describe(qc_mask)} treated as sequencing "
+                      f"artefacts")
 
     # Pipeline stats accumulator
     pipeline_stats = {}
@@ -574,6 +588,10 @@ def run_levseq_pipeline(
         ref_map=ref_map,
         oriented_fastq=oriented_fq,
     )
+    pipeline_stats["qc_mask"] = [
+        {"position": m.position, "base": m.base, "note": m.note}
+        for m in qc_mask
+    ]
     pipeline_stats["demux"] = {
         "fbc_classified": read_df.attrs.get("fbc_classified", 0),
         "rbc_classified": read_df.attrs.get("rbc_classified", 0),
@@ -752,6 +770,7 @@ def run_levseq_pipeline(
                 workers=workers,
                 progress_callback=_match_progress,
                 library_inserts=library_inserts,
+                masked=qc_masked,
             )
         else:
             well_df = utils.extract_matches(well_df, workers=workers)

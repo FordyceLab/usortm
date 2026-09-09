@@ -26,6 +26,7 @@ from rich.markup import escape
 from usortm.demux.deps import check_all_dependencies
 from usortm.cli.theme import get_console, BORDER_STYLE, section
 from usortm.demux.pipeline import WELL_DATA_MIN_READS
+from usortm.demux.qc_mask import find_qc_mask
 from usortm.paths import config_file
 
 console = get_console()
@@ -111,6 +112,14 @@ def demux(
         True,
         "--open-live/--no-open-live",
         help="Open the live dashboard in a browser when the run starts.",
+    ),
+    qc_mask_file: Optional[Path] = typer.Option(
+        None,
+        "--qc-mask",
+        help="TOML naming substitutions that are artefacts of the sequencing "
+             "rather than of the construct, which the per-well checks then "
+             "count as agreement. Defaults to the project's "
+             "config/qc_mask.toml when one is present; pass '' to ignore it.",
     ),
     streakout: bool = typer.Option(
         False,
@@ -447,6 +456,23 @@ def demux(
             # Interactive preset selection
             mask_config = _prompt_preset_selection()
 
+    # Positions whose disagreement belongs to the chemistry.  An empty
+    # --qc-mask is the off switch, so a project that keeps a file can still be
+    # run without it; Path("") stringifies to ".", hence the strip.
+    if qc_mask_file is not None and not str(qc_mask_file).strip("."):
+        qc_mask_path = None
+    elif qc_mask_file is not None:
+        qc_mask_path = str(qc_mask_file)
+    else:
+        qc_mask_path = find_qc_mask(project_dir, round_num)
+    if qc_mask_path:
+        from usortm.demux.qc_mask import describe, read_qc_mask
+
+        console.print(
+            f"[green]\u2713[/green] QC mask from {qc_mask_path}: "
+            f"{describe(read_qc_mask(qc_mask_path))}"
+        )
+
     # Create output directory (path already resolved for the correct round above)
     demux_output.mkdir(parents=True, exist_ok=True)
 
@@ -576,6 +602,7 @@ def demux(
                 live_report=live_report,
                 resume=resume,
                 streakout=streakout,
+                qc_mask_file=qc_mask_path,
             )
             per_segment.append((segment, results, seg_dir))
 
@@ -1846,6 +1873,7 @@ def _run_demux(
     live_report=None,
     resume: bool = False,
     streakout: bool = False,
+    qc_mask_file=None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1903,6 +1931,7 @@ def _run_demux(
             live_report=live_report,
             resume=resume,
             streakout=streakout,
+            qc_mask_file=qc_mask_file,
         )
     else:
         raise NotImplementedError(
