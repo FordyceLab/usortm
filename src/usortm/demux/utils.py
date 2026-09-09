@@ -16,6 +16,7 @@ import re
 import string
 import subprocess
 import json
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -2373,27 +2374,56 @@ def column_agreement_class(max_mismatch_frac) -> str:
     return "clean"
 
 
+@lru_cache(maxsize=4096)
+def _construct_reference(demux_output_dir: str, name: str) -> str:
+    """The whole construct a well's reads were aligned to, flanks included.
+
+    The ORF alone is what the caller carries, and reading a column outside it
+    needs the base the reads are being compared against.  Cached because every
+    well of a plate shares a handful of references.
+    """
+    path = os.path.join(demux_output_dir, "reference_fasta",
+                        "single_ref_fastas", f"{name}.fasta")
+    try:
+        with open(path) as fh:
+            return "".join(line.strip() for line in fh
+                           if not line.startswith(">"))
+    except OSError:
+        return ""
+
+
 def _check_column_agreement(
     well: str,
     consensus_dir: str,
     orf_seq: str,
     orf_start: int,
-    threshold: float = MIXED_TEMPLATE_THRESHOLD,
+    threshold: float = MIXED_TEMPLATE_WATCH,
     min_depth: int = 10,
 ) -> dict:
-    """Check per-column read agreement in the variable region.
+    """Check per-column read agreement across the whole construct.
 
-    Opens the per-well read BAM and checks each ORF position for reads
-    that disagree with the assigned variant's reference.  Positions where
-    >*threshold* fraction of reads differ are flagged.
+    Opens the per-well read BAM and checks each position for reads that
+    disagree with the assigned variant's reference.  Positions where
+    >*threshold* of reads differ are flagged.
+
+    The flanks are read by the same rule as the variable region.  Scanned
+    only over the ORF this missed a class of well entirely: a flank position
+    where the reads split was outside this test, and the separate flank check
+    compares the *consensus* rather than the reads and declines to call such a
+    position at all, writing an N it then forgives.  A well could hold a 65/35
+    split in its 5' flank and be reported clean by both.
+
+    Returns the worst column over the whole construct, so a flank position now
+    reaches the same mixed and worth-checking classes the variable region does.
 
     Args:
         well: Global well identifier (e.g. "1A1").
         consensus_dir: Directory containing per-well BAMs ({well}.bam).
-        orf_seq: The assigned variant's ORF sequence (from well_df ref_seq).
+        orf_seq: The assigned variant's ORF sequence (from well_df ref_seq),
+            used for the variable region and to locate it.
         orf_start: 0-based start of the ORF in the BAM reference coordinate
             system (= flank_5p_len).
-        threshold: Maximum non-reference fraction allowed (default 0.10).
+        threshold: Non-reference fraction past which a column is flagged.
         min_depth: Minimum read depth at a position to evaluate it.
 
     Returns:
@@ -2410,12 +2440,28 @@ def _check_column_agreement(
     orf_len = len(orf_seq)
     try:
         bam = pysam.AlignmentFile(bam_path, "rb", check_sq=False)
+        # The construct the reads were aligned to, so a column in a flank has
+        # a base to be judged against.  Without it only the ORF can be read,
+        # which is how a flank position that splits went unseen.
+        demux_output_dir = os.path.dirname(os.path.dirname(consensus_dir))
+        full_ref = ""
+        if bam.references:
+            full_ref = _construct_reference(demux_output_dir,
+                                            bam.references[0])
         flagged = 0
         min_agree = 1.0
         max_mismatch = 0.0
         for col in bam.pileup(min_base_quality=0):
-            orf_pos = col.reference_pos - orf_start
-            if orf_pos < 0 or orf_pos >= orf_len:
+            pos = col.reference_pos
+            orf_pos = pos - orf_start
+            in_orf = 0 <= orf_pos < orf_len
+            if in_orf:
+                ref_base = orf_seq[orf_pos].upper()
+            elif full_ref and 0 <= pos < len(full_ref):
+                ref_base = full_ref[pos].upper()
+            else:
+                # No base to compare against; scanning it would count every
+                # read as disagreeing.
                 continue
             counts = Counter()
             for read in col.pileups:
@@ -2425,7 +2471,6 @@ def _check_column_agreement(
             total = sum(counts.values())
             if total < min_depth:
                 continue
-            ref_base = orf_seq[orf_pos].upper()
             ref_count = counts.get(ref_base, 0)
             agreement = ref_count / total
             mismatch_frac = 1.0 - agreement
@@ -2515,8 +2560,9 @@ def _extract_matches_one(row, flank_5p_len, flank_3p_len, consensus_dir,
 
     out["cons_check"] = status
 
-    # Per-column read agreement check: scan the per-well read BAM for
-    # positions where >10% of reads disagree with the reference.
+    # Per-column read agreement: scan the per-well read BAM for positions
+    # where more than MIXED_TEMPLATE_WATCH of reads disagree with the
+    # reference, over the whole construct rather than the ORF alone.
     if has_flanks and status in ("Perfect Match", "Silent Mutation") and ref_seq:
         col_result = _check_column_agreement(
             well, consensus_dir, ref_seq, flank_5p_len,
