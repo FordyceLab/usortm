@@ -9,6 +9,8 @@ from pathlib import Path
 import csv
 import gzip
 import json
+
+from usortm import provenance as _provenance
 import os
 import shutil
 import sys
@@ -673,6 +675,7 @@ def demux(
     # Update project state
     demux_step_data = {
         "completed": True,
+        "command": _provenance.current_command(),
         "timestamp": datetime.now().isoformat(),
         # Kept for single-FASTQ runs, which is what most projects are.
         "fastq": str(segments[0].path.absolute()),

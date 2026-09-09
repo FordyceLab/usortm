@@ -6,6 +6,8 @@ from pathlib import Path
 import csv
 import json
 
+from usortm import provenance as _provenance
+
 import typer
 from rich.table import Table
 from rich.panel import Panel
@@ -288,6 +290,7 @@ def merge(
     _streakout_hits = [h for h in recovered if h.get("tier_override") == "Streakout"]
     project["merged"] = {
         "completed": True,
+        "command": _provenance.current_command(),
         "timestamp": __import__("datetime").datetime.now().isoformat(),
         "rounds": round_nums,
         "total_hits": len(recovered),

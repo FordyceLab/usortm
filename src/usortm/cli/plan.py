@@ -5,6 +5,8 @@ from typing import Optional
 from pathlib import Path
 import csv
 import json
+
+from usortm import provenance as _provenance
 from datetime import datetime
 
 import typer
@@ -304,7 +306,7 @@ def plan(
             "total": round(total_cost, 2),
         },
         "workflow_steps": {
-            "plan": {"completed": True, "timestamp": datetime.now().isoformat()},
+            "plan": _provenance.record({"completed": True}),
             "demux": {"completed": False},
             "pick": {"completed": False},
             "report": {"completed": False},
@@ -929,7 +931,7 @@ def _plan_round_n(
         "demux_output": str((round_dir / "demux_output").relative_to(output_dir)),
         "pick_dir": str((round_dir / "pick").relative_to(output_dir)),
         "workflow_steps": {
-            "plan": {"completed": True, "timestamp": datetime.now().isoformat()},
+            "plan": _provenance.record({"completed": True}),
             "demux": {"completed": False},
             "pick": {"completed": False},
         },

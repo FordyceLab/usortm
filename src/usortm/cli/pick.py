@@ -6,6 +6,8 @@ from pathlib import Path
 import csv
 import json
 
+from usortm import provenance as _provenance
+
 import typer
 from rich.table import Table
 from rich.panel import Panel
@@ -559,6 +561,7 @@ def pick(
     _streakout_hits = [h for h in _all_hits if h.get("tier_override") == "Streakout"]
     pick_state = {
         "completed": True,
+        "command": _provenance.current_command(),
         "timestamp": __import__("datetime").datetime.now().isoformat(),
         "total_hits": len(_all_hits),
         "unique_variants": len(set(h["variant"] for h in _all_hits if h.get("tier_override") != "Streakout")),

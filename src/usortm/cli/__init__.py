@@ -1,3 +1,4 @@
+from usortm.cli.methods import methods
 """Command-line interface for uSort-M."""
 
 import typer
@@ -80,6 +81,7 @@ app.command(name="pick")(pick)
 app.command(name="reorder")(reorder)
 app.command(name="merge")(merge)
 app.command(name="report")(report)
+app.command(name="methods")(methods)
 app.command(name="platemap")(platemap)
 app.command(name="pileups")(pileups)
 app.add_typer(masks_app, name="masks")

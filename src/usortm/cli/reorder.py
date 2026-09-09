@@ -5,6 +5,8 @@ from typing import Optional
 from pathlib import Path
 import csv
 import json
+
+from usortm import provenance as _provenance
 import random
 
 import openpyxl
@@ -273,6 +275,7 @@ def reorder(
     # against them, and a count alone cannot say which ones came back.
     project.setdefault("workflow_steps", {})["reorder"] = {
         "completed": True,
+        "command": _provenance.current_command(),
         "timestamp": datetime.now().isoformat(),
         "format": fmt,
         "output": str(output),
