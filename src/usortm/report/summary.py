@@ -316,7 +316,8 @@ def _plate_stepper(plates: Sequence[str]) -> str:
         f'<div class="stepper" data-n="{len(plates)}">'
         f'<button type="button" data-step="-1" aria-label="Previous plate">'
         f'&minus;</button>'
-        f'<span class="count"><b id="plateAt">1</b>/{len(plates)}</span>'
+        f'<span class="count"><b id="plateAt">1</b>/'
+        f'<b id="plateOf">{len(plates)}</b></span>'
         f'<button type="button" data-step="1" aria-label="Next plate">+'
         f'</button></div>'
     )
@@ -718,50 +719,70 @@ document.addEventListener("keydown", function (e) {{
 }});
 
 (function () {{
-  // Which round's plate the area shows.  The stepper goes with the sort,
-  // whose plates it steps through; the re-order has one plate and nothing
-  // to step, so the control travels with the tab rather than sitting
-  // disabled beside it.
-  var sw = document.querySelector(".plateswitch");
-  if (!sw) return;
-  sw.addEventListener("click", function (e) {{
-    var b = e.target.closest("button[data-set]");
-    if (!b) return;
-    var want = b.dataset.set;
-    sw.querySelectorAll("button").forEach(function (x) {{
-      x.classList.toggle("on", x === b);
-    }});
-    document.querySelectorAll(".plateset").forEach(function (p) {{
-      p.hidden = p.dataset.set !== want;
-    }});
-    var step = document.querySelector(".stepper");
-    if (step) step.hidden = want !== "sort";
-  }});
-}})();
-
-(function () {{
+  // The tab picks which round's plates the area shows and the stepper walks
+  // whichever that is.  One block rather than two: the stepper's total is a
+  // property of the set on show -- the sort has a plate per sort plate, the
+  // re-order one per picked colony -- so a stepper that did not know about
+  // the tab counted the wrong plates.
+  var sets = [...document.querySelectorAll(".plateset")];
+  if (!sets.length) return;
   var box = document.querySelector(".stepper");
-  if (!box) return;
-  var maps = [...document.querySelectorAll(
-    '.plateset[data-set="sort"] .plate[data-p]')];
+  var sw = document.querySelector(".plateswitch");
   var at = document.getElementById("plateAt");
-  var i = 0;
+  var total = document.getElementById("plateOf");
+  var active = sets[0].dataset.set;
+  // Where each set was left, so coming back to one returns to the plate that
+  // was being read rather than to its first.
+  var at_i = {{}};
+
+  function platesOf(name) {{
+    var s = sets.find(function (x) {{ return x.dataset.set === name; }});
+    return s ? [...s.querySelectorAll(".plate[data-p]")] : [];
+  }}
+
   function show() {{
+    var maps = platesOf(active);
+    var i = at_i[active] || 0;
+    sets.forEach(function (s) {{ s.hidden = s.dataset.set !== active; }});
     maps.forEach(function (g, k) {{ g.hidden = k !== i; }});
+    if (!box) return;
+    // Nothing to step on a set of one, so the control goes rather than
+    // sitting disabled beside it.
+    box.hidden = maps.length < 2;
     if (at) at.textContent = i + 1;
+    if (total) total.textContent = maps.length;
     box.querySelectorAll("button").forEach(function (b) {{
       var next = i + Number(b.dataset.step);
       // Disabled at the ends rather than wrapping: wrapping from the last
-      // plate to the first reads as a jump to a plate that was not asked for.
+      // plate to the first reads as a jump to one that was not asked for.
       b.disabled = next < 0 || next >= maps.length;
     }});
   }}
-  box.addEventListener("click", function (e) {{
-    var b = e.target.closest("button[data-step]");
-    if (!b || b.disabled) return;
-    i = Math.min(maps.length - 1, Math.max(0, i + Number(b.dataset.step)));
-    show();
-  }});
+
+  if (box) {{
+    box.addEventListener("click", function (e) {{
+      var b = e.target.closest("button[data-step]");
+      if (!b || b.disabled) return;
+      var maps = platesOf(active);
+      var i = at_i[active] || 0;
+      at_i[active] = Math.min(maps.length - 1,
+                              Math.max(0, i + Number(b.dataset.step)));
+      show();
+    }});
+  }}
+
+  if (sw) {{
+    sw.addEventListener("click", function (e) {{
+      var b = e.target.closest("button[data-set]");
+      if (!b) return;
+      active = b.dataset.set;
+      sw.querySelectorAll("button").forEach(function (x) {{
+        x.classList.toggle("on", x === b);
+      }});
+      show();
+    }});
+  }}
+
   show();
 }})();
 

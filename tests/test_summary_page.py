@@ -373,7 +373,9 @@ def test_plates_are_stepped_not_tabbed(run):
         wells, run, library_size=1)
     assert 'class="stepper"' in html
     assert 'class="tabs"' not in html
-    assert "/4</span>" in html          # the count names the total
+    # The total is its own element: with a re-order round the tab swaps which
+    # set is stepped, and the count has to be rewritten rather than baked in.
+    assert '<b id="plateOf">4</b>' in html
     assert 'data-step="-1"' in html and 'data-step="1"' in html
 
 
