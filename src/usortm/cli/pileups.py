@@ -157,12 +157,19 @@ def pileups(
             label = well_pos if success else f"{well_pos} [yellow](skipped)[/yellow]"
             progress.update(task_id, advance=1, description=f"Pileup: {label}")
 
+        from usortm.demux.annotations import find_project_annotations
+
+        annotations = find_project_annotations(project_dir)
+        if annotations:
+            console.print(f"[green]\u2713[/green] Features from "
+                          f"{annotations.name}")
         generate_pick_pileups(
             pick_list=pick_list,
             demux_output_dir=str(demux_output),
             output_dir=str(out_dir),
             workers=workers,
             progress_callback=_on_progress,
+            annotation_file=str(annotations) if annotations else None,
         )
 
     index_path = _write_pileup_index(out_dir, selected, min_reads)

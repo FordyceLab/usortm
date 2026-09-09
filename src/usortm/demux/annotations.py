@@ -33,6 +33,47 @@ __all__ = ["load_annotations", "transfer_features", "features_for_reference"]
 ANNOTATED_SUFFIXES = (".dna", ".gb", ".gbk", ".genbank", ".ape")
 
 
+#: What the read template is usually called, and what it is: the construct a
+#: read covers end to end, which is the sequence a pileup is drawn against.
+#: The vector is the backbone without the insert and the plasmid map carries
+#: more than the amplicon, so neither transfers onto a well's reference as
+#: cleanly.
+_ANNOTATION_PREFERENCE = ("reference_read", "read_template", "amplicon")
+
+
+def find_project_annotations(project_dir):
+    """The annotated construct a project keeps, or None.
+
+    Features are drawn over a pileup's reference bar, which is what puts the
+    tags either side of the variable region in view: a change can then be read
+    against what it sits next to rather than against a bare coordinate.  They
+    come from whatever annotated file the project was given, so this looks for
+    one rather than requiring it to be named again at every command.
+
+    Args:
+        project_dir: The project directory, holding ``inputs/``.
+
+    Returns:
+        A :class:`pathlib.Path`, or None when the project keeps no annotated
+        file -- in which case pileups are drawn without a feature track, as
+        they were before.
+    """
+    from pathlib import Path
+
+    inputs = Path(project_dir) / "inputs"
+    if not inputs.is_dir():
+        return None
+    found = [p for p in sorted(inputs.iterdir())
+             if p.suffix.lower() in ANNOTATED_SUFFIXES]
+    if not found:
+        return None
+    for want in _ANNOTATION_PREFERENCE:
+        for path in found:
+            if want in path.stem.lower().replace("-", "_"):
+                return path
+    return found[0]
+
+
 def load_annotations(path):
     """Read an annotated construct file, or return None if it has none.
 

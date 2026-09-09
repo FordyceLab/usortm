@@ -131,6 +131,14 @@ def pick(
         project = json.load(f)
 
     # ------------------------------------------------------------------
+    # Features are drawn over a pileup's reference bar, which is what puts the
+    # tags either side of the variable region in view.  Found once here rather
+    # than named again at each call.
+    from usortm.demux.annotations import find_project_annotations
+
+    _found = find_project_annotations(project_dir)
+    _annotations = str(_found) if _found else None
+
     # Resolve round-specific context
     # ------------------------------------------------------------------
     round_state_file: Optional[Path] = None
@@ -431,6 +439,7 @@ def pick(
                     output_dir=str(pick_dir),
                     workers=workers,
                     progress_callback=_on_progress,
+                    annotation_file=_annotations,
                 )
 
             n_pileups = sum(len(v) for v in pileup_url_map.values())
@@ -511,6 +520,7 @@ def pick(
                         output_dir=str(demux_output / "mutation"),
                         workers=workers,
                         progress_callback=_on_mut_progress,
+                        annotation_file=_annotations,
                     )
 
                 console.print(
