@@ -349,6 +349,14 @@ def _load_well_assignments(wa_file: Path) -> list:
                 "reads": int(row["reads"]),
                 "consensus_fraction": float(row["consensus_fraction"]),
                 "cons_check": row.get("cons_check", ""),
+                # Carried because the quality test reads them.  Dropping them
+                # here did not fail the test, it passed it: a missing flank
+                # reads as intact and a missing worst-column figure as clean,
+                # so every well cleared a filter that never ran.
+                "flank_check": row.get("flank_check", ""),
+                "max_mismatch_frac": (
+                    float(row["max_mismatch_frac"])
+                    if (row.get("max_mismatch_frac") or "").strip() else None),
             })
     return wells
 
@@ -384,13 +392,38 @@ def _load_library_order(project: dict, project_dir: Path) -> Optional[dict]:
     return None
 
 
-def _passes_tier(well: dict, tier: Optional[str]) -> bool:
-    """Return True if the well meets the tier threshold.
+def _norm_variant_name(name: str) -> str:
+    """One spelling for a variant across rounds.
 
-    Wells with non-silent mutations (cons_check "Error" or "Other Error")
-    are always excluded.
+    Some rounds separate a name's parts with "." and the top-level library
+    with ";", so the same construct arrives written two ways and would be
+    merged as two.
     """
-    if well.get("cons_check", "") in ("Error", "Other Error"):
+    return str(name or "").replace(".", ";")
+
+
+def _passes_tier(well: dict, tier: Optional[str],
+                 designed: Optional[set] = None) -> bool:
+    """Whether the well holds a library member, cleanly, at the tier's depth.
+
+    *designed* is the library's members.  Without it the merge took whatever
+    a well was called, so the parent -- which every plate carries and which is
+    not a variant of anything -- was picked as a hit and counted towards
+    coverage, putting a 376-member library over 100%.
+
+    The quality test is the one the recovery tiers and the plate maps use.
+    Judged separately here it excluded error calls but never flanks or how far
+    the worst column disagreed, so wells the rest of the report had discarded
+    were merged as recovered.
+    """
+    if designed is not None:
+        from usortm.report.plates import carries_designed_sequence
+
+        row = dict(well)
+        row["variant"] = _norm_variant_name(well.get("variant"))
+        if not carries_designed_sequence(row, designed):
+            return False
+    elif well.get("cons_check", "") in ("Error", "Other Error"):
         return False
     if tier is None:
         return True
@@ -416,13 +449,17 @@ def _build_merged_pick_list(
     # Normalize variant names: some rounds use "." as separator (e.g. "ATF4.25.171")
     # while the top-level library uses ";" (e.g. "ATF4;25;171"). Normalize to ";"
     # so round 2+ variants are correctly matched to their library position.
-    def _norm(name: str) -> str:
-        return name.replace(".", ";")
+    _norm = _norm_variant_name
+
+    # The library's own members, in the one spelling.  A well is only a hit
+    # if it holds one of these: the parent is on every plate and is not a
+    # variant of anything.
+    designed = ({_norm(k) for k in library_order} if library_order else None)
 
     best: dict[str, tuple[int, dict]] = {}  # canonical_name -> (round_num, well)
     for rnum, wells in sorted(all_wells.items()):
         for well in wells:
-            if not _passes_tier(well, tier):
+            if not _passes_tier(well, tier, designed):
                 continue
             variant = _norm(well["variant"])
             if variant not in best or well["reads"] > best[variant][1]["reads"]:

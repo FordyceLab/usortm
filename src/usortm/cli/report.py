@@ -1394,6 +1394,59 @@ def _make_recovery_curve_bokeh(
     return fig
 
 
+def _load_reorder_rounds(project_dir) -> "dict | None":
+    """The re-order round's verdicts, when one has been sequenced.
+
+    A re-order round finishes the sort rather than standing beside it, so its
+    result is laid into the same page.  Three records have to agree before
+    that can be drawn, and any missing one means there is nothing to say: the
+    order plate, which says what was bought into which well; the replicate
+    map, which says where each picked colony went; and the round's own demux.
+
+    Returns None when the round has not been sequenced or is not described,
+    so the page omits the section rather than drawing a plate from an order
+    that was never run.
+    """
+    from pathlib import Path
+
+    import pandas as pd
+
+    from usortm.report.plates import pileup_links
+    from usortm.verify import (expected_wells, read_order_layout,
+                               read_replicate_map, summarise, verify)
+
+    root = Path(project_dir)
+    order_files = sorted(root.glob("reorder/reorder_*.csv"))
+    if not order_files:
+        return None
+
+    for round_dir in sorted(root.glob("rounds/*")):
+        rep_file = round_dir / "replicate_map.toml"
+        wells_file = round_dir / "demux_output" / "well_assignments.csv"
+        if not (rep_file.exists() and wells_file.exists()):
+            continue
+        try:
+            order = read_order_layout(order_files[0])
+            replicates = read_replicate_map(rep_file)
+            wanted = expected_wells(order, replicates)
+            rows = pd.read_csv(wells_file).to_dict("records")
+        except Exception:
+            # A malformed record is not a reason to lose the rest of the
+            # page; the section is left out and the sort still reports.
+            continue
+
+        designed = {o.variant for o in order}
+        verdicts = verify(rows, wanted, designed)
+        return {
+            "round": round_dir.name,
+            "summary": summarise(verdicts),
+            "verdicts": verdicts,
+            "rows": {f'{r["plate"]}_{r["well"]}': r for r in rows},
+            "links": pileup_links(round_dir),
+        }
+    return None
+
+
 def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                       output_file: Path, project_dir: Path = None,
                       merged_context: dict = None):
@@ -1412,12 +1465,13 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
         library_size = project.get("library_size", 0)
         bins = _compute_quality_bins(well_data, library_size) if library_size \
             else None
+        root = project_dir or output_file.parent
         with open(output_file, "w") as fh:
             fh.write(render_summary(
-                project, demux_summary, well_data,
-                project_dir or output_file.parent,
+                project, demux_summary, well_data, root,
                 tiers=(bins or {}).get("recovery_tiers"),
                 library_size=library_size,
+                reorder=_load_reorder_rounds(root),
             ))
         return
 

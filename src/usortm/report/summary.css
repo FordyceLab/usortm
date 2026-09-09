@@ -212,6 +212,16 @@ td.name { font-variant-numeric:normal; }
        background:var(--surface-1); color:var(--text-secondary); }
 .tab.on { background:var(--surface-2); color:var(--text-primary);
           font-weight:600; }
+/* One plate area holds the sort's maps and the re-order's, and the tab picks
+   which.  An author display rule beats the hidden attribute's UA style, so
+   the hidden set has to be said here or both stack up at once. */
+.plateset[hidden] { display:none; }
+/* The stepper belongs to the sort's fourteen plates; the re-order has one, so
+   it goes with the tab rather than sitting disabled beside it. */
+.stepper[hidden] { display:none; }
+/* The re-order's row in the recovery table, in its own colour so the sorted
+   and the assembled rows are not read as one series. */
+.chip.r { color:var(--good); }
 /* A block now that the depth ramp stands outside it: as a flex row its one
    grid child had nothing to stretch against and collapsed to nothing. */
 .plate { display:block; margin-bottom:.6rem; }

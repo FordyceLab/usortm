@@ -20,6 +20,8 @@ from .charts import (TIER_READS, bar, colorbar, read_depth_chart,
                      read_length_chart, recovery_chart, skew_chart)
 from .plates import (carries_designed_sequence, demux_plate_maps,
                      pick_plate, pileup_links)
+from .reorder import (failure_rows, outcome_rows, replicate_rows,
+                      reorder_plate)
 
 #: Parameters the manuscript reports for the hAcyP2 library.  Only the PCR
 #: failure rate is still read from here; see measured_parameters().
@@ -30,6 +32,16 @@ PUBLISHED = {"skew": 2, "p_incorrect": 0.35, "p_grow": 0.67, "p_fail": 0.025}
 WELLS_PER_PLATE = 16 * 24
 
 _CSS_PATH = Path(__file__).with_name("summary.css")
+
+#: What the re-order section is counting.  Stated once here because the
+#: section, the plate tab and the recovery row all describe the same wells.
+_REORDER_NOTE = (
+    "The dropouts, re-ordered as synthesised constructs and assembled into "
+    "known wells. Each was picked as several colonies, so a construct is "
+    "recovered when any one of its wells holds it, and the colonies are "
+    "counted apart because one failing far more than the others points at "
+    "the picking rather than the constructs."
+)
 
 
 def _designed_variants(project_dir) -> set:
@@ -313,8 +325,28 @@ def _plate_stepper(plates: Sequence[str]) -> str:
 def render_summary(project: dict, demux_summary: dict,
                    well_data: Sequence[dict], project_dir,
                    tiers: Optional[dict] = None,
-                   library_size: Optional[int] = None) -> str:
-    """The summary page for one run, as HTML."""
+                   library_size: Optional[int] = None,
+                   reorder: Optional[dict] = None) -> str:
+    """The summary page for one run, as HTML.
+
+    *reorder* carries a re-order round when one has been sequenced: its
+    ``summary`` and ``verdicts`` from :mod:`usortm.verify`, the ``rows`` of its
+    own demux keyed by plate and well, and its ``links`` to pileups.  It is
+    laid into this page rather than given one of its own, because the
+    constructs it buys are the ones this sort missed and the two make one
+    recovery figure.
+    """
+    ro = reorder or None
+    # Confirmed here that the sort did not already have: the re-order buys the
+    # dropouts, so in practice this is all of them, but a construct recovered
+    # by both must not be counted twice in the total.
+    rescued = set()
+    if ro:
+        rescued = set(ro["summary"]["confirmed"]) - {
+            w.get("variant") for w in well_data
+            if (w.get("reads") or 0) >= TIER_READS["C"]
+            and carries_designed_sequence(w, _designed_variants(project_dir))
+        }
     lib = library_size or project.get("library_size") or 0
     designed = _designed_variants(project_dir)
     plates = {str(w["plate"]) for w in well_data}
@@ -347,7 +379,14 @@ def render_summary(project: dict, demux_summary: dict,
             _sampling_dots(fold)))
     tier_c = (tiers or {}).get("C", {}).get("count")
     if tier_c is not None and lib:
-        stats.append(_stat("Library recovered", f"{tier_c}", f" of {lib}"))
+        # The whole library's figure, not the sort's: a re-order round exists
+        # to finish this number, so leaving it at the sort's would report the
+        # project as further behind than it is.
+        total = tier_c + len(rescued)
+        extra = (f'<div class="hint">{tier_c} sorted &middot; '
+                 f'{len(rescued)} re-ordered</div>') if rescued else ""
+        stats.append(_stat("Library recovered", f"{total}", f" of {lib}",
+                           extra))
 
     # --- library recovery ---
     recovery_html = ""
@@ -369,7 +408,14 @@ def render_summary(project: dict, demux_summary: dict,
                 f'<td class="name">&ge;{TIER_READS[key]} reads{mark}</td>'
                 f'<td>{t.get("count", 0)} <span class="u">{pct:.1f}%</span></td>'
                 f'<td>{bar(pct, tone)}</td></tr>')
-        missing = lib - (tiers.get("C") or {}).get("count", 0)
+        if rescued:
+            pct = 100 * len(rescued) / lib
+            rows.append(
+                f'<tr><td><span class="chip r">Re-order</span></td>'
+                f'<td class="name">assembled and confirmed</td>'
+                f'<td>{len(rescued)} <span class="u">{pct:.1f}%</span></td>'
+                f'<td>{bar(pct, "good")}</td></tr>')
+        missing = lib - (tiers.get("C") or {}).get("count", 0) - len(rescued)
         miss_pct = 100 * missing / lib if lib else 0.0
         rows.append(
             f'<tr><td colspan="2" class="name">Not recovered</td>'
@@ -381,6 +427,10 @@ def render_summary(project: dict, demux_summary: dict,
                 f'position where more than '
                 f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
                 f'cumulative.')
+        if rescued:
+            note += (' The re-order row is the dropouts bought back as '
+                     'synthesised constructs, held to the same test in the '
+                     'well they were assembled into.')
         recovery_html = (
             f'   <div>\n  {_section("Library recovery", note)}\n'
             f'  <table><tr><th>Tier</th><th>Threshold</th><th>Variants</th>'
@@ -425,6 +475,35 @@ def render_summary(project: dict, demux_summary: dict,
     if recovery_html or contents_html:
         tables_html = (f'  <div class="cols contain">\n{recovery_html}'
                        f'{contents_html}  </div>\n')
+
+    # --- the re-order round ---
+    reorder_html = ""
+    if ro:
+        rs = ro["summary"]
+        n_rep = len(rs["by_replicate"]) or 1
+        left = (
+            f'   <div>\n  {_section("Re-order round", _REORDER_NOTE)}\n'
+            f'  <table><tr><th>Well</th><th>Count</th>'
+            f'<th style="width:34%"></th></tr>{outcome_rows(rs)}</table>\n'
+            f'  <table><tr><th>Colony</th><th>Held it</th><th>Other</th>'
+            f'<th>Empty</th></tr>{replicate_rows(rs)}</table>\n'
+            f'   </div>\n')
+        fails = failure_rows(ro["verdicts"], ro["rows"])
+        if fails:
+            note = ('Why a well did not hold the construct ordered for it. '
+                    'A well can fail more than one test at once, so each is '
+                    'counted under the first that applies.')
+            right = (
+                f'   <div>\n  {_section("Why wells failed", note)}\n'
+                f'  <table><tr><th>Reason</th><th>Wells</th>'
+                f'<th style="width:34%"></th></tr>{fails}</table>\n'
+                f'   </div>\n')
+        else:
+            right = (f'   <div>\n  {_section("Why wells failed")}\n'
+                     f'  <p class="note">Every well held its construct.</p>\n'
+                     f'   </div>\n')
+        reorder_html = (f'  <div class="cols contain">\n{left}{right}'
+                        f'  </div>\n')
 
     # --- figures ---
     measured = measured_parameters(well_data, designed, n_plates, lib)
@@ -521,17 +600,44 @@ def render_summary(project: dict, demux_summary: dict,
         # middle column: it belongs to both plates, and between them it
         # separates the two without a rule that would say they are measured
         # differently.
-        demux_head = _section("Demux plate maps", maps["note"],
-                              _plate_stepper(maps["plates"]))
+        # One plate area with a tab per round rather than two sections: the
+        # two plates are read one against the other, and a second grid below
+        # put the sort's plate and the re-order's a page apart.
+        ro_plate = (reorder_plate(ro["verdicts"], ro["rows"], ro.get("links"))
+                    if ro else None)
+        stepper = _plate_stepper(maps["plates"])
+        if ro_plate and ro_plate["grids"]:
+            tabs = ('<div class="tabs plateswitch">'
+                    '<button type="button" class="tab on" data-set="sort">'
+                    'Sort</button>'
+                    '<button type="button" class="tab" data-set="reorder">'
+                    'Re-order</button></div>')
+            note = (f'<b>Sort.</b> {maps["note"]}</p>'
+                    f'<p><b>Re-order.</b> {ro_plate["note"]}')
+            demux_head = _section("Plate maps", note, tabs + stepper)
+            left_grid = (
+                f'<div class="plateset" data-set="sort">{maps["grids"]}</div>'
+                f'<div class="plateset" data-set="reorder" hidden>'
+                f'{ro_plate["grids"]}</div>')
+            left_leg = (
+                f'<div class="plateset" data-set="sort">{maps["legend"]}</div>'
+                f'<div class="plateset" data-set="reorder" hidden>'
+                f'{ro_plate["legend"]}</div>')
+        else:
+            demux_head = _section("Demux plate maps", maps["note"], stepper)
+            left_grid = (f'<div class="plateset" data-set="sort">'
+                         f'{maps["grids"]}</div>')
+            left_leg = (f'<div class="plateset" data-set="sort">'
+                        f'{maps["legend"]}</div>')
         plates_html = (
             f'  <div class="platewrap">\n'
             f'    <div class="phead left">{demux_head}</div>\n'
             f'    <div class="cbcol">{colorbar()}<div class="cblab">reads'
             f'<br>per well</div></div>\n'
             f'    <div class="phead right">{pick_head}</div>\n'
-            f'    <div class="pgrid left">{maps["grids"]}</div>\n'
+            f'    <div class="pgrid left">{left_grid}</div>\n'
             f'    <div class="pgrid right">{pick["grid"]}</div>\n'
-            f'    <div class="pleg left">{maps["legend"]}</div>\n'
+            f'    <div class="pleg left">{left_leg}</div>\n'
             f'    <div class="pleg right">{pick["legend"]}</div>\n'
             f'  </div>\n')
 
@@ -572,7 +678,7 @@ def render_summary(project: dict, demux_summary: dict,
 
   <div class="stats">{"".join(stats)}</div>
 
-{tables_html}{figures_html}{plates_html}
+{tables_html}{reorder_html}{figures_html}{plates_html}
   <h2>Provenance</h2>
   <table><tr><th>Component</th><th>Version</th></tr>{ver_rows}</table>
 
@@ -612,9 +718,32 @@ document.addEventListener("keydown", function (e) {{
 }});
 
 (function () {{
+  // Which round's plate the area shows.  The stepper goes with the sort,
+  // whose plates it steps through; the re-order has one plate and nothing
+  // to step, so the control travels with the tab rather than sitting
+  // disabled beside it.
+  var sw = document.querySelector(".plateswitch");
+  if (!sw) return;
+  sw.addEventListener("click", function (e) {{
+    var b = e.target.closest("button[data-set]");
+    if (!b) return;
+    var want = b.dataset.set;
+    sw.querySelectorAll("button").forEach(function (x) {{
+      x.classList.toggle("on", x === b);
+    }});
+    document.querySelectorAll(".plateset").forEach(function (p) {{
+      p.hidden = p.dataset.set !== want;
+    }});
+    var step = document.querySelector(".stepper");
+    if (step) step.hidden = want !== "sort";
+  }});
+}})();
+
+(function () {{
   var box = document.querySelector(".stepper");
   if (!box) return;
-  var maps = [...document.querySelectorAll(".plate[data-p]")];
+  var maps = [...document.querySelectorAll(
+    '.plateset[data-set="sort"] .plate[data-p]')];
   var at = document.getElementById("plateAt");
   var i = 0;
   function show() {{

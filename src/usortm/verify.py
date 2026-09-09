@@ -106,12 +106,20 @@ class Replicate:
 
 @dataclass(frozen=True)
 class ExpectedWell:
-    """The construct and replicate intended for one sequenced well."""
+    """The construct and replicate intended for one sequenced well.
+
+    Both coordinates are kept.  ``well`` is where the read came from, in the
+    384-well plate the colonies were consolidated into for sequencing;
+    ``order_well`` is the 96-well position the construct was ordered and
+    assembled in, which is the plate the bench actually worked in and the one
+    worth drawing.
+    """
 
     plate: int
     well: str
     variant: str
     replicate: int
+    order_well: str = ""
 
 
 def read_order_layout(path) -> List[OrderedWell]:
@@ -292,7 +300,8 @@ def expected_wells(order: Iterable[OrderedWell],
                     f"{item.variant} (replicate {rep.n})."
                 )
             out[key] = ExpectedWell(plate=plate, well=key[1],
-                                    variant=item.variant, replicate=rep.n)
+                                    variant=item.variant, replicate=rep.n,
+                                    order_well=item.well)
     return out
 
 
@@ -354,7 +363,11 @@ EMPTY = "empty"
 
 @dataclass(frozen=True)
 class WellVerdict:
-    """One intended well, and what the reads made of it."""
+    """One intended well, and what the reads made of it.
+
+    ``well`` is the sequenced 384-well position; ``order_well`` the 96-well
+    one the construct was assembled in.
+    """
 
     plate: int
     well: str
@@ -363,6 +376,7 @@ class WellVerdict:
     reads: int
     status: str
     replicate: int = 1
+    order_well: str = ""
 
 
 def verify(well_data: Sequence[dict],
@@ -400,13 +414,13 @@ def verify(well_data: Sequence[dict],
         reads = int((row or {}).get("reads") or 0)
         if row is None or reads < min_reads:
             out.append(WellVerdict(plate, well, want.variant, None, reads,
-                                   EMPTY, want.replicate))
+                                   EMPTY, want.replicate, want.order_well))
             continue
         got = row.get("variant") or ""
         status = (CONFIRMED if got == want.variant and is_clean(row, designed)
                   else WRONG)
         out.append(WellVerdict(plate, well, want.variant, got, reads, status,
-                               want.replicate))
+                               want.replicate, want.order_well))
     return sorted(out, key=lambda v: (v.plate, v.replicate,
                                       _split_well(v.well)))
 
