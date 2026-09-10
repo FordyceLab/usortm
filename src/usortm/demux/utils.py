@@ -940,7 +940,15 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
         )
 
     _say("Building DataFrame...")
-    all_reads = set(fbc_map) | set(rbc_map) | set(_ref_map)
+    # Sorted, so a run's rows land in the same order as the last run's.  A set
+    # of read names iterates in hash order, and Python randomises string
+    # hashing per process, so this ordering changed on every run -- which put
+    # each well's reads in a new order, made every per-well FASTQ differ from
+    # the one already on disk, and so discarded the consensus built from it.
+    # Every well with more than one read rebuilt, every run: 1,693 of 2,068 on
+    # the run that found it, and not one of the 244 single-read wells, which
+    # have no order to vary.
+    all_reads = sorted(set(fbc_map) | set(rbc_map) | set(_ref_map))
     df = pd.DataFrame([{
         "read_name": rid,
         "fbc": fbc_map.get(rid),
@@ -1247,7 +1255,11 @@ def generate_well_df(read_df):
                 for r in curr['ref_name'].to_list()]
         if not refs:
             continue
-        major_ref = max(set(refs), key=refs.count)
+        # Sorted before the max, so a well whose reads split evenly between
+        # two references is called the same way on every run.  Over a set,
+        # max returns whichever of the tied references hash order put first,
+        # and string hashing is randomised per process.
+        major_ref = max(sorted(set(refs)), key=refs.count)
         major_freq = refs.count(major_ref)/len(curr)
         # Look up ref_seq/ref_len from original column (may still have prefix)
         ref_match = curr[curr['ref_name'].str.endswith(major_ref, na=False)]
