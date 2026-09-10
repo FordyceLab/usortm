@@ -105,6 +105,16 @@ def pick(
         help="Include wells whose consensus differs from the designed "
              "sequence, silent changes among them, in the pick list.",
     ),
+    max_disagreement: Optional[float] = typer.Option(
+        None,
+        "--max-disagreement",
+        min=0.0, max=1.0,
+        help="Exclude a well when more than this fraction of its reads "
+             "disagree with the reference at any one position. Default: "
+             f"the mixed-template threshold, {MIXED_TEMPLATE_THRESHOLD:.2f}. "
+             f"Set {MIXED_TEMPLATE_WATCH:.2f} to exclude the watch band as "
+             "well, where a minority clone can still contaminate a pick.",
+    ),
     round_num: int = typer.Option(
         1,
         "--round", "-r",
@@ -280,6 +290,7 @@ def pick(
         include_cons_errors=include_cons_errors,
         layout=layout_rows,
         layout_stats=layout_stats,
+        max_disagreement=max_disagreement,
     )
 
     if layout_stats:
@@ -896,13 +907,19 @@ def _generate_pick_list(
     include_cons_errors: bool = False,
     layout: Optional[list] = None,
     layout_stats: Optional[dict] = None,
+    max_disagreement: Optional[float] = None,
 ) -> list:
     """Generate pick list from well data.
 
+    *max_disagreement* is the largest per-position disagreement a picked
+    well may carry.  None means the mixed-template threshold; a well the
+    scan could not measure is never excluded by it.
+
     When *library_order* is provided, the final pick list is sorted to
-    match the input library CSV ordering.  The highest-read-count well
-    is still chosen for each variant (when unique_only=True), but the
-    output order reflects the library rather than read depth.
+    match the input library CSV ordering.  The well chosen for each variant
+    (when unique_only=True) is still the best by consensus, column
+    agreement and then depth, but the output order reflects the library
+    rather than that ranking.
 
     When *tier* is set (A/B/C), wells are pre-filtered to meet the
     tier's minimum reads and consensus thresholds.
@@ -914,8 +931,19 @@ def _generate_pick_list(
     seen_variants = set()
 
     # Sort wells: Perfect Match first, then Silent Mutation (fewest mismatches
-    # = highest consensus_fraction), then everything else.  Reads are the
-    # tiebreaker within each category.
+    # = highest consensus_fraction), then everything else.  Within a category
+    # a well whose reads agree with each other outranks one whose reads split,
+    # and only then does depth decide.
+    #
+    # Depth used to decide first, and it chose wrong: 2K7 (516 reads, of which
+    # 86 carried a second clone -- T at 823, 857 and 858 together) was picked
+    # for G45A, and 14C1 (1,543 reads, 18% of them disagreeing at one
+    # position) was picked for T26F over 1B1 and 3E12, both clean at 5%.  A
+    # deep well is not a purer well; the column scan already says which is
+    # which, and the pick now reads it.  A well the scan could not measure
+    # ranks behind a measured clean one and ahead of a measured split one.
+    _AGREEMENT_RANK = {"clean": 0, "unknown": 1, "watch": 2, "mixed": 3}
+
     def _well_sort_key(w):
         cons = w.get("cons_check", "")
         category = (
@@ -923,8 +951,11 @@ def _generate_pick_list(
             1 if cons == "Silent Mutation" else
             2
         )
+        agreement = _AGREEMENT_RANK.get(
+            column_agreement_class(w.get("max_mismatch_frac")), 1)
         conf = w.get("assignment_confidence", 0) or 0
-        return (category, -conf, -w["reads"], -w["consensus_fraction"])
+        return (category, agreement, -conf, -w["reads"],
+                -w["consensus_fraction"])
 
     sorted_wells = sorted(well_data, key=_well_sort_key)
 
@@ -967,16 +998,31 @@ def _generate_pick_list(
     has_mismatch_data = any(w.get("max_mismatch_frac") is not None
                             for w in sorted_wells)
     if has_mismatch_data:
-        classes = [column_agreement_class(w.get("max_mismatch_frac"))
-                   for w in sorted_wells]
-        n_mixed = sum(1 for c in classes if c == "mixed")
-        sorted_wells = [w for w, c in zip(sorted_wells, classes)
-                        if c != "mixed"]
-        if n_mixed:
+        if max_disagreement is None:
+            classes = [column_agreement_class(w.get("max_mismatch_frac"))
+                       for w in sorted_wells]
+            keep = [c != "mixed" for c in classes]
+            limit, why = MIXED_TEMPLATE_THRESHOLD, "mixed template"
+        else:
+            # A stated limit, judged on the measured fraction alone.  A well
+            # with no measurement is kept: the limit is about what was seen,
+            # and nothing was.
+            def _within(w):
+                mmf = w.get("max_mismatch_frac")
+                if mmf is None or mmf == "":
+                    return True
+                try:
+                    return float(mmf) <= max_disagreement
+                except (TypeError, ValueError):
+                    return True
+            keep = [_within(w) for w in sorted_wells]
+            limit, why = max_disagreement, "--max-disagreement"
+        n_out = sum(1 for k in keep if not k)
+        sorted_wells = [w for w, k in zip(sorted_wells, keep) if k]
+        if n_out:
             console.print(
-                f"[green]✓[/green] Excluded {n_mixed} well(s) whose worst "
-                f"column disagrees by more than "
-                f"{MIXED_TEMPLATE_THRESHOLD:.0%} (mixed template)"
+                f"[green]✓[/green] Excluded {n_out} well(s) whose worst "
+                f"column disagrees by more than {limit:.0%} ({why})"
             )
 
     for well in sorted_wells:
