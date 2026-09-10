@@ -87,6 +87,48 @@ def test_an_index_survives_a_rewrite_that_changes_nothing(tmp_path):
     assert fai.exists()
 
 
+def test_unchanged_well_reads_keep_their_mtime(tmp_path):
+    """The second half of the same problem.
+
+    _consensus_is_reusable takes a consensus only when it is newer than both
+    the reference and the reads.  Rewriting per-well FASTQs with identical
+    bytes invalidated the consensus just as rewriting the references did.
+    """
+    pd = pytest.importorskip("pandas")
+    from usortm.demux.utils import write_per_well_fastqs
+
+    df = pd.DataFrame({
+        "well_pos": ["1A1", "1A1", "1A2"],
+        "read_name": ["r1", "r2", "r3"],
+        "read_seq": ["ACGT", "TTTT", "GGGG"],
+        "read_qual": ["IIII", "IIII", "IIII"],
+    })
+    write_per_well_fastqs(df, str(tmp_path))
+    d = tmp_path / "wells" / "fastqs"
+    before = {p.name: os.stat(p).st_mtime_ns for p in d.iterdir()}
+    assert before
+
+    write_per_well_fastqs(df, str(tmp_path))
+    assert {p.name: os.stat(p).st_mtime_ns for p in d.iterdir()} == before
+
+
+def test_changed_well_reads_are_rewritten(tmp_path):
+    pd = pytest.importorskip("pandas")
+    from usortm.demux.utils import write_per_well_fastqs
+
+    df = pd.DataFrame({
+        "well_pos": ["1A1"], "read_name": ["r1"],
+        "read_seq": ["ACGT"], "read_qual": ["IIII"],
+    })
+    write_per_well_fastqs(df, str(tmp_path))
+    path = tmp_path / "wells" / "fastqs" / "1A1.fastq"
+    assert "ACGT" in path.read_text()
+
+    df.loc[0, "read_seq"] = "TGCA"
+    write_per_well_fastqs(df, str(tmp_path))
+    assert "TGCA" in path.read_text()
+
+
 def test_a_real_change_still_drops_the_index(tmp_path):
     multi = _multi(tmp_path)
     out = tmp_path / "out"

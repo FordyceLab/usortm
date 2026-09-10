@@ -1880,12 +1880,23 @@ def write_per_well_fastqs(read_df, out_root):
     for well in _bar(list(by_well)):
         rows = by_well[well]
         out_path = os.path.join(well_fastqs_dir, f"{well}.fastq")
+        text = "".join(
+            f"@{name}\n{seq}\n+\n{qual}\n"
+            for name, seq, qual
+            in zip(names[rows], seqs[rows], quals[rows])
+        )
+        # Only when the reads differ.  A well's consensus is reused only if it
+        # is newer than the reads behind it, so rewriting a well's FASTQ with
+        # the bytes it already holds discards the consensus built from it --
+        # which is how a re-run of one QC setting rebuilt 2,676 wells.
+        try:
+            with open(out_path) as fh:
+                if fh.read() == text:
+                    continue
+        except OSError:
+            pass
         with open(out_path, "w") as f:
-            f.write("".join(
-                f"@{name}\n{seq}\n+\n{qual}\n"
-                for name, seq, qual
-                in zip(names[rows], seqs[rows], quals[rows])
-            ))
+            f.write(text)
 
 
 def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,

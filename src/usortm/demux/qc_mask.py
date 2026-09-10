@@ -1,27 +1,30 @@
 """Positions where a change is the chemistry's, not the construct's.
 
-Some positions disagree in every well.  A run of the AFMtag library carries
-two: at reference position 799 a G reads as A in 5-9% of reads, and at 802 a
-C reads as G in 9-12%, in every well sampled and across every variant --
-while their immediate neighbours sit at 0-1%.  A change that belonged to a
-construct would appear in that construct's wells and nowhere else; one that
-appears everywhere, at the same fraction, whatever the well holds, is a
-property of the sequencing.
+A position can disagree in every well of a run at a fraction that does not
+vary with what the well holds.  A change belonging to a construct appears in
+that construct's wells and nowhere else; one that appears everywhere,
+whatever the well holds, is a property of the sequencing of that library.
 
-Left in, they are counted as reads disagreeing with the reference, and the
-second sits just above the 10% mark at which a position is flagged -- so a
-systematic artefact marks a large share of the plate as worth checking and
-buries the wells that are.
+Left in, such a position is counted as reads disagreeing with the reference,
+and one sitting just above the 10% mark at which a position is flagged marks
+a large share of the plate as worth checking and buries the wells that are.
+
+Which positions these are is a property of a particular library and its
+preparation, not of the method, so this module holds no positions of its
+own: a project states its own in a ``qc_mask.toml`` beside its other
+configuration, and a round may state different ones.  A mask carried from one
+library to another would forgive changes that library never had.
 
 Masking one is a claim about the chemistry, so it is written down rather than
-buried in a threshold: the file names the position, the base, and why.
+buried in a threshold: the file names the position, the base, and the evidence
+it rests on.
 
 The claim is deliberately narrow.  Only the named base at the named position
 is forgiven, since an artefact explains one substitution and not the position,
 and only where it is at most half the reads, since an artefact is a minority
 signal.  A well whose reads carry the masked base throughout carries it in its
-construct -- one round 2 well reads G at 802 in every read -- and forgiving
-that would report a real substitution as a clean position.
+construct, and forgiving that would report a real substitution as a clean
+position.
 """
 from __future__ import annotations
 
