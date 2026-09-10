@@ -1742,6 +1742,12 @@ def _merge_segment_results(per_segment: list, output_dir: Path, min_reads: int) 
         if seg_results.get("versions"):
             merged["versions"] = seg_results["versions"]
             break
+    # One invocation masks every segment alike, so the first segment's record
+    # speaks for the merged result here too.
+    for _, seg_results, _ in per_segment:
+        if seg_results.get("qc_mask"):
+            merged["qc_mask"] = seg_results["qc_mask"]
+            break
     if streak_candidates or streak_variants:
         merged["streakout"] = {
             "candidates": streak_candidates,
@@ -2049,6 +2055,10 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         summary["read_len_hist"] = results["read_len_hist"]
     if "streakout" in results:
         summary["streakout"] = results["streakout"]
+    # What the well checks forgave, so the report names the mask this run
+    # applied rather than whatever the project's config says later.
+    if results.get("qc_mask"):
+        summary["qc_mask"] = results["qc_mask"]
     if "flank_5p_len" in results:
         summary["flank_5p_len"] = results["flank_5p_len"]
         summary["flank_3p_len"] = results["flank_3p_len"]

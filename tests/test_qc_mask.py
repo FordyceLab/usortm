@@ -236,6 +236,48 @@ def test_the_mask_applies_only_where_it_is_declared(tmp_path):
     assert got["n_flagged_positions"] == 1
 
 
+def test_a_merged_run_keeps_the_mask(tmp_path):
+    """A run split over several FASTQs must not lose what it masked.
+
+    The merge builds its result from named keys, so anything not named there
+    is dropped -- which is how the first masked round 2 run came to record no
+    mask at all despite applying one.
+    """
+    from usortm.cli.demux_cmd import _merge_segment_results
+
+    mask = [{"position": 799, "base": "A", "note": ""}]
+    seg = {"input_reads": 10, "assigned_reads": 5, "wells_with_data": 1,
+           "wells_passing": 1, "qc_mask": mask}
+    segments = [(None, dict(seg), tmp_path), (None, dict(seg), tmp_path)]
+    merged = _merge_segment_results(segments, tmp_path, min_reads=100)
+    assert merged.get("qc_mask") == mask
+
+
+def test_the_summary_names_what_the_run_masked():
+    from usortm.report.summary import _qc_mask_note
+
+    got = _qc_mask_note({"qc_mask": [{"position": 802, "base": "G"},
+                                     {"position": 799, "base": "A"}]})
+    assert "A at 799, G at 802" in got
+    assert "are read as sequencing artefacts" in got
+
+
+def test_one_masked_change_reads_as_one():
+    from usortm.report.summary import _qc_mask_note
+
+    got = _qc_mask_note({"qc_mask": [{"position": 799, "base": "A"}]})
+    assert "A at 799 is read as a sequencing artefact" in got
+
+
+def test_a_run_with_no_mask_says_nothing():
+    """A page must not claim a mask a run did not apply."""
+    from usortm.report.summary import _qc_mask_note
+
+    assert _qc_mask_note({}) == ""
+    assert _qc_mask_note({"qc_mask": []}) == ""
+    assert _qc_mask_note(None) == ""
+
+
 def test_the_mask_reaches_the_well_checks(tmp_path):
     """Through extract_matches, which is where a run applies it.
 

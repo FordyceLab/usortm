@@ -871,6 +871,35 @@ def _build_barcode_name_dfs(
     return fbc_df, rbc_df
 
 
+def _write_fasta_if_changed(out_path, records) -> bool:
+    """Write *records* to *out_path* only when the bytes would differ.
+
+    Rewriting a file with the content it already holds moves its mtime, and
+    :func:`usortm.demux.utils._consensus_is_reusable` reads mtimes to decide
+    whether a well's consensus was built against the reference beside it.  A
+    run that rewrites every reference therefore invalidates every consensus it
+    has, which is how a re-run of one QC setting came to rebuild 2,676 wells.
+
+    Returns whether anything was written, so a caller can drop the indexes it
+    built from the old sequence only when the sequence actually changed.
+    """
+    from io import StringIO
+    from pathlib import Path as _Path
+
+    buf = StringIO()
+    SeqIO.write(records, buf, "fasta")
+    text = buf.getvalue()
+
+    out_path = _Path(out_path)
+    try:
+        if out_path.exists() and out_path.read_text() == text:
+            return False
+    except OSError:
+        pass                      # unreadable: fall through and rewrite it
+    out_path.write_text(text)
+    return True
+
+
 def _prepare_single_ref_fastas(
     multi_ref_fasta: Path,
     output_dir: Path,
@@ -887,8 +916,7 @@ def _prepare_single_ref_fastas(
     single_dir.mkdir(parents=True, exist_ok=True)
 
     for record in SeqIO.parse(str(multi_ref_fasta), "fasta"):
-        out_path = single_dir / f"{record.id}.fasta"
-        SeqIO.write([record], str(out_path), "fasta")
+        _write_fasta_if_changed(single_dir / f"{record.id}.fasta", [record])
 
 
 def _build_orient_ref_from_flanks(
@@ -942,9 +970,11 @@ def _prepare_full_length_ref_fastas(
             description=record.description,
         )
         out_path = single_dir / f"{record.id}.fasta"
-        SeqIO.write([full_record], str(out_path), "fasta")
+        if not _write_fasta_if_changed(out_path, [full_record]):
+            continue
         # Remove stale minimap2 / samtools indexes so downstream steps
-        # regenerate them from the new full-length sequence.
+        # regenerate them from the new full-length sequence.  Only when the
+        # sequence changed: an index still matching its FASTA is not stale.
         for _ext in (".mmi", ".fai"):
             _stale = Path(str(out_path) + _ext)
             if _stale.exists():
@@ -1093,4 +1123,8 @@ def _translate_to_cli_format(
         result["streakout"] = stats["streakout"]
     if "barcode_warning" in stats:
         result["barcode_warning"] = stats["barcode_warning"]
+    # Carried so the report can name what the well checks forgave, rather
+    # than reading a config file that may have changed since the run.
+    if stats.get("qc_mask"):
+        result["qc_mask"] = stats["qc_mask"]
     return result

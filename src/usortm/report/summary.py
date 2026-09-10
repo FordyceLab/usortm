@@ -303,6 +303,24 @@ def _sampling_dots(fold: float) -> str:
             f'</div>')
 
 
+def _qc_mask_note(demux_summary: dict) -> str:
+    """What the run's well checks forgave, as a sentence, or nothing.
+
+    Read from the run rather than from the project's configuration, so the
+    page describes the checks that produced these counts.
+    """
+    mask = (demux_summary or {}).get("qc_mask") or []
+    if not mask:
+        return ""
+    changes = ", ".join(f"{m['base']} at {m['position']}"
+                        for m in sorted(mask, key=lambda m: m["position"]))
+    return (f' {changes} is read as a sequencing artefact and does not '
+            f'count against a well, where it is a minority of the reads.'
+            if len(mask) == 1 else
+            f' {changes} are read as sequencing artefacts and do not count '
+            f'against a well, where they are a minority of its reads.')
+
+
 def _section(title: str, note: str = "", control: str = "") -> str:
     """A section heading, with its explanation folded into a button beside it.
 
@@ -483,7 +501,7 @@ def render_summary(project: dict, demux_summary: dict,
                         f'<td>{bar(pct, tone)}</td></tr>')
         note = (f'Over the {len(deep):,} wells with at least '
                 f'{TIER_READS["C"]} reads, by the same test the demux plate '
-                f'maps flag on.')
+                f'maps flag on.{_qc_mask_note(demux_summary)}')
         contents_html = (
             f'   <div>\n  {_section("What the wells contain", note)}\n'
             f'  <table><tr><th>Outcome</th><th>Wells</th>'
