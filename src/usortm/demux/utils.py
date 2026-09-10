@@ -1911,6 +1911,46 @@ def write_per_well_fastqs(read_df, out_root):
             f.write(text)
 
 
+def drop_read_sequences(read_df, well_fastqs_dir):
+    """Free the per-read sequences once the per-well FASTQs hold them.
+
+    ``read_seq`` and ``read_qual`` are 94% of the table -- 16 GB against 1 GB
+    on a run of 3.6M reads at a median 2,028 bp -- and every stage after the
+    per-well FASTQs are written reads sequences from those files instead.
+    Carrying them to the end of the run buys nothing and costs the machine its
+    memory, which is what turned a quarter-hour of consensus generation into
+    an hour of swapping.
+
+    Dropped only once the FASTQs are on disk, since they are then the copy of
+    record.  With no FASTQs to read back from, the table is returned as it is:
+    :func:`assign_variants_from_reads` falls back to these columns, and a
+    fallback that finds them missing would fail rather than be slow.
+
+    Args:
+        read_df: The per-read table.
+        well_fastqs_dir: Where the per-well FASTQs were written.
+
+    Returns:
+        The table without the sequence columns, or unchanged if the FASTQs are
+        not there to replace them.
+    """
+    heavy = [c for c in ("read_seq", "read_qual") if c in read_df.columns]
+    if not heavy:
+        return read_df
+    try:
+        written = any(name.endswith(".fastq")
+                      for name in os.listdir(well_fastqs_dir))
+    except OSError:
+        written = False
+    if not written:
+        logger.warning(
+            "Keeping per-read sequences in memory: no per-well FASTQs found "
+            "in %s to read them back from.", well_fastqs_dir,
+        )
+        return read_df
+    return read_df.drop(columns=heavy)
+
+
 def _realign_single_consensus(well, cons_seq, ref_fa, ref_mmi, tmp_dir,
                                minimap2_path, samtools_path,
                                consensus_dir=None):
@@ -2389,6 +2429,13 @@ def column_agreement_class(max_mismatch_frac) -> str:
     try:
         frac = float(max_mismatch_frac)
     except (TypeError, ValueError):
+        return "unknown"
+    # A well the scan could not read comes back as NaN, and every comparison
+    # against NaN is false, so it used to fall past both thresholds and be
+    # called clean.  A well with no measurement is not a well that passed:
+    # round 2 held 22 of them, and one -- 1A22, V36M -- was reported clean
+    # while 67% of its reads disagreed with the reference.
+    if frac != frac:
         return "unknown"
     if frac > MIXED_TEMPLATE_THRESHOLD:
         return "mixed"

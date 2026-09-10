@@ -681,6 +681,15 @@ def run_levseq_pipeline(
             _progress("Writing per-well FASTQs...")
             utils.write_per_well_fastqs(read_df, str(output_dir))
 
+            # The reads now live in the per-well FASTQs, which is where every
+            # later stage reads them from.  Holding them here as well costs
+            # about 15 GB of the 16 GB this table occupies on a 3.6M-read run
+            # -- enough to put the machine into swap for the stages that
+            # follow, which is what made consensus generation take an hour
+            # against the quarter of an hour it takes off a quiet disk.
+            read_df = utils.drop_read_sequences(
+                read_df, str(output_dir / "wells" / "fastqs"))
+
             _progress("Assigning variants from read alignments...")
             well_fastqs_dir = str(output_dir / "wells" / "fastqs")
 
