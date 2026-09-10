@@ -218,6 +218,52 @@ def _write_parent_reference(single_ref_dir, parent_insert, flank_5p, flank_3p):
     return path
 
 
+#: Wells shallower than this are not worth a second attempt: they have no
+#: consensus worth naming, and the alignment answers a question they cannot
+#: support.  The tiers already treat twenty reads as the floor for a call.
+_RETRY_MIN_DEPTH = 20
+
+
+def _name_the_rest_by_alignment(well_df, read_df, reference, well_fastqs_dir,
+                                ref_dir, tool_paths, workers, reads_per_well,
+                                progress):
+    """Align the reads of wells the translation could not name.
+
+    Translation names a well from its consensus protein, and only when that
+    differs from the parent at exactly one residue.  A well carrying an indel
+    differs at every residue after it, so it is left unassigned -- and an
+    unassigned well gets no reference, so no consensus, so no QC: it drops out
+    of the run rather than being reported as the thing it is.  Round 2 had two,
+    both holding the construct their layout expected, both named confidently by
+    the alignment.
+
+    Aligning against the whole library is the slow path, so only these wells
+    are given to it.  They are the exception by construction: a well the
+    translation could name is not sent here.
+    """
+    if "major_ref" not in well_df.columns:
+        return well_df
+    unnamed = well_df["major_ref"].isin(["unassigned", "", None])
+    if "depth" in well_df.columns:
+        unnamed &= well_df["depth"] >= _RETRY_MIN_DEPTH
+    wells = [str(w) for w in well_df.loc[unnamed, "global_well"]]
+    if not wells or reference is None:
+        return well_df
+
+    progress(f"Aligning {len(wells)} well(s) the translation could not name...")
+    from usortm.demux import utils as _utils
+
+    return _utils.assign_variants_from_reads(
+        well_df, read_df, str(reference),
+        well_fastqs_dir=well_fastqs_dir,
+        minimap2_path=tool_paths["minimap2"],
+        workers=workers,
+        reads_per_well=reads_per_well,
+        full_length_ref_dir=str(ref_dir / "single_ref_fastas"),
+        wells=wells,
+    )
+
+
 def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
                      output_dir, tool_paths, workers, reads_per_well,
                      flank_5p, flank_3p, assign_progress, progress):
@@ -266,7 +312,7 @@ def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
                                 derive_parent_insert(library_inserts),
                                 flank_5p, flank_3p)
         try:
-            return assign_variants_by_translation(
+            well_df = assign_variants_by_translation(
                 well_df, well_fastqs_dir, library_inserts,
                 flank_5p, flank_3p,
                 out_dir=str(ref_dir),
@@ -275,6 +321,10 @@ def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
                 threads=workers,
                 reads_per_well=max(reads_per_well, 40),
                 progress_callback=assign_progress,
+            )
+            return _name_the_rest_by_alignment(
+                well_df, read_df, reference, well_fastqs_dir, ref_dir,
+                tool_paths, workers, reads_per_well, progress,
             )
         except Exception as exc:
             logger.warning(

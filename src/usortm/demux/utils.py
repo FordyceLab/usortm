@@ -1638,6 +1638,7 @@ def assign_variants_from_reads(
     full_length_ref_dir=None,
     min_read_len=300,
     min_mapq=0,
+    wells=None,
 ):
     """Assign library variants to wells by aligning a sample of reads.
 
@@ -1671,6 +1672,10 @@ def assign_variants_from_reads(
             Reads shorter than this (e.g. concatemer split-reads ~150 bp that
             only cover the 5' flank) are skipped.  Wells whose reads are all
             shorter than this threshold will be marked ``"unassigned"``.
+        wells: Restrict the work to these ``global_well`` names, leaving every
+            other well as it is.  Used to name the few wells the translation
+            assignment could not, without paying this function's cost for a
+            whole plate.  ``None`` does every well with a FASTQ.
         min_mapq: Minimum mapping quality to accept an alignment.  Reads
             with MAPQ below this threshold are discarded.  minimap2 assigns
             MAPQ=0 when multiple reference targets produce equally-scoring
@@ -1700,6 +1705,15 @@ def assign_variants_from_reads(
 
     if well_fastqs_dir and os.path.isdir(well_fastqs_dir):
         well_fqs = sorted(_glob.glob(os.path.join(well_fastqs_dir, "*.fastq")))
+        if wells is not None:
+            # Naming a handful of wells this way costs a handful of wells of
+            # alignment, not a plate of it.  Every read is aligned against the
+            # whole library here, which is the expensive path this function's
+            # docstring describes; sampling wells nothing asked about would
+            # pay it for all of them.
+            want = set(wells)
+            well_fqs = [p for p in well_fqs
+                        if os.path.basename(p)[:-len(".fastq")] in want]
         with open(fq_path, "w") as out:
             for wf in well_fqs:
                 count = 0
@@ -1849,6 +1863,11 @@ def assign_variants_from_reads(
     # Wells that got no alignments couldn't be assigned — mark them clearly
     # rather than leaving the internal orient-ref name visible in the output.
     unassigned_mask = ~well_df["major_ref"].isin(ref_lookup)
+    if wells is not None:
+        # A scoped call speaks only for the wells it was asked about.  Without
+        # this, naming two wells would mark every well this call did not look
+        # at as unassigned, discarding whatever named them.
+        unassigned_mask &= well_df["global_well"].isin(set(wells))
     if unassigned_mask.any():
         well_df.loc[unassigned_mask, "major_ref"] = "unassigned"
         well_df.loc[unassigned_mask, "ref_seq"] = ""
