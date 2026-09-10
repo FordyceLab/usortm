@@ -45,9 +45,12 @@ from seqviewer import (
     PileupGroup,
     PileupView,
     Read,
+    SummaryView,
     grid_from_reads,
     reads_from_alignment,
     render,
+    render_summary,
+    summarize_group,
 )
 
 from usortm.demux.deps import find_minimap2, find_samtools
@@ -1038,6 +1041,49 @@ def _build_pileup_grid(
     )
 
 
+def _pileup_groups(groups):
+    """The PileupGroup objects a view is built from, as one list."""
+    return [
+        PileupGroup(
+            name=g["ref_id"],
+            ref_seq=g["ref_seq"],
+            rows=g["pileup_rows"],
+            n_reads=g["n_reads"],
+            fraction=g["frac"],
+            status=g["status"],
+            highlighted=g["is_recoverable"],
+            parent=g.get("parent", ""),
+        )
+        for g in groups
+    ]
+
+
+def _render_summary_html(well_pos, candidate, groups, flank_lengths=None,
+                         features=None, pileup_href=None):
+    """The same alignment, told as what changed rather than as every read.
+
+    Built from the groups the pileup is built from, so it costs a pass over
+    data already in memory rather than another alignment.
+    """
+    where = candidate.get("label") or (
+        f"Plate {candidate['plate']} Well {candidate['well']}")
+    alias = candidate.get("alias")
+    if alias:
+        where = f"{where} ({alias})"
+
+    built = _pileup_groups(groups)
+    view = SummaryView(
+        title=f"Summary: {where}",
+        ref_seq=built[0].ref_seq if built else "",
+        groups=[summarize_group(g) for g in built],
+        total_reads=candidate.get("total_reads", 0),
+        highlight_ids=list(candidate.get("recoverable_variants", [])),
+        highlight_label="Recoverable",
+        features=list(features or []),
+    )
+    return render_summary(view, pileup_href=pileup_href)
+
+
 def _render_pileup_html(well_pos: str, candidate: dict,
                         groups: list,
                         flank_lengths: tuple = None,
@@ -1220,6 +1266,23 @@ def _generate_one_pick_pileup(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as fh:
         fh.write(html)
+
+    # The summary names what changed; the pileup shows every read behind it.
+    # Each links to the other, so a well can be read either way round.
+    try:
+        summary_path = output_path[:-len(".html")] + "_summary.html"
+        summary = _render_summary_html(
+            well_pos, candidate_info, group_sections,
+            flank_lengths=flank_lengths, features=features,
+            pileup_href=os.path.basename(output_path),
+        )
+        with open(summary_path, "w") as fh:
+            fh.write(summary)
+    except Exception as exc:
+        # A summary is an addition to the pileup, not a precondition for it:
+        # a well whose summary cannot be built still gets its pileup.
+        logger.warning("No summary page for %s: %s", well_pos, exc)
+
     return output_path
 
 

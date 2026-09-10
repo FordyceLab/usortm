@@ -1676,6 +1676,13 @@ def assign_variants_from_reads(
             other well as it is.  Used to name the few wells the translation
             assignment could not, without paying this function's cost for a
             whole plate.  ``None`` does every well with a FASTQ.
+        workers: Threads, passed to minimap2 as ``-t``.  This is the largest
+            stage of a run and it scales: over 100 wells on a twelve-core
+            machine, four threads took 35.7 s, eight took 19.9 s and ten took
+            16.7 s, and all three produced the same call for all 100 wells.
+            The same argument sizes the well-check process pool elsewhere,
+            which holds about 2 GB a worker, so raising it is not free of
+            memory even where it is free of doubt.
         min_mapq: Minimum mapping quality to accept an alignment.  Reads
             with MAPQ below this threshold are discarded.  minimap2 assigns
             MAPQ=0 when multiple reference targets produce equally-scoring

@@ -52,6 +52,41 @@ def test_an_unchanged_full_length_reference_is_not_rewritten(tmp_path):
     assert _stamp(out) == before
 
 
+def test_an_unchanged_parent_reference_keeps_its_mtime(tmp_path):
+    """The parent is a reference too, and was the one left out.
+
+    It is written once per segment.  Rewritten each time, it moved its own
+    mtime and so rebuilt the consensus of every well assigned to Parent, on
+    every run -- while the 377 library references beside it were reused.
+    """
+    from usortm.demux.pipeline import _write_parent_reference
+
+    d = tmp_path / "single_ref_fastas"
+    d.mkdir()
+    (d / "V1.fasta").write_text(">V1\n" + "ACGT" * 10 + "\n")
+
+    first = _write_parent_reference(d, "ACGTACGTAC", FLANK_5P, FLANK_3P)
+    assert first is not None and first.exists()
+    before = os.stat(first).st_mtime_ns
+
+    _write_parent_reference(d, "ACGTACGTAC", FLANK_5P, FLANK_3P)
+    assert os.stat(first).st_mtime_ns == before
+
+
+def test_a_changed_parent_reference_is_rewritten(tmp_path):
+    from usortm.demux.pipeline import _write_parent_reference
+
+    d = tmp_path / "single_ref_fastas"
+    d.mkdir()
+    (d / "V1.fasta").write_text(">V1\n" + "ACGT" * 10 + "\n")
+
+    path = _write_parent_reference(d, "ACGTACGTAC", FLANK_5P, FLANK_3P)
+    _write_parent_reference(d, "TTTTTTTTTT", FLANK_5P, FLANK_3P)
+    body = "".join(l for l in path.read_text().splitlines()
+                   if not l.startswith(">"))
+    assert "TTTTTTTTTT" in body
+
+
 def test_a_changed_reference_is_rewritten(tmp_path):
     """The guard must not stop a real change from landing."""
     multi = _multi(tmp_path)

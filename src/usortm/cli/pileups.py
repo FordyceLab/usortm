@@ -42,6 +42,14 @@ def pileups(
         "--plate",
         help="Only this plate, or a comma-separated list (e.g. '1,3'). Default: all.",
     ),
+    well: Optional[str] = typer.Option(
+        None,
+        "--well",
+        help="Only these wells, named as plate and well together and "
+             "comma-separated (e.g. '4D21,11H2'). Renders them whatever "
+             "their depth, since asking for a well is the judgement "
+             "--min-reads otherwise makes for you. Default: all.",
+    ),
     workers: int = typer.Option(
         6,
         "--workers", "-w",
@@ -86,24 +94,41 @@ def pileups(
     if plate is not None:
         wanted_plates = {p.strip() for p in plate.split(",") if p.strip()}
 
+    wanted_wells = None
+    if well is not None:
+        wanted_wells = {w.strip().upper() for w in well.split(",") if w.strip()}
+
     with open(assignments) as fh:
         rows = list(csv.DictReader(fh))
 
     selected, skipped_shallow, skipped_plate = [], 0, 0
+    skipped_well = 0
     for row in rows:
+        if wanted_wells is not None and (
+                f'{row["plate"]}{row["well"]}'.upper() not in wanted_wells):
+            skipped_well += 1
+            continue
         if wanted_plates is not None and str(row["plate"]) not in wanted_plates:
             skipped_plate += 1
             continue
-        if int(row.get("reads", 0) or 0) < min_reads:
+        # A named well is wanted whatever its depth: asking for it is the
+        # judgement --min-reads exists to make on the caller's behalf.
+        if wanted_wells is None and int(row.get("reads", 0) or 0) < min_reads:
             skipped_shallow += 1
             continue
         selected.append(row)
+
+    if wanted_wells is not None:
+        found = {f'{r["plate"]}{r["well"]}'.upper() for r in selected}
+        for missing in sorted(wanted_wells - found):
+            console.print(f"[yellow]No well {missing} in this run.[/yellow]")
 
     if not selected:
         console.print(
             f"[yellow]No wells to render.[/yellow] {len(rows)} well(s) in the run; "
             f"{skipped_shallow} below --min-reads {min_reads}"
             + (f", {skipped_plate} outside --plate {plate}" if wanted_plates else "")
+            + (f", {skipped_well} outside --well {well}" if wanted_wells else "")
             + "."
         )
         raise typer.Exit(0)
@@ -258,7 +283,20 @@ def _relink_plate_map(demux_output: Path, out_dir: Path, wells: list,
         return None
 
     pileup_dir = out_dir / "pileup"
+    # Every pileup on disk, not only the ones this run rendered.  The map is
+    # rebuilt whole from this, so building it from the rendered subset would
+    # silently drop the links for every well not rendered this time -- which
+    # is what rendering a single well would otherwise do to a whole plate.
     url_map = {}
+    for path in sorted(pileup_dir.glob("well_*.html")):
+        key = path.stem[len("well_"):]
+        if key.endswith("_summary"):
+            continue          # handled below, so it cannot shadow a well
+        url_map[key] = f"{rel_root.as_posix()}/pileup/{path.name}"
+    # A summary, where one was written, is what the map should open.
+    for path in sorted(pileup_dir.glob("well_*_summary.html")):
+        key = path.stem[len("well_"):-len("_summary")]
+        url_map[key] = f"{rel_root.as_posix()}/pileup/{path.name}"
     for row in wells:
         key = f"{row['plate']}_{row['well']}"
         fname = f"well_{key}.html"

@@ -70,6 +70,8 @@ def pileup_links(project_dir) -> Dict[str, str]:
     """
     newest: Dict[str, float] = {}
     links: Dict[str, str] = {}
+    summary_newest: Dict[str, float] = {}
+    summaries: Dict[str, str] = {}
     for rel in PILEUP_SOURCES:
         directory = os.path.join(str(project_dir), rel)
         if not os.path.isdir(directory):
@@ -77,15 +79,28 @@ def pileup_links(project_dir) -> Dict[str, str]:
         for name in os.listdir(directory):
             if not (name.startswith("well_") and name.endswith(".html")):
                 continue
-            key = name[len("well_"):-len(".html")]
+            # A summary sits beside its pileup as well_<key>_summary.html.
+            # Read as a pileup it would register a well named "<key>_summary",
+            # which is no well at all.
+            is_summary = name.endswith("_summary.html")
+            end = -len("_summary.html") if is_summary else -len(".html")
+            key = name[len("well_"):end]
             try:
                 when = os.path.getmtime(os.path.join(directory, name))
             except OSError:
                 continue
-            if key not in newest or when > newest[key]:
-                newest[key] = when
-                links[key] = f"{rel}/{name}"
-    return links
+            seen, out = ((summary_newest, summaries) if is_summary
+                         else (newest, links))
+            if key not in seen or when > seen[key]:
+                seen[key] = when
+                out[key] = f"{rel}/{name}"
+
+    # The summary is the page to open first; it links on to the pileup.  A
+    # well without one -- rendered before summaries existed -- keeps its
+    # direct link rather than losing it.
+    merged = dict(links)
+    merged.update(summaries)
+    return merged
 
 
 def _well_tip(plate, label, well, has_pileup) -> str:

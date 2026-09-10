@@ -7,10 +7,12 @@ reference alignment, consensus generation, and variant calling.
 from typing import Optional
 from pathlib import Path
 import csv
+import logging
 import gzip
 import json
 
 from usortm import provenance as _provenance
+
 import os
 import shutil
 import sys
@@ -28,6 +30,8 @@ from usortm.cli.theme import get_console, BORDER_STYLE, section
 from usortm.demux.pipeline import WELL_DATA_MIN_READS
 from usortm.demux.qc_mask import find_qc_mask
 from usortm.paths import config_file
+
+logger = logging.getLogger(__name__)
 
 console = get_console()
 
@@ -618,8 +622,20 @@ def demux(
         for sub in merged_subdirs:
             # Cleared once, before linking: otherwise wells from a previous
             # run of this project linger in the merged view alongside this
-            # run's, and the two disagree.
-            shutil.rmtree(demux_output / sub, ignore_errors=True)
+            # run's, and the two disagree.  A failure here is what leaves that
+            # mixture behind, so it is reported rather than ignored: the merge
+            # can carry on, but a reader of the run should know the merged
+            # view was not built from a clean directory.
+            stale = demux_output / sub
+            if stale.exists():
+                try:
+                    shutil.rmtree(stale)
+                except OSError as exc:
+                    logger.warning(
+                        "Could not clear %s before merging, so the merged "
+                        "view may hold output from an earlier run: %s",
+                        stale, exc,
+                    )
         for _segment, _results, seg_dir in per_segment:
             for sub in merged_subdirs:
                 _link_or_copy_tree(seg_dir / sub, demux_output / sub)
@@ -1798,18 +1814,43 @@ def _link_or_copy_tree(src: Path, dest: Path) -> None:
             continue
         target = dest / item.relative_to(src)
         target.parent.mkdir(parents=True, exist_ok=True)
+        # The file that should be there may already be there: an earlier merge
+        # of this same segment leaves the target as a hard link to this very
+        # source.  Nothing to replace, and nothing that could go wrong -- but
+        # linking over it raises FileExistsError and copying it over itself
+        # raises SameFileError, which is how a merge came to die a hundred
+        # minutes into a run.
+        try:
+            if target.exists() and os.path.samefile(item, target):
+                continue
+        except OSError:
+            pass
+
         # Replace rather than skip: a target left by an earlier run of the
         # same project is stale, and keeping it means the merged view and the
         # segment disagree about the same well.
-        if target.exists():
+        if target.exists() or target.is_symlink():
             try:
                 target.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                # Not silent.  A target that cannot be cleared is what leaves
+                # the merged view holding a mixture of two runs, and saying so
+                # here names the file rather than leaving a later failure to
+                # be explained by something else.
+                logger.warning("Could not replace %s in the merged view: %s",
+                               target, exc)
         try:
             os.link(item, target)
+        except FileExistsError:
+            # Lost a race, or the unlink above could not clear it.  Keeping
+            # the file that is there beats failing the merge for it.
+            logger.warning("Kept the existing %s: it could not be replaced",
+                           target)
         except OSError:
-            shutil.copy2(item, target)
+            try:
+                shutil.copy2(item, target)
+            except shutil.SameFileError:
+                pass
 
 
 def _concat_fastq_dir(directory: Path, output_dir: Path) -> Path:

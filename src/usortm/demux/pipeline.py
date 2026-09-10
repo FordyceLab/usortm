@@ -214,7 +214,19 @@ def _write_parent_reference(single_ref_dir, parent_insert, flank_5p, flank_3p):
     seq = (f"{flank_5p}{parent_insert}{flank_3p}" if full_length
            else parent_insert)
     path = single_ref_dir / "Parent.fasta"
-    path.write_text(f">Parent\n{seq}\n")
+    text = f">Parent\n{seq}\n"
+
+    # Only when it differs, for the reason the library references are written
+    # the same way: a rewrite moves the mtime, and a well's consensus is reused
+    # only while it is newer than the reference it was built against.  Written
+    # every segment, this file rebuilt the consensus of every Parent well on
+    # every run -- the one reference left out when the others were fixed.
+    try:
+        if path.exists() and path.read_text() == text:
+            return path
+    except OSError:
+        pass
+    path.write_text(text)
     return path
 
 
