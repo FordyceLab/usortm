@@ -2180,6 +2180,79 @@ def realign_consensus_to_assigned_refs(
     return well_df
 
 
+def _run_consensus_tasks(well_paths, minimap2_path, samtools_path, resume,
+                         workers):
+    """Build each well's consensus, across processes where that is possible.
+
+    The stage ran on threads, and the cost it pays is one threads cannot
+    share.  Each well launches six subprocesses.  On macOS this Python has no
+    posix_spawn_file_actions_addclosefrom_np, so with the default close_fds
+    every launch goes through fork(), and fork copies the parent's page
+    tables and walks every malloc zone under a lock -- while holding the
+    GIL.  That cost scales with the parent: measured at 24 ms a launch from
+    a 50 MB process, 65 ms at 2.3 GB, 100-170 ms at 4-4.6 GB.  The pipeline
+    holds the read table at that point, 4-5 GB after the sequences are
+    dropped, so 2,083 wells x 6 launches x ~100 ms is about 21 minutes, and
+    the stage recorded 20.7.  Sampled during that run, eight worker threads
+    had no aligner running at all 60% of the time: they were queued behind
+    each other's forks.
+
+    Worker processes are small, so their forks are cheap, and they do not
+    share the parent's GIL.  The work each well does is unchanged -- same
+    minimap2, same samtools, same arguments -- so this changes when results
+    are computed, not what they are.  On a 200k-read subsample of the same
+    project the process pool built the three segments' consensus in 122 s
+    against 362 s on threads (61 s against 209 s for segment 1), with all
+    2,201 consensus sequences and every cell of well_assignments.csv
+    identical between the two; on a small segment, where the parent is
+    small too, the gain is 1.2x.
+
+    close_fds=False would reach posix_spawn and cost 6 ms a launch at any
+    size, but with several wells launching at once a child would inherit
+    another well's pipe ends, and a samtools waiting on a pipe whose writer
+    is held open elsewhere never sees end-of-file.  Not taken.
+
+    Falls back to threads where a process pool cannot start, which keeps the
+    stage working at its old speed rather than failing.
+    """
+    from concurrent.futures import (
+        ProcessPoolExecutor, ThreadPoolExecutor, as_completed,
+    )
+
+    if len(well_paths) < 2 or workers < 2:
+        return {
+            well: tuple(_process_single_well(
+                well, paths, minimap2_path, samtools_path, resume)[1:])
+            for well, paths in _bar(well_paths.items(), total=len(well_paths))
+        }
+
+    for pool_cls in (ProcessPoolExecutor, ThreadPoolExecutor):
+        results = {}
+        try:
+            with pool_cls(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(
+                        _process_single_well, well, well_paths[well],
+                        minimap2_path, samtools_path, resume,
+                    ): well
+                    for well in well_paths
+                }
+                for future in _bar(as_completed(futures),
+                                   total=len(futures)):
+                    well, cigar, cons = future.result()
+                    results[well] = (cigar, cons)
+            return results
+        except Exception as exc:
+            if pool_cls is ThreadPoolExecutor:
+                raise
+            _reraise_if_bootstrapping(exc)
+            logger.warning(
+                "Could not build consensus across processes (%s); falling "
+                "back to threads, which will be slower", exc,
+            )
+    return {}
+
+
 def generate_per_well_consensus(
     well_df,
     read_df,
@@ -2311,18 +2384,9 @@ def generate_per_well_consensus(
         _say(f"Reusing {n_reusable:,} consensus alignments from an earlier run")
     _say(f"Generating consensus alignments for "
          f"{len(well_paths) - n_reusable:,} wells ({workers} workers)...")
-    results = {}
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(
-                _process_single_well, well, well_paths[well],
-                minimap2_path, samtools_path, resume
-            ): well
-            for well in well_paths
-        }
-        for future in _bar(as_completed(futures), total=len(futures)):
-            well, cigar, cons = future.result()
-            results[well] = (cigar, cons)
+    results = _run_consensus_tasks(
+        well_paths, minimap2_path, samtools_path, resume, workers,
+    )
 
     # 3) Apply results back to well_df (sequential, avoids DataFrame race conditions)
     for well, (cigar, cons) in results.items():
