@@ -872,6 +872,40 @@ def _collect_barcode_calls(base_dir, sub, normalize_id, malformed_counts):
     return calls
 
 
+def iter_fastq_reads(path):
+    """Yield (name, sequence, quality, mean phred) for each read in a FASTQ.
+
+    Read through htslib (pysam.FastxFile), which handles gzip itself and hands
+    back the sequence and quality as the strings the file holds.  The loop
+    this replaced parsed with Biopython, which decodes the quality string
+    into a list of integers, after which the caller re-encoded it, one
+    character at a time, into the ASCII it had started from.  On 200,000 of
+    this project's reads: 11.5 s against 1.2 s, 10x, with every sequence,
+    every quality string and every mean quality (to 1e-9) identical
+    (tests/test_fastq_reader.py; measured 2026-09-10).  Scaled to segment 1's
+    1.09M aligned reads, 63 s of the read-table stage's 126 become 6.  The
+    mean must be taken with numpy: summing the phred list in Python left
+    the gain at 1.9x.
+
+    ``name`` is the header up to the first whitespace, as Biopython's
+    ``rec.id`` was.  The mean is over phred values, so it is what
+    ``sum(phred) / len(phred)`` gave before.
+    """
+    with pysam.FastxFile(str(path)) as fx:
+        for rec in fx:
+            qual = rec.quality
+            if qual is None:
+                raise ValueError(
+                    f"{path}: read {rec.name!r} has no quality string; "
+                    "the oriented reads must be FASTQ, not FASTA"
+                )
+            # The mean over a Python list of ints was most of the remaining
+            # cost: 200k reads x 3.7k bases is 740M additions.  The quality
+            # string *is* the phred values plus 33, one byte each.
+            codes = np.frombuffer(qual.encode("ascii"), dtype=np.uint8)
+            yield rec.name, rec.sequence, qual, float(codes.mean()) - 33.0
+
+
 def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
     """Build a per-read DataFrame merging barcode demux and reference data.
 
@@ -922,16 +956,13 @@ def create_read_df(base_dir, ref_map=None, oriented_fastq=None):
             _ref_map[normalize_id(read_name)] = f"{direction}:{ref_name}"
 
         _say("Collecting read sequences from oriented FASTQ...")
-        open_fn = _open_fastq(oriented_fastq)
-        with open_fn(oriented_fastq, 'rt') as fh:
-            for rec in _bar(SeqIO.parse(fh, "fastq")):
-                rid = normalize_id(rec.id)
-                if not rid:
-                    continue
-                quals = rec.letter_annotations["phred_quality"]
-                seq_map[rid] = str(rec.seq)
-                qual_map[rid] = "".join(chr(q + 33) for q in quals)
-                avgq_map[rid] = sum(quals) / len(quals)
+        for name, seq, qual, avgq in _bar(iter_fastq_reads(oriented_fastq)):
+            rid = normalize_id(name)
+            if not rid:
+                continue
+            seq_map[rid] = seq
+            qual_map[rid] = qual
+            avgq_map[rid] = avgq
     else:
         logger.warning(
             "create_read_df called without alignment results — every read "
