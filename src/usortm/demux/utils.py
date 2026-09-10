@@ -1350,10 +1350,43 @@ def _map_well_checks(tasks, args, workers):
         except Exception as exc:
             if pool_cls is ThreadPoolExecutor:
                 raise
+            _reraise_if_bootstrapping(exc)
             logger.warning(
                 "Could not run the well checks across processes (%s); falling "
                 "back to threads, which will be slower", exc,
             )
+
+
+def _reraise_if_bootstrapping(exc: BaseException) -> None:
+    """Let one pool failure through instead of falling back to threads.
+
+    A process pool that cannot start is usually an environment limit, and
+    running the stage on threads is the right answer: slower, same result.
+    One cause is not like that.  Where the start method is spawn, a worker
+    re-imports the module the run was launched from, and if that module
+    calls the CLI at import time the worker starts a demux of its own and
+    reaches this pool from inside its own bootstrap.  Python raises
+    RuntimeError there, naming the missing ``if __name__ == "__main__":``.
+
+    Falling back to threads turns that into a runaway copy of the run rather
+    than an error.  It is what let eight demuxes share one output directory
+    for a hundred minutes while the warning below went to a logger the
+    worker had never configured.  The message goes to stderr as well, since
+    a worker's logging is not the parent's.
+    """
+    import sys
+
+    if not isinstance(exc, RuntimeError):
+        return
+    if "bootstrapping phase" not in str(exc):
+        return
+    print(
+        "usortm: a worker process tried to start workers of its own. The "
+        "script that starts the run calls the CLI at module level; wrap it "
+        'in if __name__ == "__main__": ...',
+        file=sys.stderr, flush=True,
+    )
+    raise exc
 
 
 def _consensus_is_reusable(paths) -> bool:

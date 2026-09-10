@@ -1425,6 +1425,8 @@ def _map_pileup_tasks(tasks: list, workers: int):
     """
     from concurrent.futures import ProcessPoolExecutor
 
+    from usortm.demux.utils import _reraise_if_bootstrapping
+
     if len(tasks) < 2 or workers < 2:
         for task in tasks:
             try:
@@ -1452,6 +1454,7 @@ def _map_pileup_tasks(tasks: list, workers: int):
         except Exception as exc:
             if pool_cls is ThreadPoolExecutor:
                 raise
+            _reraise_if_bootstrapping(exc)
             logger.warning(
                 "Could not run pileups across processes (%s); falling back to "
                 "threads, which will be slower", exc,

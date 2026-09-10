@@ -80,6 +80,27 @@ class TestNoRawProgressInTheDemuxPath:
             f"set_console_quiet: {offenders}"
         )
 
+    @staticmethod
+    def _writes_to_stderr(node):
+        """Whether a print() call names stderr as its stream.
+
+        The rule below protects stdout, where status chatter would interleave
+        with the caller's dashboard.  stderr carries a different kind of
+        message: a failure in a worker process, which has no logging
+        configured because logging is set up in the parent and spawn does not
+        inherit it.  A warning sent to a logger there goes nowhere, which is
+        how eight concurrent demuxes ran unannounced for a hundred minutes.
+        """
+        for kw in node.keywords:
+            if kw.arg != "file":
+                continue
+            target = kw.value
+            if (isinstance(target, ast.Attribute) and target.attr == "stderr"
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "sys"):
+                return True
+        return False
+
     def test_no_bare_print_calls_on_the_pipeline_path(self):
         """Status belongs in _say, which defers to the CLI; failures belong in
         the log. utils._say is the one place print() is correct."""
@@ -93,6 +114,8 @@ class TestNoRawProgressInTheDemuxPath:
                     continue
                 if path.name == "utils.py" and node.lineno < 60:
                     continue          # the helper's own print
+                if self._writes_to_stderr(node):
+                    continue
                 offenders.append(f"{path.name}:{node.lineno}")
         # utils.py keeps a few prints in functions the pipeline never calls;
         # pin the count so a new one on the live path is noticed.

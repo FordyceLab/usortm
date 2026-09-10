@@ -356,6 +356,46 @@ def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
     )
 
 
+class SpawnedChildError(RuntimeError):
+    """A worker process reached code only the main process should run."""
+
+
+def _refuse_in_a_spawned_child() -> None:
+    """Stop a worker that has started a demux of its own.
+
+    The consensus stage runs its per-well checks across a
+    ProcessPoolExecutor.  On macOS, and anywhere else the default start
+    method is spawn, each worker is a fresh interpreter that re-imports the
+    module the run was launched from.  A launcher that calls the CLI at
+    module level, without ``if __name__ == "__main__":``, is therefore
+    re-entered by every worker, and each one begins a whole demux: eight
+    copies of the run sharing one output directory and one live_data.js,
+    overwriting each other's tables and reporting each other's stages.
+
+    The symptom is a run that appears to cycle back to the read table and
+    then produce nothing.  It cost a hundred minutes before it was
+    identified, because the only signal it gave was a RuntimeError raised
+    inside each child, caught by the pool's fallback to threads and reported
+    through a logger no child had configured.
+
+    A worker never has a reason to call the pipeline, so reaching it is
+    always the caller's missing guard.  Saying so immediately is worth more
+    than any recovery.
+    """
+    import multiprocessing
+
+    name = multiprocessing.current_process().name
+    if name == "MainProcess":
+        return
+    raise SpawnedChildError(
+        f"run_levseq_pipeline was called in worker process {name!r}. "
+        "This happens when the script that starts the run calls the CLI at "
+        "module level: worker processes re-import it and each one starts a "
+        "demux of its own. Wrap the call in "
+        'if __name__ == "__main__": ...'
+    )
+
+
 def run_levseq_pipeline(
     fastq: Path,
     output_dir: Path,
@@ -419,6 +459,8 @@ def run_levseq_pipeline(
         assigned_reads, wells_with_data, wells_passing,
         well_assignments. Compatible with demux_cmd._save_demux_results().
     """
+    _refuse_in_a_spawned_child()
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
