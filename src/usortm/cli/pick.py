@@ -579,6 +579,9 @@ def pick(
         "streakout_variants": len(set(h["variant"] for h in _streakout_hits)),
         "target_format": target_format,
         "compact": compact,
+        # Recorded so the round merge can apply the limit this pick applied,
+        # rather than a policy of its own.
+        "max_disagreement": max_disagreement,
     }
     if tier:
         pick_state["tier"] = tier

@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich import box
 
 from usortm.cli.theme import get_console, BORDER_STYLE
+from usortm.demux.utils import column_agreement_class
 from usortm.paths import INTEGRA_DIRNAME, input_file
 
 console = get_console()
@@ -43,6 +44,15 @@ def merge(
         "C",
         "--tier",
         help="Minimum quality tier (A/B/C). Use '' to disable filtering.",
+    ),
+    max_disagreement: Optional[float] = typer.Option(
+        None,
+        "--max-disagreement",
+        min=0.0, max=1.0,
+        help="Exclude a well when more than this fraction of its reads "
+             "disagree with the reference at any one position, in every "
+             "round. Default: the limit each round's own pick recorded, or "
+             "the mixed-template threshold where it recorded none.",
     ),
     volume: float = typer.Option(
         5.0,
@@ -154,8 +164,21 @@ def merge(
     else:
         console.print(f"[green]\u2713[/green] Library order loaded ({len(library_order)} variants)")
 
+    # The disagreement limit each round is held to: the one its pick applied,
+    # unless one is given here for all of them.
+    limits = _round_limits(project, list(all_wells), max_disagreement)
+    for rnum in sorted(all_wells):
+        lim = limits.get(rnum)
+        console.print(
+            f"[green]✓[/green] Round {rnum}: worst-column disagreement "
+            + (f"limited to {lim:.0%} (from its pick)" if lim is not None
+               and max_disagreement is None else
+               f"limited to {lim:.0%}" if lim is not None else
+               "limited to the mixed-template threshold")
+        )
+
     # Build merged pick list (best well per variant across all rounds)
-    pick_list = _build_merged_pick_list(all_wells, library_order, tier)
+    pick_list = _build_merged_pick_list(all_wells, library_order, tier, limits)
 
     if not any(not h.get("empty") for h in pick_list):
         console.print("[yellow]Warning:[/yellow] No hits found after merge!")
@@ -297,6 +320,7 @@ def merge(
         "unique_variants": len(set(h["variant"] for h in recovered)),
         "streakout_variants": len(_streakout_hits),
         "tier": tier or "none",
+        "max_disagreement": {str(r): v for r, v in limits.items()},
     }
     with open(state_file, "w") as f:
         json.dump(project, f, indent=2)
@@ -473,17 +497,73 @@ def _passes_tier(well: dict, tier: Optional[str],
     )
 
 
+def _round_limits(project: dict, round_nums: list,
+                  override: Optional[float]) -> dict:
+    """The largest per-position disagreement a picked well may carry, by round.
+
+    *override* applies to every round.  Otherwise each round's limit is the
+    one its own pick recorded (``workflow_steps.pick.max_disagreement``), so
+    the merged plate is built by the policy the round's plate was; None
+    means the mixed-template threshold, as it always did.  A merge that
+    ranked and filtered by a rule of its own put back the ten watch-band
+    wells a strict pick had just removed.
+    """
+    limits = {}
+    for rnum in round_nums:
+        if override is not None:
+            limits[rnum] = override
+            continue
+        if rnum == 1:
+            step = (project.get("workflow_steps") or {}).get("pick") or {}
+        else:
+            step = ((project.get("rounds") or {}).get(str(rnum)) or {}) \
+                .get("workflow_steps", {}).get("pick") or {}
+        limits[rnum] = step.get("max_disagreement")
+    return limits
+
+
+_AGREEMENT_RANK = {"clean": 0, "unknown": 1, "watch": 2, "mixed": 3}
+
+
+def _well_rank(well: dict) -> tuple:
+    """Better wells sort first: reads that agree, then more of them.
+
+    The same order the pick uses within a consensus category
+    (:func:`usortm.cli.pick._generate_pick_list`).  The merge only sees wells
+    that already pass the consensus test, so the category is not needed.
+    """
+    agreement = _AGREEMENT_RANK.get(
+        column_agreement_class(well.get("max_mismatch_frac")), 1)
+    return (agreement, -int(well.get("reads") or 0))
+
+
+def _within_limit(well: dict, limit: Optional[float]) -> bool:
+    """Whether a well's worst column is within the round's limit.
+
+    A well without a measurement is kept: the limit is about what was seen.
+    """
+    if limit is None:
+        return column_agreement_class(well.get("max_mismatch_frac")) != "mixed"
+    mmf = well.get("max_mismatch_frac")
+    if mmf is None:
+        return True
+    return float(mmf) <= limit
+
+
 def _build_merged_pick_list(
     all_wells: dict[int, list],
     library_order: Optional[dict],
     tier: Optional[str],
+    limits: Optional[dict] = None,
 ) -> list:
     """Build the merged pick list.
 
-    For each variant, selects the best well (highest reads) across all rounds
-    that passes the tier filter. Source plate IDs are prefixed with round
-    number: R{N}_{plate}.
+    For each variant, selects the best well across all rounds that passes
+    the tier filter and the round's disagreement limit: the well whose
+    reads agree with each other first, and the deeper one among those.
+    Source plate IDs are prefixed with round number: R{N}_{plate}.
     """
+    limits = limits or {}
     # Find best well per variant across all rounds.
     # Normalize variant names: some rounds use "." as separator (e.g. "ATF4.25.171")
     # while the top-level library uses ";" (e.g. "ATF4;25;171"). Normalize to ";"
@@ -497,11 +577,14 @@ def _build_merged_pick_list(
 
     best: dict[str, tuple[int, dict]] = {}  # canonical_name -> (round_num, well)
     for rnum, wells in sorted(all_wells.items()):
+        limit = limits.get(rnum)
         for well in wells:
             if not _passes_tier(well, tier, designed):
                 continue
+            if not _within_limit(well, limit):
+                continue
             variant = _norm(well["variant"])
-            if variant not in best or well["reads"] > best[variant][1]["reads"]:
+            if variant not in best or _well_rank(well) < _well_rank(best[variant][1]):
                 best[variant] = (rnum, well)
 
     # Build a normalized lookup for library_order so "." and ";" variants both match
