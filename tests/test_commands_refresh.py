@@ -31,6 +31,20 @@ def test_refresh_writes_the_file_with_the_recorded_commands(tmp_path):
     assert "usortm pick proj --tier C --max-disagreement 0.10" in text
 
 
+def test_the_round_merge_is_listed_with_its_rounds(tmp_path):
+    """The merge records its command at the top of the project, not under a
+    round; the file used to leave it out."""
+    project = _project()
+    project["merged"] = {"completed": True, "timestamp": "2026-09-11T14:53:59",
+                         "rounds": [1, 2],
+                         "command": "usortm merge proj/ --max-disagreement 0.10 --volume 3"}
+    text = provenance.render_commands(project, tmp_path)
+    assert "# 2026-09-11 · rounds 1, 2 · merge\n" \
+           "usortm merge proj/ --max-disagreement 0.10 --volume 3" in text
+    # and it comes after the steps it merges
+    assert text.index("usortm pick proj") < text.index("usortm merge proj/")
+
+
 def test_refresh_overwrites_a_stale_file(tmp_path):
     stale = tmp_path / provenance.COMMANDS_FILE
     stale.write_text("# yesterday\n")

@@ -75,6 +75,14 @@ def _steps(project: dict):
             if isinstance(state, dict) and state.get("completed"):
                 out.append((state.get("timestamp") or "", int(rnd), name,
                             state))
+    # The round merge is recorded at the top of the project rather than under
+    # a round, since it spans them.  Left out, the file that reports a
+    # project's commands omitted the one that built the plate it ends with.
+    merged = project.get("merged")
+    if isinstance(merged, dict) and merged.get("completed"):
+        rounds = [int(r) for r in (merged.get("rounds") or [1])]
+        out.append((merged.get("timestamp") or "", max(rounds), "merge",
+                    merged))
     return sorted(out, key=lambda s: (s[0] or "", s[1],
                                       STEP_ORDER.index(s[2])
                                       if s[2] in STEP_ORDER else 99))
@@ -105,7 +113,11 @@ def render_commands(project: dict, project_dir) -> str:
     missing = 0
     for when, rnd, step, state in steps:
         day = (when or "")[:10] or "date not recorded"
-        where = f"round {rnd}" if rnd != 1 else "round 1"
+        if step == "merge":
+            rounds = state.get("rounds") or [rnd]
+            where = "rounds " + ", ".join(str(r) for r in rounds)
+        else:
+            where = f"round {rnd}"
         lines.append(f"# {day} · {where} · {step}")
         command = state.get("command")
         if command:
