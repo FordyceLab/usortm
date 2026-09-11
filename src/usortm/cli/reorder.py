@@ -379,8 +379,11 @@ def _load_recovered(hitlist_path: Path) -> set[str]:
     with open(hitlist_path, newline="") as f:
         # hitlist is semicolon-delimited (Integra format)
         reader = csv.DictReader(f, delimiter=";")
+        from usortm.integra import library_name
+
         for row in reader:
-            sample_id = row.get("SampleID", "").strip()
+            # A stop codon's * is written _stop for the robot; read it back.
+            sample_id = library_name(row.get("SampleID", "").strip())
             try:
                 vol = float(row.get("TransferVolume", 0))
             except ValueError:

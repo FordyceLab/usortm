@@ -1196,7 +1196,9 @@ Settings used
 Notes
 -----
   • Each file holds the transfers out of one source plate; a file with
-    only a header is a plate with nothing to pick.{bench_line}
+    only a header is a plate with nothing to pick.
+  • SampleID is the variant name; a stop codon's * is written tag (the amber
+    codon), since the robot software rejects the character: K16* is K16tag.{bench_line}
   • Verify tip type and labware definitions match your plate format before
     running the protocol.
 """

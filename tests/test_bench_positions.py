@@ -71,7 +71,7 @@ def test_the_robot_files_are_written_per_colony_plate_in_96_well_positions(tmp_p
     rows = list(csv.reader(open(tmp_path / "integra_assist_plate2.csv"), delimiter=";"))
     assert rows[1] == ["G3F", "2", "A1", "0", "B1", "5"]
     rows = list(csv.reader(open(tmp_path / "integra_assist_plate3.csv"), delimiter=";"))
-    assert rows[1] == ["K16*", "3", "B7", "0", "D4", "5"]
+    assert rows[1] == ["K16tag", "3", "B7", "0", "D4", "5"]   # '*' written as tag
     rows = list(csv.reader(open(tmp_path / "integra_assist_plate1.csv"), delimiter=";"))
     assert rows[1:] == []                       # colony plate 1 had nothing picked
 

@@ -32,6 +32,34 @@ LEGACY_GLOB = "hitlist_plate_*.csv"
 _ROUND_PREFIXED = re.compile(r"^R(\d+)_(.+)$")
 
 
+#: How a stop codon's ``*`` is written in a SampleID.  The ASSIST PLUS
+#: software rejects the character.  ``tag`` names the amber codon the scan
+#: installs, so ``K16*`` is written ``K16tag``.
+STOP_TOKEN = "tag"
+_STOP_AT_END = re.compile(r"(?<=\d)" + STOP_TOKEN + r"$")
+
+
+def robot_sample_id(name) -> str:
+    """A variant name as the robot will accept it in SampleID.
+
+    ``;`` becomes ``.`` (a semicolon is the delimiter) and ``*`` becomes
+    :data:`STOP_TOKEN`.  Everything else is left as it is.
+    """
+    return str(name).replace(";", ".").replace("*", STOP_TOKEN)
+
+
+def library_name(sample_id) -> str:
+    """The variant name a SampleID stands for: the inverse of the ``*``
+    substitution.
+
+    Only a trailing ``tag`` after a position number is read as ``*``
+    (``K16tag`` -> ``K16*``), so a name that merely contains the letters is
+    left alone.  The ``;`` to ``.`` change is not undone here; names are
+    compared after normalisation by the code that reads these files.
+    """
+    return _STOP_AT_END.sub("*", str(sample_id))
+
+
 def integra_filename(source_plate) -> str:
     """The file a source plate's transfers are written to.
 
@@ -87,6 +115,18 @@ def write_integra_files(
     def plate_of(hit):
         return str(hit.get("bench_plate") or hit["source_plate"])
 
+    def plate_cell(plate) -> str:
+        """The SourcePlateID the robot reads: the plate number alone.
+
+        A merge names plates by round, ``R1_3``, and the file is named for
+        that; the cell is not.  The ASSIST PLUS reads SourcePlateID as a
+        number and rejected ``R1_1`` with "please make sure that all columns
+        contain the same number of entries".  Each file holds one plate, so
+        the round is carried by the filename and nothing is lost.
+        """
+        m = _ROUND_PREFIXED.match(str(plate))
+        return m.group(2) if m else str(plate)
+
     def well_of(hit):
         return hit.get("bench_well") or hit["source_well"]
 
@@ -111,8 +151,8 @@ def write_integra_files(
             writer.writerow(HEADER)
             for hit in by_plate[plate]:
                 writer.writerow([
-                    str(hit["variant"]).replace(";", "."),
-                    plate_of(hit),
+                    robot_sample_id(hit["variant"]),
+                    plate_cell(plate),
                     well_of(hit),
                     hit["target_plate"],
                     hit["target_well"],

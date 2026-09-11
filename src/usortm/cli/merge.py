@@ -85,8 +85,10 @@ def merge(
     Combines results from all rounds, filling gaps from earlier rounds with
     results from later rounds. Preserves the original library order.
 
-    Source plate IDs are prefixed with the round number (e.g. R1_3, R2_4)
-    so the Integra ASSIST can distinguish plates from different rounds.
+    The Integra files are one per source plate, named by round and plate
+    (integra_assist_R1_plate3.csv, integra_assist_R2_plate1.csv), so plates
+    from different rounds are told apart by file; the SourcePlateID in the
+    cells is the plate number alone, which is how the robot reads it.
 
     [bold]Example:[/bold]
 
@@ -811,8 +813,9 @@ def _write_integra_readme(
     rounds_str = ", ".join(str(r) for r in round_nums)
     bench_line = (
         "\n  • Round(s) " + ", ".join(str(r) for r in bench_rounds)
-        + " were arrayed from 96-well colony plates: their SourcePlateID is\n"
-        "    R<round>_<colony plate> and SourceWell the 96-well position."
+        + " were arrayed from 96-well colony plates: their files are named\n"
+        "    R<round>_plate<colony plate>, SourcePlateID is the colony plate number\n"
+        "    and SourceWell the 96-well position."
         if bench_rounds else ""
     )
     files_str = "\n".join(f"  • {f.name}" for f in hitlist_files)
@@ -824,14 +827,16 @@ Files (one per source plate; load that plate, run its file):
 {files_str}
 Rounds merged: {rounds_str}
 
-SourcePlateID format: R{{round}}_{{plate_number}}
+File names carry the round and plate: integra_assist_R{{round}}_plate{{N}}.csv.
+SourcePlateID in the cells is the plate number alone; the robot reads that
+column as a number and rejects a prefixed one.
   e.g. R1_3  = Round 1, Plate 3
        R2_4  = Round 2, Plate 4
 
 Columns
 -------
   SampleID       Variant name
-  SourcePlateID  Source plate (round-prefixed)
+  SourcePlateID  Source plate number; the round is in the file name
   SourceWell     Source well position (e.g. A1)
   TargetPlateID  Destination plate number
   TargetWell     Destination well position
@@ -845,7 +850,9 @@ Settings used
 Notes
 -----
   • Each file holds the transfers out of one source plate; a file with
-    only a header is a plate with nothing to pick.{bench_line}
+    only a header is a plate with nothing to pick.
+  • SampleID is the variant name; a stop codon's * is written tag (the amber
+    codon), since the robot software rejects the character: K16* is K16tag.{bench_line}
   • Round 1 and Round 2+ source plates are physically separate — load
     them separately when the robot requests each SourcePlateID group.
 """

@@ -80,6 +80,40 @@ def test_round_prefixed_plates_keep_the_round_in_the_name():
     assert integra_filename("14") == "integra_assist_plate14.csv"
 
 
+def test_a_stop_codon_is_written_without_the_asterisk_and_read_back(tmp_path):
+    """The ASSIST PLUS rejects '*' in SampleID.  It is written as tag (the amber codon) and
+    turned back into '*' by the code that reads the files (reorder)."""
+    from usortm.integra import library_name, robot_sample_id
+
+    assert robot_sample_id("K16*") == "K16tag"
+    assert robot_sample_id("ATF4;25;171") == "ATF4.25.171"
+    assert library_name("K16tag") == "K16*"
+    assert library_name("AFMtag_G3A") == "AFMtag_G3A"   # letters alone are not a stop
+
+    pick_dir = tmp_path / "pick" / "integra_assist_input"
+    write_integra_files([_hit("K16*", 1, "A1", "A1"), _hit("G3A", 1, "B1", "B2")],
+                        pick_dir, 5.0)
+    _, rows = _read(pick_dir / "integra_assist_plate1.csv")
+    assert [r[0] for r in rows] == ["K16tag", "G3A"]
+    assert "*" not in (pick_dir / "integra_assist_plate1.csv").read_text()
+    recovered = set()
+    for f in _find_hitlists(tmp_path):
+        recovered |= _load_recovered(f)
+    assert recovered == {"K16*", "G3A"}
+
+
+def test_the_source_plate_cell_is_the_number_alone(tmp_path):
+    """The ASSIST PLUS reads SourcePlateID as a number.  It rejected R1_1 with
+    "please make sure that all columns contain the same number of entries";
+    the round lives in the filename, which is what each file is one of."""
+    write_integra_files([_hit("Q27F", "R1_1", "I21", "F1"),
+                         _hit("G3F", "R2_2", "A1", "B1")], tmp_path, 5.0)
+    _, rows = _read(tmp_path / "integra_assist_R1_plate1.csv")
+    assert rows == [["Q27F", "1", "I21", "0", "F1", "5"]]
+    _, rows = _read(tmp_path / "integra_assist_R2_plate2.csv")
+    assert rows == [["G3F", "2", "A1", "0", "B1", "5"]]
+
+
 def test_plates_sort_numerically_and_by_round(tmp_path):
     picks = [_hit("a", "R2_1", "A1", "A1"), _hit("b", "R1_10", "A1", "B1"),
              _hit("c", "R1_2", "A1", "C1")]
