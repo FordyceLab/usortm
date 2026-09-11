@@ -134,3 +134,22 @@ def write_commands(project: dict, project_dir) -> Path:
     path = Path(project_dir) / COMMANDS_FILE
     path.write_text(render_commands(project, project_dir))
     return path
+
+
+def refresh_commands(project: dict, project_dir) -> Optional[Path]:
+    """Rewrite :data:`COMMANDS_FILE` after a step has recorded itself.
+
+    Called by each step as it saves its state, so the file at the top of the
+    project is never older than the project's last step.  It used to be
+    written only by ``usortm methods``; a day of demuxes, picks and a merge
+    went by with the file still dated the day before.  A failure to write it
+    is reported and does not fail the step: the state file, which is the
+    record, has already been saved.
+    """
+    try:
+        return write_commands(project, project_dir)
+    except OSError as exc:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not refresh %s: %s", COMMANDS_FILE, exc)
+        return None

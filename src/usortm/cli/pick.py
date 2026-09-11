@@ -596,6 +596,7 @@ def pick(
         project["workflow_steps"]["pick"] = pick_state
         with open(state_file, "w") as f:
             json.dump(project, f, indent=2)
+    _provenance.refresh_commands(project, Path(state_file).parent)
 
     # Display summary
     console.print()

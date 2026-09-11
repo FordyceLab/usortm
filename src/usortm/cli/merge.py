@@ -300,6 +300,7 @@ def merge(
     }
     with open(state_file, "w") as f:
         json.dump(project, f, indent=2)
+    _provenance.refresh_commands(project, project_dir)
 
     # Display summary
     console.print()

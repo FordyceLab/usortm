@@ -289,6 +289,7 @@ def reorder(
     }
     with open(state_file, "w") as fh:
         json.dump(project, fh, indent=2)
+    _provenance.refresh_commands(project, project_dir)
     console.print(
         f"[green]\u2713[/green] Recorded in "
         f"[cyan]{state_file.name}[/cyan]"

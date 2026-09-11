@@ -159,9 +159,13 @@
         <pre><code class="language-bash">usortm pick my_project/</code></pre>
 
         <p>
-          By default, one well is selected per unique variant (the well with the highest read count and consensus quality),
-          filtered to Tier A quality (&ge;100 reads, &gt;90% consensus). Wells with flanking region mismatches or
-          consensus errors are excluded. Unrecovered variants are preserved as empty placeholders to maintain the library layout.
+          By default, one well is selected per unique variant, filtered to Tier A quality (&ge;100 reads, &gt;90% consensus).
+          Among a variant's wells the order is: consensus matches the design first; then column agreement, a well whose
+          reads agree with each other before one where more than 10% disagree at some position; then read depth.
+          Wells where more than 25% of reads disagree at a position are excluded as mixed templates;
+          <code>--max-disagreement 0.10</code> lowers that limit to exclude the 10&ndash;25% band as well, for a plate where a
+          minority clone is a contaminant. Wells with flanking region mismatches or consensus errors are excluded.
+          Unrecovered variants are preserved as empty placeholders to maintain the library layout.
         </p>
 
         <h3>Options</h3>

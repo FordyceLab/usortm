@@ -757,6 +757,7 @@ def demux(
         project["workflow_steps"]["demux"] = demux_step_data
         with open(state_file, "w") as f:
             json.dump(project, f, indent=2)
+    _provenance.refresh_commands(project, Path(state_file).parent)
 
     # Display summary table
     console.print()
