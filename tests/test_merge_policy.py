@@ -24,6 +24,24 @@ def _picked(pick_list):
 ORDER = {"G45A": 0, "T26F": 1}
 
 
+def test_excluded_wells_parse_and_are_skipped():
+    from usortm.cli.merge import _parse_excluded_wells
+    import pytest
+
+    assert _parse_excluded_wells("R1_13N18, R2_1A9") == {(1, "13", "N18"), (2, "1", "A9")}
+    assert _parse_excluded_wells(None) == set()
+    with pytest.raises(ValueError):
+        _parse_excluded_wells("13N18")
+    # the merge picks the next-best well once the named one is gone
+    all_wells = {1: [_well(13, "N18", "N79*", 746, 0.0965),
+                     _well(2, "M6", "N79*", 692, 0.0319)]}
+    excluded = {(1, "13", "N18")}
+    kept = {r: [w for w in ws if (r, str(w["plate"]), w["well"]) not in excluded]
+            for r, ws in all_wells.items()}
+    picked = _picked(_build_merged_pick_list(kept, {"N79*": 0}, None))
+    assert picked["N79*"] == ("R1_2", "M6")
+
+
 def test_limits_come_from_each_rounds_recorded_pick():
     project = {
         "workflow_steps": {"pick": {"max_disagreement": 0.10}},

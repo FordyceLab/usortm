@@ -78,6 +78,15 @@ def merge(
             "pass --layout '' to fill sequentially instead."
         ),
     ),
+    exclude_wells: Optional[str] = typer.Option(
+        None,
+        "--exclude-wells",
+        help="Wells never to pick from, comma-separated as R<round>_<plate><well> "
+             "(e.g. 'R1_13N18,R2_1A9'): the next-best well for the variant is "
+             "taken instead, or the variant is left unrecovered. For wells a "
+             "check outside the pipeline has found wanting, such as a minority "
+             "clone below the disagreement limit.",
+    ),
 ):
     """
     Merge pick results from multiple sequencing rounds.
@@ -158,6 +167,20 @@ def merge(
     if not all_wells:
         console.print("[red]Error:[/red] No well data loaded from any round.")
         raise typer.Exit(1)
+
+    excluded = _parse_excluded_wells(exclude_wells)
+    if excluded:
+        n_before = sum(len(w) for w in all_wells.values())
+        all_wells = {rnum: [w for w in wells
+                            if (rnum, str(w["plate"]), str(w["well"]).upper()) not in excluded]
+                     for rnum, wells in all_wells.items()}
+        n_after = sum(len(w) for w in all_wells.values())
+        console.print(
+            f"[green]✓[/green] Excluded {n_before - n_after} of {len(excluded)} "
+            f"named well(s) from the pick"
+        )
+        if n_before - n_after < len(excluded):
+            console.print("[yellow]⚠[/yellow] Some excluded wells were not in any round's table")
 
     # Load full library order from top-level variants.csv
     library_order = _load_library_order(project, project_dir)
@@ -351,6 +374,7 @@ def merge(
         "streakout_variants": len(_streakout_hits),
         "tier": tier or "none",
         "max_disagreement": {str(r): v for r, v in limits.items()},
+        "excluded_wells": sorted(f"R{r}_{p}{w}" for r, p, w in excluded),
     }
     with open(state_file, "w") as f:
         json.dump(project, f, indent=2)
@@ -528,6 +552,25 @@ def _passes_tier(well: dict, tier: Optional[str],
         well["reads"] >= thresh["min_reads"]
         and well["consensus_fraction"] > thresh["min_consensus"]
     )
+
+
+def _parse_excluded_wells(text: Optional[str]) -> set:
+    """``'R1_13N18, R2_1A9'`` to ``{(1, "13", "N18"), (2, "1", "A9")}``.
+
+    Raises ValueError for an entry that is not R<round>_<plate><well>.
+    """
+    import re
+
+    out = set()
+    for item in (text or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        m = re.fullmatch(r"R(\d+)_(\d+)([A-Pa-p]\d{1,2})", item)
+        if not m:
+            raise ValueError(f"--exclude-wells entry {item!r} is not R<round>_<plate><well>")
+        out.add((int(m.group(1)), m.group(2), m.group(3).upper()))
+    return out
 
 
 def _round_limits(project: dict, round_nums: list,
