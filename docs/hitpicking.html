@@ -269,7 +269,20 @@
     integra_assist_plate1.csv   # One semicolon-delimited file per source plate:
     integra_assist_plate2.csv   #   load the plate, run its file. A plate with
     ...                         #   nothing to pick has a header-only file.
-    README.txt                  # Instructions for the Integra ASSIST
+    README.txt                  # Instructions for the Integra ASSIST</code></pre>
+
+        <p>
+          For a re-order round arrayed from 96-well colony plates into a 384-well plate for sequencing
+          (described by the round's <code>replicate_map.toml</code>), the files are one per colony plate and
+          give the 96-well position the construct was assembled in, since that is the plate the robot is loaded
+          with; the sequenced position is kept in <code>pick_list.json</code> for the pileups and plate maps.
+        </p>
+
+        <pre><code class="language-plaintext">my_project/rounds/2/pick/
+  integra_assist_input/
+    integra_assist_plate1.csv   # colony plate 1, 96-well positions
+    integra_assist_plate2.csv   # colony plate 2
+    integra_assist_plate3.csv   # colony plate 3
   pileup/
     well_1_A3.html              # Per-well pileup visualizations
     well_1_B7.html

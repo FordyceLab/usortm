@@ -293,6 +293,20 @@ def pick(
         max_disagreement=max_disagreement,
     )
 
+    # A re-order round is picked from the 96-well colony plates the constructs
+    # were assembled in, not the 384-well plate they were consolidated into
+    # for sequencing.  Where the round describes that arraying, each hit
+    # carries its bench position too, and the robot's files are written in it.
+    from usortm.verify import bench_positions_for_round
+
+    bench_plates = _attach_bench_positions(
+        pick_list, bench_positions_for_round(project_dir, round_num))
+    if bench_plates:
+        console.print(
+            f"[green]✓[/green] Re-order round: transfers written from the "
+            f"{len(bench_plates)} colony plates, in 96-well positions"
+        )
+
     if layout_stats:
         console.print(
             f"  {layout_stats['filled']} of "
@@ -399,11 +413,12 @@ def pick(
     # Save pick list in Integra ASSIST PLUS format (one file per target plate)
     written_files = _save_pick_list(
         pick_list, output_dir, volume,
-        source_plates={str(w["plate"]) for w in well_data},
+        source_plates=bench_plates or {str(w["plate"]) for w in well_data},
     )
 
     # Write README for the hitlist folder
-    _write_integra_readme(integra_dir, written_files, volume, target_format)
+    _write_integra_readme(integra_dir, written_files, volume, target_format,
+                          bench=bool(bench_plates))
 
     # Generate per-well pileup HTMLs for picked hits
     pileup_url_map: dict = {}
@@ -1143,9 +1158,16 @@ def _write_integra_readme(
     hitlist_files: list,
     volume: float,
     target_format: int,
+    bench: bool = False,
 ):
     """Write a README.txt explaining how to use the Integra ASSIST PLUS input files."""
     readme_path = integra_dir / "README.txt"
+    bench_line = (
+        "\n  • This round was arrayed from 96-well colony plates: SourcePlateID is\n"
+        "    the colony plate (replicate) a construct was assembled in and\n"
+        "    SourceWell its 96-well position."
+        if bench else ""
+    )
     files_str = "\n".join(f"  • {f.name}" for f in hitlist_files)
     content = f"""\
 Integra ASSIST PLUS — Hit-Picking Input
@@ -1174,11 +1196,40 @@ Settings used
 Notes
 -----
   • Each file holds the transfers out of one source plate; a file with
-    only a header is a plate with nothing to pick.
+    only a header is a plate with nothing to pick.{bench_line}
   • Verify tip type and labware definitions match your plate format before
     running the protocol.
 """
     readme_path.write_text(content)
+
+
+def _attach_bench_positions(pick_list: list, bench: dict):
+    """Give each hit the colony plate and 96-well position it was handled at.
+
+    *bench* is ``{(sequenced plate, sequenced well): (replicate, order
+    well)}`` from :func:`usortm.verify.bench_positions_for_round`.  Sets
+    ``bench_plate`` (the replicate number, which is the colony plate) and
+    ``bench_well`` on every hit the map covers; the sequenced coordinates are
+    kept, since the pileups and plate maps are keyed on them.
+
+    Returns the set of colony plates, as strings, or None when the round
+    describes no arraying.
+    """
+    if not bench:
+        return None
+    plates = {str(rep) for rep, _ in bench.values()}
+    for hit in pick_list:
+        if not hit.get("source_well"):
+            continue
+        try:
+            key = (int(hit["source_plate"]), str(hit["source_well"]).strip().upper())
+        except (TypeError, ValueError):
+            continue
+        found = bench.get(key)
+        if found:
+            hit["bench_plate"] = str(found[0])
+            hit["bench_well"] = found[1]
+    return plates
 
 
 def _save_pick_list(pick_list: list, output_dir: Path, volume: float,

@@ -80,13 +80,23 @@ def write_integra_files(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # A hit may carry a bench position -- the 96-well colony plate and well a
+    # re-ordered construct was assembled in -- beside the position it was
+    # sequenced at.  The robot picks from the bench, so that is what is
+    # written when it is there.
+    def plate_of(hit):
+        return str(hit.get("bench_plate") or hit["source_plate"])
+
+    def well_of(hit):
+        return hit.get("bench_well") or hit["source_well"]
+
     by_plate: dict = {}
     for plate in (source_plates or ()):
         by_plate.setdefault(str(plate), [])
     for hit in pick_list:
         if skip(hit):
             continue
-        by_plate.setdefault(str(hit["source_plate"]), []).append(hit)
+        by_plate.setdefault(plate_of(hit), []).append(hit)
 
     for stale in list(out_dir.glob(LEGACY_GLOB)) + list(out_dir.glob(FILE_GLOB)):
         stale.unlink()
@@ -102,8 +112,8 @@ def write_integra_files(
             for hit in by_plate[plate]:
                 writer.writerow([
                     str(hit["variant"]).replace(";", "."),
-                    hit["source_plate"],
-                    hit["source_well"],
+                    plate_of(hit),
+                    well_of(hit),
                     hit["target_plate"],
                     hit["target_well"],
                     format_volume(volume),

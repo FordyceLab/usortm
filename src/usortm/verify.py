@@ -305,6 +305,46 @@ def expected_wells(order: Iterable[OrderedWell],
     return out
 
 
+def bench_positions(order: Iterable[OrderedWell],
+                    replicates: Sequence[Replicate],
+                    plate_of: Optional[Dict[int, int]] = None
+                    ) -> Dict[Tuple[int, str], Tuple[int, str]]:
+    """Where each sequenced well was handled: the colony plate and its well.
+
+    The inverse of the arraying.  A re-ordered construct is assembled in a
+    96-well plate and its picked colonies are consolidated into a 384-well
+    plate for sequencing; a pick from that round is made from the 96-well
+    colony plates, so the robot needs the plate a colony was worked in and
+    the well it sits in there, not the position it was sequenced at.
+
+    Returns ``{(sequenced plate, sequenced well): (replicate, order well)}``
+    -- the replicate number is the colony plate.
+    """
+    return {key: (e.replicate, e.order_well)
+            for key, e in expected_wells(order, replicates, plate_of).items()}
+
+
+def bench_positions_for_round(project_dir, round_num: int
+                              ) -> Dict[Tuple[int, str], Tuple[int, str]]:
+    """:func:`bench_positions` for a round of a project, from its files.
+
+    Empty when the round does not describe an arraying: a first round has
+    none, and a re-order round without a replicate map cannot be mapped
+    back.  Reads ``rounds/<n>/replicate_map.toml`` and the order file under
+    ``reorder/``.
+    """
+    from pathlib import Path
+
+    root = Path(project_dir)
+    round_dir = root if round_num == 1 else root / "rounds" / str(round_num)
+    rep_file = round_dir / "replicate_map.toml"
+    orders = sorted(root.glob("reorder/reorder_*.csv"))
+    if not (rep_file.exists() and orders):
+        return {}
+    return bench_positions(read_order_layout(orders[0]),
+                           read_replicate_map(rep_file))
+
+
 def infer_layout(order: Iterable[OrderedWell], well_data: Sequence[dict],
                  min_reads: int = 20, plate: int = 1) -> dict:
     """Read one replicate's arraying off the data rather than being told it.

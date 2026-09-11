@@ -177,8 +177,23 @@ def merge(
                "limited to the mixed-template threshold")
         )
 
+    # Where a round was assembled in 96-well plates and consolidated for
+    # sequencing, the robot picks from the former: carry the bench position.
+    from usortm.verify import bench_positions_for_round
+
+    bench_by_round = {rnum: bench_positions_for_round(project_dir, rnum)
+                      for rnum in all_wells}
+    for rnum, bench in sorted(bench_by_round.items()):
+        if bench:
+            colonies = sorted({rep for rep, _ in bench.values()})
+            console.print(
+                f"[green]✓[/green] Round {rnum}: picked from its "
+                f"{len(colonies)} colony plate(s), in 96-well positions"
+            )
+
     # Build merged pick list (best well per variant across all rounds)
-    pick_list = _build_merged_pick_list(all_wells, library_order, tier, limits)
+    pick_list = _build_merged_pick_list(all_wells, library_order, tier, limits,
+                                        bench_by_round)
 
     if not any(not h.get("empty") for h in pick_list):
         console.print("[yellow]Warning:[/yellow] No hits found after merge!")
@@ -276,12 +291,21 @@ def merge(
     integra_dir = project_dir / INTEGRA_DIRNAME
     integra_dir.mkdir(exist_ok=True)
 
-    written_files = _save_pick_list(
-        pick_list, integra_dir, volume,
-        source_plates={f"R{rnum}_{w['plate']}"
-                       for rnum, wells in all_wells.items() for w in wells},
+    # One file per plate the robot is loaded with: a round's sequenced plates,
+    # or its colony plates where it was arrayed from them.
+    source_plates = set()
+    for rnum, wells in all_wells.items():
+        bench = bench_by_round.get(rnum) or {}
+        if bench:
+            source_plates |= {f"R{rnum}_{rep}" for rep, _ in bench.values()}
+        else:
+            source_plates |= {f"R{rnum}_{w['plate']}" for w in wells}
+    written_files = _save_pick_list(pick_list, integra_dir, volume,
+                                    source_plates=source_plates)
+    _write_integra_readme(
+        integra_dir, written_files, volume, target_format, round_nums,
+        bench_rounds=[r for r, b in sorted(bench_by_round.items()) if b],
     )
-    _write_integra_readme(integra_dir, written_files, volume, target_format, round_nums)
 
     # Save combined well_assignments for the merged report
     _save_merged_well_assignments(all_wells, merged_dir)
@@ -557,11 +581,33 @@ def _within_limit(well: dict, limit: Optional[float]) -> bool:
     return float(mmf) <= limit
 
 
+def _bench_fields(rnum: int, well: dict, bench_by_round: Optional[dict]) -> dict:
+    """The colony plate and 96-well position of a re-ordered well, if known.
+
+    A re-order round's constructs were assembled in 96-well plates and
+    consolidated into a 384-well plate for sequencing; the robot picks from
+    the former.  Where the round describes that arraying, the merged hit
+    carries ``bench_plate`` (``R<round>_<colony plate>``) and ``bench_well``
+    beside the sequenced coordinates, and the Integra files are written in
+    them.
+    """
+    bench = (bench_by_round or {}).get(rnum) or {}
+    try:
+        key = (int(well["plate"]), str(well["well"]).strip().upper())
+    except (TypeError, ValueError):
+        return {}
+    found = bench.get(key)
+    if not found:
+        return {}
+    return {"bench_plate": f"R{rnum}_{found[0]}", "bench_well": found[1]}
+
+
 def _build_merged_pick_list(
     all_wells: dict[int, list],
     library_order: Optional[dict],
     tier: Optional[str],
     limits: Optional[dict] = None,
+    bench_by_round: Optional[dict] = None,
 ) -> list:
     """Build the merged pick list.
 
@@ -616,6 +662,7 @@ def _build_merged_pick_list(
                     "reads": well["reads"],
                     "consensus_fraction": well["consensus_fraction"],
                     "source_round": rnum,
+                    **_bench_fields(rnum, well, bench_by_round),
                 })
             else:
                 pick_list.append({
@@ -641,6 +688,7 @@ def _build_merged_pick_list(
                     "reads": well["reads"],
                     "consensus_fraction": well["consensus_fraction"],
                     "source_round": rnum,
+                    **_bench_fields(rnum, well, bench_by_round),
                 })
     else:
         for variant_name, (rnum, well) in sorted(best.items()):
@@ -757,9 +805,16 @@ def _write_integra_readme(
     volume: float,
     target_format: int,
     round_nums: list,
+    bench_rounds: Optional[list] = None,
 ):
     """Write README explaining the merged Integra ASSIST input."""
     rounds_str = ", ".join(str(r) for r in round_nums)
+    bench_line = (
+        "\n  • Round(s) " + ", ".join(str(r) for r in bench_rounds)
+        + " were arrayed from 96-well colony plates: their SourcePlateID is\n"
+        "    R<round>_<colony plate> and SourceWell the 96-well position."
+        if bench_rounds else ""
+    )
     files_str = "\n".join(f"  • {f.name}" for f in hitlist_files)
     content = f"""\
 Integra ASSIST PLUS — Merged Hit-Picking Input
@@ -790,7 +845,7 @@ Settings used
 Notes
 -----
   • Each file holds the transfers out of one source plate; a file with
-    only a header is a plate with nothing to pick.
+    only a header is a plate with nothing to pick.{bench_line}
   • Round 1 and Round 2+ source plates are physically separate — load
     them separately when the robot requests each SourcePlateID group.
 """
