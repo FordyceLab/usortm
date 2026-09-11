@@ -11,10 +11,30 @@ runner = CliRunner()
 
 
 def _hitlist_path(project_dir):
-    """Return the first per-plate hitlist file."""
+    """All transfers the pick wrote, as one table.
+
+    The pick writes one file per source plate, the way the robot is loaded;
+    these tests ask about the pick as a whole, so the plate files are read
+    together (header once) into one file beside them.
+    """
     d = project_dir / "pick" / "integra_assist_input"
-    files = sorted(d.glob("hitlist_plate_*.csv"))
-    return files[0] if files else d / "hitlist_plate_0.csv"
+    files = sorted(d.glob("integra_assist_plate*.csv"))
+    combined = d / "_all_transfers.csv"
+    if not files:
+        return combined
+    with open(combined, "w", newline="") as out:
+        header_written = False
+        for f in files:
+            with open(f, newline="") as fh:
+                lines = fh.read().splitlines()
+            if not lines:
+                continue
+            if not header_written:
+                out.write(lines[0] + "\n")
+                header_written = True
+            for line in lines[1:]:
+                out.write(line + "\n")
+    return combined
 
 
 @pytest.fixture
@@ -146,7 +166,7 @@ def test_pick_custom_output(mock_project_dir):
 
     assert result.exit_code == 0
     # Per-plate files are written to the parent directory of --output
-    plate_files = sorted(output_path.parent.glob("hitlist_plate_*.csv"))
+    plate_files = sorted(output_path.parent.glob("integra_assist_plate*.csv"))
     assert len(plate_files) >= 1
 
 
@@ -166,8 +186,8 @@ def test_pick_custom_volume(mock_project_dir):
         reader = csv.reader(f, delimiter=";")
         next(reader)  # Skip header
         row = next(reader)
-        # Volume should be 10.0
-        assert row[5] == "10.0"
+        # Volume as the robot reads it: 10, not 10.0
+        assert row[5] == "10"
 
 
 def test_pick_target_filter(mock_project_dir, tmp_path):
@@ -412,7 +432,7 @@ def test_pick_empty_wells(tmp_path):
     # Recovered wells have real data
     assert rows[0][1] == "1"
     assert rows[0][2] == "A1"
-    assert rows[0][5] == "5.0"
+    assert rows[0][5] == "5"
 
 
 def test_pick_empty_wells_with_legacy_suffix(tmp_path):

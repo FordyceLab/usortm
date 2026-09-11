@@ -397,7 +397,10 @@ def pick(
         output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save pick list in Integra ASSIST PLUS format (one file per target plate)
-    written_files = _save_pick_list(pick_list, output_dir, volume)
+    written_files = _save_pick_list(
+        pick_list, output_dir, volume,
+        source_plates={str(w["plate"]) for w in well_data},
+    )
 
     # Write README for the hitlist folder
     _write_integra_readme(integra_dir, written_files, volume, target_format)
@@ -637,8 +640,10 @@ def pick(
     console.print()
 
     console.print("[green]\u2713[/green] Pick list generated!")
-    for wf in written_files:
-        console.print(f"  Hitlist: {wf}")
+    console.print(
+        f"  Integra files: {len(written_files)}, one per source plate, "
+        f"in {integra_dir}/"
+    )
     console.print(f"  README: {integra_dir / 'README.txt'}")
     console.print()
 
@@ -1146,7 +1151,7 @@ def _write_integra_readme(
 Integra ASSIST PLUS — Hit-Picking Input
 ========================================
 
-Files (one per target plate):
+Files (one per source plate; load that plate, run its file):
 {files_str}
 
 These semicolon-delimited CSVs are formatted for direct import into the
@@ -1163,45 +1168,28 @@ Columns
 
 Settings used
 -------------
-  Transfer volume : {volume:.1f} µL
+  Transfer volume : {volume:g} µL
   Target format   : {target_format}-well plate
 
 Notes
 -----
-  • Load source plates in the order indicated by SourcePlateID.
+  • Each file holds the transfers out of one source plate; a file with
+    only a header is a plate with nothing to pick.
   • Verify tip type and labware definitions match your plate format before
     running the protocol.
 """
     readme_path.write_text(content)
 
 
-def _save_pick_list(pick_list: list, output_dir: Path, volume: float):
-    """Save pick list in Integra ASSIST PLUS format, one file per target plate."""
-    from collections import defaultdict
-    plates: dict[str, list] = defaultdict(list)
-    for hit in pick_list:
-        if hit.get("empty"):
-            continue
-        plates[str(hit["target_plate"])].append(hit)
+def _save_pick_list(pick_list: list, output_dir: Path, volume: float,
+                    source_plates=None):
+    """Save the pick in Integra ASSIST PLUS format, one file per source plate.
 
-    written_files = []
-    for plate_id in sorted(plates):
-        fname = f"hitlist_plate_{plate_id}.csv"
-        out = output_dir / fname
-        with open(out, "w", newline="") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow([
-                "SampleID", "SourcePlateID", "SourceWell",
-                "TargetPlateID", "TargetWell", "TransferVolume",
-            ])
-            for hit in plates[plate_id]:
-                writer.writerow([
-                    hit["variant"].replace(";", "."),
-                    hit["source_plate"],
-                    hit["source_well"],
-                    hit["target_plate"],
-                    hit["target_well"],
-                    f"{volume:.1f}",
-                ])
-        written_files.append(out)
-    return written_files
+    See :mod:`usortm.integra`.  *source_plates* names every plate in the
+    run, so a plate with nothing to pick still gets its (header-only) file.
+    """
+    from usortm.integra import write_integra_files
+
+    return write_integra_files(pick_list, output_dir, volume,
+                               source_plates=source_plates,
+                               skip=lambda h: bool(h.get("empty")))

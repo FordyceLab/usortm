@@ -516,10 +516,30 @@ def _hitlist_dir(project_dir):
 
 
 def _first_hitlist(project_dir):
-    """Return the first per-plate hitlist file."""
+    """All transfers the pick wrote, as one table.
+
+    The pick writes one file per source plate, the way the robot is loaded;
+    these tests ask about the pick as a whole, so the plate files are read
+    together (header once) into one file beside them.
+    """
     d = _hitlist_dir(project_dir)
-    files = sorted(d.glob("hitlist_plate_*.csv"))
-    return files[0] if files else d / "hitlist_plate_0.csv"
+    files = sorted(d.glob("integra_assist_plate*.csv"))
+    combined = d / "_all_transfers.csv"
+    if not files:
+        return combined
+    with open(combined, "w", newline="") as out:
+        header_written = False
+        for f in files:
+            with open(f, newline="") as fh:
+                lines = fh.read().splitlines()
+            if not lines:
+                continue
+            if not header_written:
+                out.write(lines[0] + "\n")
+                header_written = True
+            for line in lines[1:]:
+                out.write(line + "\n")
+    return combined
 
 
 def test_pick_command(project_with_demux_results):
@@ -560,7 +580,7 @@ def test_pick_with_volume_option(project_with_demux_results):
         reader = csv.reader(f, delimiter=";")
         next(reader)
         first_hit = next(reader)
-        assert first_hit[5] == "10.0"
+        assert first_hit[5] == "10"
 
 
 def test_report_formats(project_with_demux_results):

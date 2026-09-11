@@ -356,11 +356,17 @@ def _find_hitlists(project_dir: Path) -> list[Path]:
     are only the dropouts once every plate has been counted.  The older
     single-file locations are still honoured for projects picked before that.
     """
-    found = sorted((project_dir / "pick").glob(
-        "*/hitlist_plate_*.csv"))
+    from usortm.integra import FILE_GLOB, LEGACY_GLOB
+
+    # One file per source plate, the robot's layout; a variant is recovered
+    # if any plate's file transfers it, so every file is read.
+    found = sorted((project_dir / "pick").glob(f"*/{FILE_GLOB}"))
     if found:
         return found
-    found = sorted((project_dir / "pick").glob("hitlist_plate_*.csv"))
+    found = sorted((project_dir / "pick").glob(f"*/{LEGACY_GLOB}"))
+    if found:
+        return found
+    found = sorted((project_dir / "pick").glob(LEGACY_GLOB))
     if found:
         return found
     return [p for p in (project_dir / "pick" / "hitlist.csv",

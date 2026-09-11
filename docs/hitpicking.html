@@ -190,7 +190,7 @@
               <td><code>--output</code></td>
               <td><code>-o</code></td>
               <td>Output file path</td>
-              <td><code>pick/Integra&nbsp;ASSIST&nbsp;Input/hitlist_integra_assist.csv</code></td>
+              <td><code>pick/integra_assist_input/integra_assist_plate{N}.csv</code>, one per source plate</td>
             </tr>
             <tr>
               <td><code>--volume</code></td>
@@ -266,7 +266,9 @@
 
         <pre><code class="language-plaintext">my_project/pick/
   integra_assist_input/
-    hitlist_integra_assist.csv   # Semicolon-delimited CSV for robot
+    integra_assist_plate1.csv   # One semicolon-delimited file per source plate:
+    integra_assist_plate2.csv   #   load the plate, run its file. A plate with
+    ...                         #   nothing to pick has a header-only file.
     README.txt                  # Instructions for the Integra ASSIST
   pileup/
     well_1_A3.html              # Per-well pileup visualizations
@@ -434,8 +436,10 @@ usortm pick my_project/ --round 2</code></pre>
   merged/
     well_assignments.csv    # Combined well assignments
     pick/
-      hitlist_integra_assist.csv
       pick_plate_map.html
+  integra_assist_input/
+    integra_assist_R1_plate1.csv   # One per source plate, named by round
+    integra_assist_R2_plate1.csv   #   and plate, since rounds share plate numbers
   report/
     summary.html            # Merged report</code></pre>
 

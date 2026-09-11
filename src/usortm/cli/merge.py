@@ -276,7 +276,11 @@ def merge(
     integra_dir = project_dir / INTEGRA_DIRNAME
     integra_dir.mkdir(exist_ok=True)
 
-    written_files = _save_pick_list(pick_list, integra_dir, volume)
+    written_files = _save_pick_list(
+        pick_list, integra_dir, volume,
+        source_plates={f"R{rnum}_{w['plate']}"
+                       for rnum, wells in all_wells.items() for w in wells},
+    )
     _write_integra_readme(integra_dir, written_files, volume, target_format, round_nums)
 
     # Save combined well_assignments for the merged report
@@ -357,8 +361,11 @@ def merge(
 
     console.print(summary_table)
     console.print()
-    for wf in written_files:
-        console.print(f"[green]\u2713[/green] Integra hitlist: {wf}")
+    if written_files:
+        console.print(
+            f"[green]\u2713[/green] Integra files: {len(written_files)}, one "
+            f"per source plate, in {written_files[0].parent}/"
+        )
     console.print(f"[green]\u2713[/green] Combined well assignments: {merged_dir / 'well_assignments.csv'}")
     console.print()
     console.print("[bold]Next step:[/bold]")
@@ -711,36 +718,18 @@ def _assign_target_wells(pick_list: list, target_format: int, fill_order: str):
             well_index = 0
 
 
-def _save_pick_list(pick_list: list, output_dir: Path, volume: float):
-    """Save merged pick list in Integra ASSIST PLUS format, one file per target plate."""
-    from collections import defaultdict
-    plates: dict[str, list] = defaultdict(list)
-    for hit in pick_list:
-        if hit.get("empty") or hit.get("tier_override") == "Streakout":
-            continue
-        plates[str(hit["target_plate"])].append(hit)
+def _save_pick_list(pick_list: list, output_dir: Path, volume: float,
+                    source_plates=None):
+    """Save the merged pick in Integra ASSIST PLUS format, one file per
+    source plate, named by round and plate (``integra_assist_R2_plate3.csv``).
 
-    written_files = []
-    for plate_id in sorted(plates):
-        fname = f"hitlist_plate_{plate_id}.csv"
-        out = output_dir / fname
-        with open(out, "w", newline="") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow([
-                "SampleID", "SourcePlateID", "SourceWell",
-                "TargetPlateID", "TargetWell", "TransferVolume",
-            ])
-            for hit in plates[plate_id]:
-                writer.writerow([
-                    hit["variant"].replace(";", "."),
-                    hit["source_plate"],
-                    hit["source_well"],
-                    hit["target_plate"],
-                    hit["target_well"],
-                    f"{volume:.1f}",
-                ])
-        written_files.append(out)
-    return written_files
+    See :mod:`usortm.integra`.  Streak-out entries are left out: they are
+    instructions for a person, not transfers for the robot.
+    """
+    from usortm.integra import write_integra_files
+
+    return write_integra_files(pick_list, output_dir, volume,
+                               source_plates=source_plates)
 
 
 def _save_merged_well_assignments(all_wells: dict[int, list], merged_dir: Path):
@@ -776,7 +765,7 @@ def _write_integra_readme(
 Integra ASSIST PLUS — Merged Hit-Picking Input
 ===============================================
 
-Files (one per target plate):
+Files (one per source plate; load that plate, run its file):
 {files_str}
 Rounds merged: {rounds_str}
 
@@ -795,12 +784,13 @@ Columns
 
 Settings used
 -------------
-  Transfer volume : {volume:.1f} µL
+  Transfer volume : {volume:g} µL
   Target format   : {target_format}-well plate
 
 Notes
 -----
-  • Load source plates in the order indicated by SourcePlateID.
+  • Each file holds the transfers out of one source plate; a file with
+    only a header is a plate with nothing to pick.
   • Round 1 and Round 2+ source plates are physically separate — load
     them separately when the robot requests each SourcePlateID group.
 """
