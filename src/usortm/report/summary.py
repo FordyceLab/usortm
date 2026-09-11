@@ -228,6 +228,29 @@ def recovery_curves(library_size: int, skew: float, measured: dict,
     }
 
 
+def recovery_note() -> str:
+    """The rule the tier table counts by, stating the limit actually applied.
+
+    The limit is the report's applied disagreement limit -- the one the pick
+    and merge were run with -- so the table and the plate beside it are
+    described by the same number.  Where none was recorded it is the
+    mixed-template threshold, as before.
+    """
+    from .plates import applied_disagreement_limit
+
+    limit = applied_disagreement_limit()
+    if limit is None:
+        clause = (f'have no position where more than '
+                  f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree')
+    else:
+        clause = (f'have no position where more than {limit:.0%} of reads '
+                  f'disagree, the limit the pick was held to')
+    return (f'Variants with at least one well at the tier\'s depth whose '
+            f'consensus exceeds 90% agreement. That well must also carry no '
+            f'error call, have intact flanks, and {clause}. Tiers are '
+            f'cumulative.')
+
+
 def _stat(label, value, unit="", extra=""):
     u = f'<span class="u">{unit}</span>' if unit else ""
     return (f'<div><div class="k">{label}</div>'
@@ -458,12 +481,7 @@ def render_summary(project: dict, demux_summary: dict,
             f'<tr><td colspan="2" class="name">Not recovered</td>'
             f'<td>{missing} <span class="u">{miss_pct:.1f}%</span></td>'
             f'<td>{bar(miss_pct, "bad")}</td></tr>')
-        note = (f'Variants with at least one well at the tier\'s depth '
-                f'whose consensus exceeds 90% agreement. That well must also '
-                f'carry no error call, have intact flanks, and have no '
-                f'position where more than '
-                f'{MIXED_TEMPLATE_THRESHOLD:.0%} of reads disagree. Tiers are '
-                f'cumulative.')
+        note = recovery_note()
         if rescued:
             note += (' The re-order row is the dropouts bought back as '
                      'synthesised constructs, held to the same test in the '

@@ -91,6 +91,18 @@ def report(
     # ------------------------------------------------------------------
     round_id = (round_id or "1").strip().lower()
 
+    # Every recovery test in this report -- the tier table, the recovery
+    # curve, the plate maps -- is judged by the disagreement limit the pick
+    # and merge were held to, read from the project's state, so the table
+    # and the plate beside it cannot describe two different policies.
+    from usortm.report.plates import (disagreement_limit_from_project,
+                                      set_applied_disagreement_limit)
+    set_applied_disagreement_limit(disagreement_limit_from_project(
+        project,
+        round_num=int(round_id) if round_id not in ("1", "merged")
+        and round_id.isdigit() else None,
+    ))
+
     if round_id == "merged":
         # Merged report: uses merged/well_assignments.csv (no demux_summary)
         merged_wa = project_dir / "merged" / "well_assignments.csv"
@@ -805,6 +817,15 @@ def _compute_quality_bins(well_data: list, library_size: int,
             return name in designed
         return name not in NOT_A_LIBRARY_MEMBER
 
+    # The worst-column limit is the one the pick and merge were held to,
+    # where the report has been told it (usortm.report.plates); otherwise the
+    # mixed-template threshold.  Judged here against the fixed threshold, the
+    # table counted 342 variants recovered at tier C above a plate the pick
+    # had filled to 331.
+    from usortm.report.plates import applied_disagreement_limit
+    _limit = applied_disagreement_limit()
+    worst_allowed = MIXED_TEMPLATE_THRESHOLD if _limit is None else _limit
+
     def _qualifying_variants(min_reads: int) -> set[str]:
         return {
             _norm_variant(w["variant"]) for w in well_data
@@ -815,7 +836,7 @@ def _compute_quality_bins(well_data: list, library_size: int,
             and (not has_flank_data or w.get("flank_check", "") == "OK")
             and (not has_mismatch_data
                  or float(w.get("max_mismatch_frac") or 0.0)
-                 <= MIXED_TEMPLATE_THRESHOLD)
+                 <= worst_allowed)
         }
 
     tier_a_set = _qualifying_variants(100)

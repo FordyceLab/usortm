@@ -18,7 +18,58 @@ from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
 from .charts import TIER_READS, depth_colour
 
 
-def carries_designed_sequence(w: dict, designed: set) -> bool:
+#: The largest per-position disagreement a well may carry and still count as
+#: holding its designed sequence, for every test in this report.  None means
+#: the mixed-template threshold.  Set once per report from the project's
+#: state (see :func:`set_applied_disagreement_limit`), so the tier table, the
+#: recovery curve, the plate maps and the pick plate are judged by the rule
+#: the pick and merge applied.  Before this the tier table counted a variant
+#: recovered at 25% while the plate beside it, picked at 10%, left it empty.
+_APPLIED_LIMIT: Optional[float] = None
+_UNSET = object()
+
+
+def set_applied_disagreement_limit(limit: Optional[float]) -> None:
+    """Fix the disagreement limit the report's tests are judged by."""
+    global _APPLIED_LIMIT
+    _APPLIED_LIMIT = limit
+
+
+def applied_disagreement_limit() -> Optional[float]:
+    return _APPLIED_LIMIT
+
+
+def disagreement_limit_from_project(project: dict,
+                                    round_num: Optional[int] = None
+                                    ) -> Optional[float]:
+    """The limit the project's picks were held to, read from its state.
+
+    The merge records the limit it applied to each round; a pick records the
+    one it applied to its own.  With a round named, that round's pick decides;
+    without one, the merge's limits decide where every round shares one, and
+    otherwise round 1's pick.  None where nothing was recorded, which is the
+    mixed-template threshold.
+    """
+    def pick_limit(r):
+        if r == 1:
+            step = (project.get("workflow_steps") or {}).get("pick") or {}
+        else:
+            step = ((project.get("rounds") or {}).get(str(r)) or {}) \
+                .get("workflow_steps", {}).get("pick") or {}
+        return step.get("max_disagreement")
+
+    if round_num is not None:
+        return pick_limit(round_num)
+    merged = (project.get("merged") or {}).get("max_disagreement")
+    if isinstance(merged, dict) and merged:
+        values = {v for v in merged.values() if v is not None}
+        if len(values) == 1:
+            return values.pop()
+    return pick_limit(1)
+
+
+def carries_designed_sequence(w: dict, designed: set,
+                              max_disagreement=_UNSET) -> bool:
     """Whether a well holds the member it was assigned, read cleanly.
 
     One rule for the plate maps' flag and for the parameters the recovery
@@ -29,6 +80,10 @@ def carries_designed_sequence(w: dict, designed: set) -> bool:
 
     A well missing flank or agreement data is not failed for missing it: the
     fields arrive from stages that a run may not have reached.
+
+    *max_disagreement* is the largest per-position disagreement allowed.
+    Left unset it is the report's applied limit (:data:`_APPLIED_LIMIT`);
+    None is the mixed-template threshold.
     """
     if w.get("variant") not in designed:
         return False
@@ -38,7 +93,13 @@ def carries_designed_sequence(w: dict, designed: set) -> bool:
         return False
     if (w.get("flank_check", "OK") or "OK") != "OK":
         return False
-    return column_agreement_class(w.get("max_mismatch_frac")) != "mixed"
+    limit = _APPLIED_LIMIT if max_disagreement is _UNSET else max_disagreement
+    mmf = w.get("max_mismatch_frac")
+    if limit is None:
+        return column_agreement_class(mmf) != "mixed"
+    if mmf in (None, ""):
+        return True
+    return float(mmf) <= limit
 
 
 ROWS = "ABCDEFGHIJKLMNOP"
