@@ -102,6 +102,10 @@ def report(
         round_num=int(round_id) if round_id not in ("1", "merged")
         and round_id.isdigit() else None,
     ))
+    # Wells the merge was told to leave out are not counted recovered either;
+    # the rows are marked as each table is loaded, the count feeds the note.
+    from usortm.report.plates import excluded_wells_by_round, set_excluded_count
+    set_excluded_count(sum(len(v) for v in excluded_wells_by_round(project).values()))
 
     if round_id == "merged":
         # Merged report: uses merged/well_assignments.csv (no demux_summary)
@@ -117,6 +121,10 @@ def report(
         report_dir = project_dir / "merged" / "report"
         # For merged, strip the 'round' column added by merge (not expected by existing loaders)
         well_data = _load_well_assignments_merged(merged_wa)
+        from usortm.report.plates import stamp_excluded
+        for _r in {int(w.get("round") or 1) for w in well_data}:
+            stamp_excluded([w for w in well_data if int(w.get("round") or 1) == _r],
+                           project, _r)
         # Build per-round context for the HTML report
         merged_context = _build_merged_html_context(project, project_dir, well_data)
     elif round_id != "1":
@@ -142,6 +150,8 @@ def report(
             raise typer.Exit(1)
         demux_summary = json.load(open(demux_summary_file)) if demux_summary_file.exists() else {}
         well_data = _load_well_assignments(well_assignments_file)
+        from usortm.report.plates import stamp_excluded
+        stamp_excluded(well_data, project, round_num)
         effective_project_dir = round_dir
         report_dir = round_dir / "report"
         merged_context = None
@@ -158,6 +168,8 @@ def report(
             console.print("[red]Error:[/red] Demux results incomplete")
             raise typer.Exit(1)
         well_data = _load_well_assignments(well_assignments_file)
+        from usortm.report.plates import stamp_excluded
+        stamp_excluded(well_data, project, 1)
         with open(demux_summary_file) as f:
             demux_summary = json.load(f)
         effective_project = project
@@ -830,6 +842,7 @@ def _compute_quality_bins(well_data: list, library_size: int,
         return {
             _norm_variant(w["variant"]) for w in well_data
             if _in_library(_norm_variant(w["variant"]))
+            and not w.get("excluded")
             and w["reads"] >= min_reads
             and w["consensus_fraction"] > 0.9
             and w.get("cons_check", "") not in NOT_THE_DESIGNED_SEQUENCE
@@ -1451,6 +1464,17 @@ def _load_reorder_rounds(project_dir) -> "dict | None":
             replicates = read_replicate_map(rep_file)
             wanted = expected_wells(order, replicates)
             rows = pd.read_csv(wells_file).to_dict("records")
+            if round_dir.name.isdigit():
+                # Wells the merge left out are not confirmed here either.
+                # The project state is read again rather than passed in,
+                # since this function is called with only the directory.
+                from usortm.report.plates import stamp_excluded
+                try:
+                    with open(root / PROJECT_STATE_FILE) as _fh:
+                        _state = json.load(_fh)
+                except (OSError, ValueError):
+                    _state = {}
+                stamp_excluded(rows, _state, int(round_dir.name))
         except Exception:
             # A malformed record is not a reason to lose the rest of the
             # page; the section is left out and the sort still reports.

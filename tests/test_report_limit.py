@@ -97,6 +97,34 @@ def test_the_tier_table_counts_by_the_applied_limit():
     assert tiers["A"]["count"] == 1
 
 
+def test_excluded_wells_are_stamped_per_round_and_not_counted():
+    """merge --exclude-wells leaves a well off the plate; the report must not
+    count it recovered.  R2_1A9 is round 2's plate 1, not round 1's."""
+    from usortm.cli.report import _compute_quality_bins
+    from usortm.report.plates import (excluded_count, excluded_wells_by_round,
+                                      set_excluded_count, stamp_excluded)
+
+    project = {"merged": {"excluded_wells": ["R1_13N18", "R2_1A9"]}}
+    assert excluded_wells_by_round(project) == {1: {("13", "N18")}, 2: {("1", "A9")}}
+    r1 = [{"plate": "13", "well": "N18", "variant": "N79*", "reads": 746,
+           "consensus_fraction": 1.0, "cons_check": "Perfect Match",
+           "flank_check": "OK", "max_mismatch_frac": 0.0965},
+          {"plate": "1", "well": "A9", "variant": "X1A", "reads": 300,
+           "consensus_fraction": 1.0, "cons_check": "Perfect Match",
+           "flank_check": "OK", "max_mismatch_frac": 0.03}]
+    assert stamp_excluded(r1, project, 1) == 1
+    assert r1[0].get("excluded") and not r1[1].get("excluded"), "round 1's 1A9 is not round 2's"
+    assert not carries_designed_sequence(r1[0], {"N79*"})
+    tiers = _compute_quality_bins(r1, 2, designed={"N79*", "X1A"})["recovery_tiers"]
+    assert tiers["C"]["count"] == 1
+    set_excluded_count(2)
+    try:
+        assert excluded_count() == 2
+        assert "2 wells the merge was told to leave out" in summary.recovery_note()
+    finally:
+        set_excluded_count(0)
+
+
 def test_the_report_command_sets_the_limit_from_the_project():
     """The setting is only worth anything if the command makes it."""
     import inspect

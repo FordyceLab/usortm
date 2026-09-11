@@ -245,10 +245,18 @@ def recovery_note() -> str:
     else:
         clause = (f'have no position where more than {limit:.0%} of reads '
                   f'disagree, the limit the pick was held to')
-    return (f'Variants with at least one well at the tier\'s depth whose '
+    from .plates import excluded_count
+
+    text = (f'Variants with at least one well at the tier\'s depth whose '
             f'consensus exceeds 90% agreement. That well must also carry no '
             f'error call, have intact flanks, and {clause}. Tiers are '
             f'cumulative.')
+    n = excluded_count()
+    if n:
+        text += (f' {n} well{"s" if n != 1 else ""} the merge was told to '
+                 f'leave out (a read-level check found a second clone below '
+                 f'that limit) {"are" if n != 1 else "is"} not counted.')
+    return text
 
 
 def _stat(label, value, unit="", extra=""):

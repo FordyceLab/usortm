@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import os
+import re
 from typing import Dict, List, Optional, Sequence
 
 from usortm.cli.report import NOT_THE_DESIGNED_SEQUENCE
@@ -33,6 +34,43 @@ def set_applied_disagreement_limit(limit: Optional[float]) -> None:
     """Fix the disagreement limit the report's tests are judged by."""
     global _APPLIED_LIMIT
     _APPLIED_LIMIT = limit
+
+
+#: How many wells the merge was told to leave out (``--exclude-wells``), for
+#: the note under the tier table.  The wells themselves are marked on their
+#: rows (``excluded``) by the report as it loads them, and every test here
+#: treats a marked well as not holding its designed sequence.
+_EXCLUDED_COUNT = 0
+
+
+def set_excluded_count(n: int) -> None:
+    global _EXCLUDED_COUNT
+    _EXCLUDED_COUNT = int(n or 0)
+
+
+def excluded_count() -> int:
+    return _EXCLUDED_COUNT
+
+
+def excluded_wells_by_round(project: dict) -> Dict[int, set]:
+    """``{round: {(plate, WELL)}}`` from the merge's recorded exclusions."""
+    out: Dict[int, set] = {}
+    for name in ((project.get("merged") or {}).get("excluded_wells") or []):
+        m = re.fullmatch(r"R(\d+)_(\d+)([A-Pa-p]\d{1,2})", str(name).strip())
+        if m:
+            out.setdefault(int(m.group(1)), set()).add((m.group(2), m.group(3).upper()))
+    return out
+
+
+def stamp_excluded(rows: Sequence[dict], project: dict, round_num: int) -> int:
+    """Mark the rows of *round_num* the merge excluded; return how many."""
+    wanted = excluded_wells_by_round(project).get(int(round_num), set())
+    n = 0
+    for w in rows:
+        if (str(w.get("plate")), str(w.get("well") or "").upper()) in wanted:
+            w["excluded"] = True
+            n += 1
+    return n
 
 
 def applied_disagreement_limit() -> Optional[float]:
@@ -86,6 +124,11 @@ def carries_designed_sequence(w: dict, designed: set,
     None is the mixed-template threshold.
     """
     if w.get("variant") not in designed:
+        return False
+    if w.get("excluded"):
+        # Left out of the pick by name (merge --exclude-wells): a check made
+        # outside the pipeline found the well wanting, and the report must
+        # not count recovered what the plate does not hold.
         return False
     if (w.get("consensus_fraction") or 0) <= 0.9:
         return False
@@ -198,6 +241,11 @@ def _well_tip(plate, label, well, has_pileup) -> str:
             f'<div style="font-size:11px;color:{tone};margin-top:2px;">'
             f'{float(worst):.0%} of reads disagree at one position '
             f'&mdash; {note}</div>')
+    if well.get("excluded"):
+        lines.append(
+            '<div style="font-size:11px;color:#dc2626;margin-top:2px;">'
+            'left out of the pick: a read-level check found a second clone'
+            '</div>')
     if has_pileup:
         lines.append('<div style="font-size:11px;color:#6b7280;margin-top:2px;">'
                      'Click to view pileup</div>')
