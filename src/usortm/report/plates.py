@@ -344,6 +344,91 @@ def demux_plate_maps(well_data: Sequence[dict], designed: set,
     }
 
 
+def verdict_plate(verdicts, rows: Dict[str, dict],
+                  links: Optional[Dict[str, str]] = None,
+                  layout: Optional[Dict[str, dict]] = None) -> dict:
+    """The sequenced pick plate, each well marked by whether it holds what
+    the merge put there.
+
+    Filled by read depth like the other maps; a wrong well is drawn as a
+    mutation, an empty one as not recovered, and a well the pick never used
+    is blank.  The hover names the intended variant, what was read, the
+    reason where it failed, and the source well it was picked from.
+    """
+    from usortm.verify import CONFIRMED, EMPTY, WRONG, failure_reason
+
+    links = links or {}
+    layout = layout or {}
+    by_well = {v.well.upper(): v for v in verdicts}
+    counts = {CONFIRMED: 0, WRONG: 0, EMPTY: 0}
+    cells = []
+    for letter in ROWS:
+        for col in range(1, COLS + 1):
+            label = f"{letter}{col}"
+            v = by_well.get(label)
+            if v is None:
+                cells.append('<i class="w blank" data-tip="not on the plate"></i>')
+                continue
+            counts[v.status] = counts.get(v.status, 0) + 1
+            row = rows.get(f"{v.plate}_{v.well}")
+            reason = failure_reason(row, v) if v.status != CONFIRMED else ""
+            depth = int((row or {}).get("reads") or 0)
+            cls = "w"
+            if v.status == EMPTY:
+                cls += " none"
+            elif reason == "flank mismatch":
+                cls += " flank"
+            elif v.status == WRONG:
+                cls += " mut"
+            lay = layout.get(label, {})
+            src = f"{lay.get('source_plate', '')} {lay.get('source_well', '')}".strip()
+            if lay.get("bench_well"):
+                src += f" (colony plate {lay.get('bench_plate')} {lay.get('bench_well')})"
+            lines = [f'<div style="font-size:13px;"><b>{label}</b></div>',
+                     f'<div style="margin-top:4px;">placed <b>{v.expected}</b>'
+                     + (f' from {src}' if src else '') + '</div>']
+            if v.status == CONFIRMED:
+                lines.append('<div style="font-size:11px;color:#1baf7a;margin-top:4px;">'
+                             'holds it</div>')
+            else:
+                lines.append(f'<div style="font-size:11px;color:#666;margin-top:4px;">'
+                             f'read as {v.observed or "nothing"}</div>')
+                if reason:
+                    lines.append(f'<div style="font-size:11px;color:#dc2626;">{reason}</div>')
+            if row is not None:
+                worst = row.get("max_mismatch_frac")
+                agree = (f' &nbsp;|&nbsp; worst column {float(worst):.0%}'
+                         if worst not in (None, "") and worst == worst else "")
+                lines.append(f'<div style="font-size:11px;color:#666;margin-top:2px;">'
+                             f'Reads: {depth:,}{agree}</div>')
+            tip = html.escape(f'<div style="line-height:1.2">{"".join(lines)}</div>',
+                              quote=True)
+            style = f"--f:{depth_colour(depth)}"
+            href = links.get(f"{v.plate}_{v.well}")
+            if href:
+                cells.append(f'<a class="{cls}" href="{href}" target="_blank" '
+                             f'rel="noopener" style="{style}" data-tip="{tip}"></a>')
+            else:
+                cells.append(f'<i class="{cls}" style="{style}" data-tip="{tip}"></i>')
+    n = sum(counts.values())
+    return {
+        "counts": counts,
+        "note": (f"The destination plate as sequenced, each well judged against the "
+                 f"variant the merge placed there: {counts[CONFIRMED]} of {n} hold it, "
+                 f"{counts[WRONG]} hold something else or read unclean, "
+                 f"{counts[EMPTY]} returned too few reads to call."),
+        "grid": (f'<div class="grid"><div class="cols24">{"".join(cells)}'
+                 f'</div></div>'),
+        "legend": (
+            '<div class="legend">'
+            '<span class="ls"><i class="swatch mut"></i>holds something else</span>'
+            '<span class="ls"><i class="swatch flank"></i>flank mismatch</span>'
+            '<span class="ls"><i class="swatch none"></i>too few reads</span>'
+            '<span class="ls"><i class="swatch blank"></i>not on the plate</span>'
+            '</div>'),
+    }
+
+
 def pick_plate(pick_list: Optional[List[dict]],
                links: Dict[str, str],
                well_class: Optional[Dict[str, str]] = None) -> str:

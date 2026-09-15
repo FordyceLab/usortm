@@ -1428,6 +1428,58 @@ def _make_recovery_curve_bokeh(
     return fig
 
 
+def _load_pick_plate_round(project_dir) -> "dict | None":
+    """The sequenced pick plate's verdicts, when such a round has been demuxed.
+
+    A pick-plate round is planned from the merged pick (``usortm plan --round
+    N --pick-plate``) and carries the layout the merge placed; once its demux
+    has run, every intended well can be judged.  The verdicts are computed
+    here from the round's own table rather than read from ``usortm verify``'s
+    file, so the page is right whether or not that command was run; the file
+    is the record, the page the view.
+    """
+    from pathlib import Path
+
+    from usortm.pickplate import (LAYOUT_FILE, ROUND_KIND, designed_names,
+                                  judge, load_well_rows, read_expected_layout)
+    from usortm.report.plates import pileup_links
+
+    root = Path(project_dir)
+    state_file = root / PROJECT_STATE_FILE
+    try:
+        with open(state_file) as fh:
+            project = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    for rnum, block in sorted((project.get("rounds") or {}).items(),
+                              key=lambda kv: int(kv[0])):
+        if (block or {}).get("kind") != ROUND_KIND:
+            continue
+        round_dir = root / "rounds" / str(rnum)
+        layout_file = round_dir / LAYOUT_FILE
+        wells_file = round_dir / "demux_output" / "well_assignments.csv"
+        if not (layout_file.exists() and wells_file.exists()):
+            continue
+        try:
+            layout = read_expected_layout(layout_file)
+            rows = load_well_rows(wells_file)
+            designed = designed_names(round_dir / "demux_output")
+            verdicts, summary = judge(rows, layout, designed)
+        except Exception:
+            continue
+        rel = round_dir.relative_to(root).as_posix()
+        links = {k: f"{rel}/{v}" for k, v in pileup_links(round_dir).items()}
+        return {
+            "round": str(rnum),
+            "summary": summary,
+            "verdicts": verdicts,
+            "rows": {f'{r["plate"]}_{r["well"]}': r for r in rows},
+            "links": links,
+            "layout": {r["well"].upper(): r for r in layout},
+        }
+    return None
+
+
 def _load_reorder_rounds(project_dir) -> "dict | None":
     """The re-order round's verdicts, when one has been sequenced.
 
@@ -1522,6 +1574,7 @@ def _save_html_report(project: dict, demux_summary: dict, well_data: list,
                 tiers=(bins or {}).get("recovery_tiers"),
                 library_size=library_size,
                 reorder=_load_reorder_rounds(root),
+                pick_check=_load_pick_plate_round(root),
             ))
         return
 

@@ -64,6 +64,15 @@ def plan(
         help="Sequencing round number (1 for initial sort, 2+ for re-order rounds).",
         min=1,
     ),
+    pick_plate: bool = typer.Option(
+        False,
+        "--pick-plate",
+        help="Plan this round as the sequenced pick plate: the expected layout "
+             "is taken from the merged pick (run `usortm merge` first), and "
+             "`usortm verify --round N` judges each well against it after the "
+             "demux. Pass the whole library as the variants file, so a well "
+             "holding the wrong member can still be named.",
+    ),
     mask_config: Optional[str] = typer.Option(
         None,
         "--mask-config",
@@ -131,8 +140,13 @@ def plan(
             round_num=round_num,
             barcode_kit=barcode_kit,
             seq_length=seq_length,
+            pick_plate=pick_plate,
         )
         return
+    if pick_plate:
+        console.print("[red]Error:[/red] --pick-plate needs --round N (2 or more): "
+                      "the pick plate is sequenced after the sort.")
+        raise typer.Exit(1)
 
     # Carry over library-designer metadata if present. This pre-fills the
     # synthesis method (and thus skew) and records how the library was designed,
@@ -851,6 +865,7 @@ def _plan_round_n(
     round_num: int,
     barcode_kit: str,
     seq_length: int,
+    pick_plate: bool = False,
 ):
     """Plan a subsequent (dropout/reorder) sequencing round for an existing project.
 
@@ -876,6 +891,27 @@ def _plan_round_n(
         project = json.load(f)
 
     n_constructs = len(variants)
+
+    # A pick-plate round is judged against the merged pick, so the layout is
+    # fixed now, before the reads arrive, from the pick as it stands.
+    layout_rows = None
+    if pick_plate:
+        from usortm.pickplate import expected_layout_from_pick
+
+        pick_file = output_dir / "merged" / "pick_list.json"
+        if not pick_file.exists():
+            pick_file = output_dir / "pick" / "pick_list.json"
+        if not pick_file.exists():
+            console.print("[red]Error:[/red] No pick to take the plate layout from. "
+                          "Run `usortm merge` (or `usortm pick`) first.")
+            raise typer.Exit(1)
+        with open(pick_file) as fh:
+            layout_rows = expected_layout_from_pick(json.load(fh))
+        if not layout_rows:
+            console.print(f"[red]Error:[/red] {pick_file} places nothing on the plate.")
+            raise typer.Exit(1)
+        console.print(f"[green]✓[/green] Pick plate layout: {len(layout_rows)} wells "
+                      f"from {pick_file.relative_to(output_dir)}")
 
     # Inherit n_plates from the parent project so all LevSeq barcode plates
     # from round 1 are included in the Dorado config (e.g. if the user used
@@ -936,6 +972,14 @@ def _plan_round_n(
             "pick": {"completed": False},
         },
     }
+    if layout_rows is not None:
+        from usortm.pickplate import LAYOUT_FILE, ROUND_KIND, write_expected_layout
+
+        write_expected_layout(layout_rows, round_dir / LAYOUT_FILE)
+        round_state["kind"] = ROUND_KIND
+        round_state["expected_layout"] = str((round_dir / LAYOUT_FILE).relative_to(output_dir))
+        round_state["n_expected"] = len(layout_rows)
+        round_state["workflow_steps"]["verify"] = {"completed": False}
 
     with open(round_dir / "usortm_round.json", "w") as f:
         json.dump(round_state, f, indent=2)
@@ -955,8 +999,16 @@ def _plan_round_n(
             k: v.copy() for k, v in round_state["workflow_steps"].items()
         },
     }
+    for key in ("kind", "expected_layout", "n_expected"):
+        if key in round_state:
+            project["rounds"][str(round_num)][key] = round_state[key]
     with open(state_file, "w") as f:
         json.dump(project, f, indent=2)
+    if layout_rows is not None:
+        console.print(f"  • {round_dir}/expected_layout.csv "
+                      f"({len(layout_rows)} intended wells)")
+        console.print("[bold]After the demux:[/bold] "
+                      f"[cyan]usortm verify {output_dir}/ --round {round_num}[/cyan]")
 
     console.print("[green]\u2713[/green] Generated round files:")
     console.print(f"  \u2022 {round_dir}/variants.csv ({n_constructs} constructs)")

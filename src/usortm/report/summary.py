@@ -394,8 +394,14 @@ def render_summary(project: dict, demux_summary: dict,
                    well_data: Sequence[dict], project_dir,
                    tiers: Optional[dict] = None,
                    library_size: Optional[int] = None,
-                   reorder: Optional[dict] = None) -> str:
+                   reorder: Optional[dict] = None,
+                   pick_check: Optional[dict] = None) -> str:
     """The summary page for one run, as HTML.
+
+    *pick_check* carries the sequenced pick plate when there is one: its
+    ``verdicts`` and ``summary`` from :mod:`usortm.verify`, the ``rows`` of
+    that round's demux keyed by plate and well, its ``links`` to pileups, and
+    the ``layout`` the merge placed, keyed by destination well.
 
     *reorder* carries a re-order round when one has been sequenced: its
     ``summary`` and ``verdicts`` from :mod:`usortm.verify`, the ``rows`` of its
@@ -712,6 +718,58 @@ def render_summary(project: dict, demux_summary: dict,
             f'    <div class="pleg right">{pick["legend"]}</div>\n'
             f'  </div>\n')
 
+    # --- the pick plate, as sequenced ---------------------------------------
+    # The last question the run answers: the plate the robot built, barcoded
+    # and sequenced, each well judged against the variant the merge put in it.
+    pickcheck_html = ""
+    pc = pick_check or None
+    if pc and pc.get("verdicts"):
+        from .plates import verdict_plate
+        from usortm.verify import CONFIRMED, EMPTY, WRONG
+
+        vp = verdict_plate(pc["verdicts"], pc["rows"], pc.get("links"),
+                           pc.get("layout"))
+        n = sum(vp["counts"].values()) or 1
+        rows_html = "".join(
+            f'<tr><td class="name">{label}</td>'
+            f'<td>{vp["counts"][s]:,} <span class="u">{100 * vp["counts"][s] / n:.1f}%</span></td>'
+            f'<td>{bar(100 * vp["counts"][s] / n, tone)}</td></tr>'
+            for s, label, tone in ((CONFIRMED, "Holds the variant placed there", "good"),
+                                   (WRONG, "Holds something else, or reads unclean", "bad"),
+                                   (EMPTY, "Too few reads to call", "warn")))
+        failed = [v for v in pc["verdicts"] if v.status != CONFIRMED]
+        fail_rows = ""
+        if failed:
+            from usortm.verify import failure_reason
+            lay = pc.get("layout") or {}
+            items = []
+            for v in sorted(failed, key=lambda v: (v.well[0], int(v.well[1:]))):
+                row = pc["rows"].get(f"{v.plate}_{v.well}")
+                src = lay.get(v.well, {})
+                where = f'{src.get("source_plate", "")} {src.get("source_well", "")}'.strip()
+                items.append(
+                    f'<tr><td class="name">{v.well}</td><td>{v.expected}</td>'
+                    f'<td>{v.observed or "nothing"}</td>'
+                    f'<td>{failure_reason(row, v) or ""}</td>'
+                    f'<td>{where}</td><td>{v.reads:,}</td></tr>')
+            fail_rows = (f'  <table><tr><th>Well</th><th>Placed</th><th>Read as</th>'
+                         f'<th>Reason</th><th>From</th><th>Reads</th></tr>'
+                         f'{"".join(items)}</table>\n')
+        note = ("Each well of the destination plate, sequenced after picking and "
+                "judged against the variant the merge placed there by the same "
+                "test the pick used. A well that holds its variant is a glycerol "
+                "stock; one that does not is re-picked or made by mutagenesis.")
+        pickcheck_html = (
+            f'  <div class="cols contain">\n'
+            f'   <div>\n  {_section("Pick plate, as sequenced", note)}\n'
+            f'  <table><tr><th>Well</th><th>Count</th><th style="width:34%"></th></tr>'
+            f'{rows_html}</table>\n{fail_rows}   </div>\n'
+            f'   <div>\n  {_section("", vp["note"])}\n'
+            f'    <div class="pgrid">{vp["grid"]}</div>\n'
+            f'    <div class="pleg">{vp["legend"]}</div>\n'
+            f'   </div>\n'
+            f'  </div>\n')
+
     versions = demux_summary.get("versions") or {}
     ver_rows = "".join(
         f'<tr><td class="name">{k}</td>'
@@ -749,7 +807,7 @@ def render_summary(project: dict, demux_summary: dict,
 
   <div class="stats">{"".join(stats)}</div>
 
-{tables_html}{reorder_html}{figures_html}{plates_html}
+{tables_html}{reorder_html}{figures_html}{plates_html}{pickcheck_html}
   <h2>Provenance</h2>
   <table><tr><th>Component</th><th>Version</th></tr>{ver_rows}</table>
 
