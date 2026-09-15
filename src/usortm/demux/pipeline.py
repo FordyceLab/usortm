@@ -276,6 +276,44 @@ def _name_the_rest_by_alignment(well_df, read_df, reference, well_fastqs_dir,
     )
 
 
+def _hold_to_expected(well_df, expected_by_well: dict, ref_dir, progress):
+    """Judge each laid-out well against the variant that was put in it.
+
+    The free assignment names a well from its reads; for a plate built to a
+    known layout that is the wrong question, and on short or thin reads it
+    answers badly -- "unassigned", or the member a fragment happens to fit.
+    Here the well's reference is set to the variant the layout says it holds,
+    so the consensus and every check that follows ask whether it does.  The
+    free assignment is kept as ``assigned_variant``, so a well that holds
+    something else can still say what.
+
+    A well whose expected variant has no reference on disk is left as it
+    was, and said so.
+    """
+    single = Path(ref_dir) / "single_ref_fastas"
+    if "assigned_variant" not in well_df.columns:
+        well_df["assigned_variant"] = None
+    held = missing_ref = 0
+    for idx, row in well_df.iterrows():
+        want = expected_by_well.get(str(row.get("global_well") or ""))
+        if not want:
+            continue
+        current = str(row.get("major_ref") or "")
+        well_df.at[idx, "assigned_variant"] = (current.split(":")[-1]
+                                               if current else "")
+        if not (single / f"{want}.fasta").exists():
+            missing_ref += 1
+            continue
+        well_df.at[idx, "major_ref"] = want
+        if "assignment_confidence" in well_df.columns:
+            well_df.at[idx, "assignment_confidence"] = 1.0
+        held += 1
+    progress(f"Holding {held:,} well(s) to the variant placed in them"
+             + (f"; {missing_ref} expected variant(s) have no reference"
+                if missing_ref else ""))
+    return well_df
+
+
 def _assign_variants(well_df, read_df, reference, ref_dir, well_fastqs_dir,
                      output_dir, tool_paths, workers, reads_per_well,
                      flank_5p, flank_3p, assign_progress, progress):
@@ -417,8 +455,19 @@ def run_levseq_pipeline(
     resume: bool = False,
     streakout: bool = False,
     qc_mask_file=None,
+    expected_by_well: Optional[dict] = None,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
+
+    *expected_by_well* maps a well (``"1A1"``: plate then well) to the variant
+    known to have been put in it -- a sequenced pick plate.  Where given, the
+    consensus, the flank check and the column scan for that well are judged
+    against that variant's reference rather than against whichever member
+    the reads were assigned to, and the free assignment is kept beside it as
+    ``assigned_variant``.  Naming a well from its reads is the right question
+    for a sort; for a plate built to a layout the question is whether the
+    well holds what was placed, and a well the reads could not name is still
+    answerable.
 
     Stages:
         1. Check external tool dependencies
@@ -812,6 +861,9 @@ def run_levseq_pipeline(
                 output_dir, tool_paths, workers, reads_per_well,
                 flank_5p, flank_3p, _assign_progress, _progress,
             )
+            if expected_by_well:
+                well_df = _hold_to_expected(well_df, expected_by_well,
+                                            ref_dir, _progress)
 
             live.set_stage("consensus")
             _progress("Generating consensus against assigned references...")
@@ -1176,6 +1228,11 @@ def _translate_to_cli_format(
             "consensus_fraction": float(row.get("major_freq", 0.0)),
             "cons_check": cons_check_val,
         }
+
+        # The free assignment, where the well was held to an expected variant
+        _av = row.get("assigned_variant")
+        if _av is not None and pd.notna(_av) and str(_av):
+            entry["assigned_variant"] = str(_av)
 
         # Include protein-level check if available
         _pc = row.get("protein_check")

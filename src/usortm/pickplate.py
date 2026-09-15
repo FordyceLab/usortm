@@ -91,7 +91,20 @@ def judge(well_rows: Sequence[dict], layout: Sequence[dict], designed: set,
     expected = expected_wells_from_layout(layout, plate)
     verdicts = verify(well_rows, expected, designed, min_reads=min_reads,
                       is_clean=is_clean)
-    return verdicts, summarise(verdicts)
+    # Where the demux held a well to its expected variant, the row's variant
+    # is the expectation and the free assignment sits in assigned_variant;
+    # that is what a wrong well was read as, and what the verdict should say.
+    from dataclasses import replace
+
+    by_key = {(int(r["plate"]), str(r["well"]).upper()): r for r in well_rows}
+    out = []
+    for v in verdicts:
+        row = by_key.get((v.plate, v.well))
+        got = (row or {}).get("assigned_variant")
+        if v.status != CONFIRMED and got:
+            v = replace(v, observed=got)
+        out.append(v)
+    return out, summarise(out)
 
 
 def verdict_rows(verdicts: Sequence[WellVerdict], well_rows: Sequence[dict],
@@ -151,6 +164,9 @@ def load_well_rows(path) -> List[dict]:
             nfp = (r.get("n_flagged_positions") or "").strip()
             if nfp:
                 row["n_flagged_positions"] = int(float(nfp))
+            av = (r.get("assigned_variant") or "").strip()
+            if av:
+                row["assigned_variant"] = av
             rows.append(row)
     return rows
 

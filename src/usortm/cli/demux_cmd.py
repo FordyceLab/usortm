@@ -270,6 +270,21 @@ def demux(
         demux_output = project_dir / "rounds" / str(round_num) / "demux_output"
         effective_params = round_state  # n_plates, barcode_kit, library_size from round
 
+        # A pick-plate round is built to a known layout: each well is judged
+        # against the variant placed in it rather than named from its reads.
+        expected_by_well = None
+        if round_state.get("kind") == "pick_plate":
+            from usortm.pickplate import LAYOUT_FILE, read_expected_layout
+
+            layout_file = round_dir / LAYOUT_FILE
+            if layout_file.exists():
+                expected_by_well = {f"1{r['well'].upper()}": r["variant"]
+                                    for r in read_expected_layout(layout_file)}
+                console.print(
+                    f"[green]✓[/green] Pick-plate round: {len(expected_by_well)} "
+                    f"wells will be judged against the variant placed in them"
+                )
+
         # Auto-use round variants as library reference when not explicitly provided.
         # Prefer matching against the original library (sequence-based, naming-agnostic)
         # so re-order rounds always use clean sequences without cloning artifacts.
@@ -298,6 +313,7 @@ def demux(
     else:
         demux_output = project_dir / "demux_output"
         effective_params = project
+        expected_by_well = None
         round_dir = None
 
     console.print()
@@ -604,6 +620,7 @@ def demux(
                 plate_map=None if single_plain_run else segment.plates,
                 live_label=None if single_plain_run else segment.name,
                 live_report=live_report,
+                expected_by_well=expected_by_well,
                 resume=resume,
                 streakout=streakout,
                 qc_mask_file=qc_mask_path,
@@ -1922,6 +1939,7 @@ def _run_demux(
     resume: bool = False,
     streakout: bool = False,
     qc_mask_file=None,
+    expected_by_well: Optional[dict] = None,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1980,6 +1998,7 @@ def _run_demux(
             resume=resume,
             streakout=streakout,
             qc_mask_file=qc_mask_file,
+            expected_by_well=expected_by_well,
         )
     else:
         raise NotImplementedError(
@@ -2145,6 +2164,12 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
         header.append("assignment_confidence")
     if has_flagged:
         header.extend(["n_flagged_positions", "max_mismatch_frac"])
+    has_assigned = any(
+        "assigned_variant" in data
+        for data in results["well_assignments"].values()
+    )
+    if has_assigned:
+        header.append("assigned_variant")
 
     with open(output_dir / "well_assignments.csv", "w", newline="") as f:
         writer = csv.writer(f)
@@ -2168,4 +2193,6 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
             if has_flagged:
                 row.append(data.get("n_flagged_positions", ""))
                 row.append(data.get("max_mismatch_frac", ""))
+            if has_assigned:
+                row.append(data.get("assigned_variant", ""))
             writer.writerow(row)

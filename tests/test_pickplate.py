@@ -107,6 +107,47 @@ def test_load_well_rows_types_the_fields(tmp_path):
     assert rows[1]["max_mismatch_frac"] is None
 
 
+def test_the_demux_holds_a_laid_out_well_to_the_variant_placed_in_it(tmp_path):
+    """The free assignment is the wrong question for a plate built to a
+    layout: the reference becomes the placed variant, the free assignment is
+    kept beside it, and a well whose expected variant has no reference is
+    left as it was."""
+    import pandas as pd
+
+    from usortm.demux.pipeline import _hold_to_expected
+
+    ref_dir = tmp_path / "refs"
+    (ref_dir / "single_ref_fastas").mkdir(parents=True)
+    for v in ("G3A", "G3F"):
+        (ref_dir / "single_ref_fastas" / f"{v}.fasta").write_text(f">{v}\nACGT\n")
+    well_df = pd.DataFrame({
+        "global_well": ["1A1", "1B1", "1C1", "1D1"],
+        "major_ref": ["fwd:G15A", "unassigned", "fwd:G3F", "fwd:K16*"],
+        "assignment_confidence": [0.6, 0.0, 0.9, 0.8],
+    })
+    said = []
+    out = _hold_to_expected(well_df, {"1A1": "G3A", "1B1": "G3F", "1C1": "G3F",
+                                      "1D1": "Q52*"}, ref_dir, said.append)
+    got = dict(zip(out["global_well"], out["major_ref"]))
+    assert got == {"1A1": "G3A", "1B1": "G3F", "1C1": "G3F", "1D1": "fwd:K16*"}
+    kept = dict(zip(out["global_well"], out["assigned_variant"]))
+    assert kept == {"1A1": "G15A", "1B1": "unassigned", "1C1": "G3F", "1D1": "K16*"}
+    assert list(out["assignment_confidence"])[:3] == [1.0, 1.0, 1.0]
+    assert "3 well(s)" in said[0] and "1 expected variant(s) have no reference" in said[0]
+
+
+def test_a_wrong_well_is_reported_as_what_it_was_read_as():
+    """After the demux held the well to its expected variant, the row's
+    variant is the expectation; the verdict must name the free assignment."""
+    layout = expected_layout_from_pick(PICK)
+    wells = [dict(_row("A1", "G3A", 300, cons="Error"), assigned_variant="G15A"),
+             dict(_row("B1", "G3F", 300), assigned_variant="G3F")]
+    verdicts, _ = judge(wells, layout, designed={"G3A", "G3F", "G15A"})
+    by = {v.well: v for v in verdicts}
+    assert by["A1"].status == WRONG and by["A1"].observed == "G15A"
+    assert by["B1"].status == CONFIRMED and by["B1"].observed == "G3F"
+
+
 def test_verify_renders_pileups_for_the_intended_wells():
     """The report's plate links each well to its reads; a pick-plate round has
     no pick step to render them, so verify must."""
