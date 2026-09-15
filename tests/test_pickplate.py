@@ -107,6 +107,18 @@ def test_load_well_rows_types_the_fields(tmp_path):
     assert rows[1]["max_mismatch_frac"] is None
 
 
+def test_verify_renders_pileups_for_the_intended_wells():
+    """The report's plate links each well to its reads; a pick-plate round has
+    no pick step to render them, so verify must."""
+    import inspect
+
+    from usortm.cli import verify_cmd
+
+    src = inspect.getsource(verify_cmd.verify)
+    assert "_pileups(" in src and "render_pileups" in src
+    assert 'well=",".join(wanted)' in src, "named wells are rendered whatever their depth"
+
+
 def test_plan_writes_the_layout_and_marks_the_round(tmp_path):
     """The planner fixes the layout from the merged pick before reads exist."""
     from usortm.cli.plan import _plan_round_n

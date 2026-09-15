@@ -31,6 +31,12 @@ def verify(
     min_reads: int = typer.Option(20, "--min-reads",
                                   help="Reads a well needs before its call is used; "
                                        "below this it is reported empty."),
+    render_pileups: bool = typer.Option(True, "--pileups/--no-pileups",
+                                        help="Render a pileup and summary page for every "
+                                             "intended well that returned reads, so the "
+                                             "report's plate links to them."),
+    workers: int = typer.Option(6, "--workers", "-w",
+                                help="Parallel workers for pileup rendering."),
 ):
     """
     Judge each well of a sequenced pick plate against the variant the merge
@@ -123,6 +129,25 @@ def verify(
         if len(failed) > 40:
             console.print(f"  ... {len(failed) - 40} more in {out_csv}")
     console.print(f"\n[green]✓[/green] Verdicts: {out_csv}")
+
+    # The plate in the report links each well to its reads.  A pick-plate
+    # round has no pick step to render them, so they are rendered here, for
+    # every intended well that returned anything, whatever its depth: the
+    # wells worth looking at are exactly the shallow and the wrong ones.
+    if render_pileups:
+        with_reads = {(int(r["plate"]), str(r["well"]).upper())
+                      for r in rows if int(r.get("reads") or 0) > 0}
+        wanted = [f"1{lay['well'].upper()}" for lay in layout
+                  if (1, lay["well"].upper()) in with_reads]
+        if wanted:
+            from usortm.cli.pileups import pileups as _pileups
+            console.print()
+            try:
+                _pileups(project_dir=project_dir, min_reads=1, plate=None,
+                         well=",".join(wanted), workers=workers, output=None,
+                         round_num=round_num)
+            except typer.Exit:
+                pass
 
     # Record the step where the round records its others.
     step = {"completed": True, "command": _provenance.current_command(),
