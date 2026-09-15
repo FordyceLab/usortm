@@ -1202,6 +1202,21 @@ def _generate_one_pick_pileup(
         well_reads, ref_fasta, ref_seq,
         minimap2_path, samtools_path, ref_index=ref_index,
     )
+    # The grid keeps only reads that cross the reference midpoint, which is
+    # right for concatemer split-reads and wrong for a well whose reads all
+    # stop short of it: a construct with the right 5' junction and a different
+    # insert aligned over its first 627 bases and drew a blank page saying "no
+    # aligned reads" above 478 of them.  Where the filter leaves nothing and
+    # reads exist, draw them unfiltered and say so; what they do not cover is
+    # the finding.
+    unfiltered = False
+    if not pileup_rows and len(well_reads):
+        pileup_rows = _build_pileup_grid(
+            well_reads, ref_fasta, ref_seq,
+            minimap2_path, samtools_path, ref_index=ref_index,
+            min_overlap_pos=0,
+        )
+        unfiltered = bool(pileup_rows)
 
     # Use the number of reads that actually aligned to the variable region
     # (after flank filtering) as the displayed count, not the raw read count
@@ -1247,7 +1262,9 @@ def _generate_one_pick_pileup(
     # put a commendation on wells that had not earned one.
     _is_recoverable = False
     group_sections = [{
-        "ref_id": f"{variant} vs parent" if against_parent else variant,
+        "ref_id": (f"{variant} vs parent" if against_parent else variant)
+                  + (" — no read crosses the reference midpoint; every "
+                     "aligned read is shown" if unfiltered else ""),
         "n_reads": n_variable_reads,
         "frac": consensus_fraction,
         "status": _display_status,
