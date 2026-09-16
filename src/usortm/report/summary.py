@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from usortm import pickplate
 from usortm.demux.utils import (MIXED_TEMPLATE_THRESHOLD,
                                 column_agreement_class)
 
@@ -53,6 +54,31 @@ def _designed_variants(project_dir) -> set:
     return names
 
 
+def _reads_back_a_pick(root: str, round_dir: str) -> bool:
+    """Whether a round sequenced the pick plate rather than sorting wells.
+
+    A pick-plate round reads a pick back, so its demux describes the plate
+    the pick built and not the wells the pick drew on.  Counted as a well
+    source it dates every pick behind it, and the merged pick -- written
+    before the plate was sequenced -- is dropped for the single-round one,
+    which leaves each variant the re-order round recovered empty on the
+    plate map.
+    """
+    number = os.path.basename(round_dir)
+    for path, key in ((os.path.join(round_dir, "usortm_round.json"), None),
+                      (os.path.join(root, "usortm_project.json"), number)):
+        try:
+            with open(path) as fh:
+                state = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if key is not None:
+            state = (state.get("rounds") or {}).get(key) or {}
+        if state.get("kind"):
+            return state["kind"] == pickplate.ROUND_KIND
+    return False
+
+
 def _current_pick(project_dir) -> Optional[List[dict]]:
     """The pick for this project, or None when there is none current.
 
@@ -63,12 +89,18 @@ def _current_pick(project_dir) -> Optional[List[dict]]:
     pick writes its list from one demux's well assignments and a later demux
     leaves that file in place, so age is what separates a pick describing
     these wells from one describing earlier ones.  A merged pick is measured
-    against every round's wells, since it draws on all of them.
+    against every round's wells, since it draws on all of them -- every round
+    that sorted wells, that is.  A round that sequenced the pick plate is a
+    readout of the pick rather than a source for it, and is left out of the
+    comparison (:func:`_reads_back_a_pick`).
     """
     root = str(project_dir)
     rounds = sorted(glob.glob(os.path.join(root, "rounds", "*",
                                            "demux_output",
                                            "well_assignments.csv")))
+    rounds = [p for p in rounds
+              if not _reads_back_a_pick(
+                  root, os.path.dirname(os.path.dirname(p)))]
     own = os.path.join(root, "demux_output", "well_assignments.csv")
     sources = [p for p in [own] + rounds if os.path.exists(p)]
     if not sources:
