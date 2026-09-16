@@ -102,6 +102,16 @@ def demux(
         "--min-fraction",
         help="Minimum fraction of reads supporting consensus.",
     ),
+    min_read_length: int = typer.Option(
+        0,
+        "--min-read-length",
+        min=0,
+        help="Drop aligned reads shorter than this many bases before they "
+             "reach a well. A fragment counts towards a well's depth and, "
+             "forced to a name, is called for whichever member its end fits; "
+             "for a 1,942 bp construct, 1900 keeps full-length reads only. "
+             "0 keeps every aligned read.",
+    ),
     threads: int = typer.Option(
         4,
         "--threads", "-t",
@@ -608,6 +618,7 @@ def demux(
                 reference=reference,
                 min_reads=min_reads,
                 min_fraction=min_fraction,
+                min_read_length=min_read_length,
                 threads=threads,
                 workers=workers,
                 project_params=effective_params,
@@ -745,6 +756,9 @@ def demux(
         "assigned_reads": results["assigned_reads"],
         "wells_with_data": results["wells_with_data"],
     }
+    if results.get("min_read_length"):
+        demux_step_data["min_read_length"] = results["min_read_length"]
+        demux_step_data["short_reads_dropped"] = results.get("short_reads_dropped", 0)
     if not single_plain_run:
         # Record how each FASTQ's barcode plates were read, so the run can be
         # reproduced and the plate numbering explained after the fact.
@@ -800,6 +814,11 @@ def demux(
     summary_table.add_row("Input reads", f"{input_reads:,}")
     if aligned_reads or input_reads:
         summary_table.add_row("Aligned", _pct(aligned_reads, input_reads))
+    if results.get("min_read_length"):
+        summary_table.add_row(
+            f"Shorter than {results['min_read_length']:,} bp (dropped)",
+            _pct(results.get("short_reads_dropped", 0), input_reads),
+        )
     summary_table.add_row("Demuxed (FBC+RBC)", _pct(demuxed_reads, input_reads))
     summary_table.add_row("Assigned to wells", _pct(assigned_reads, input_reads))
     summary_table.add_row(
@@ -1940,6 +1959,7 @@ def _run_demux(
     streakout: bool = False,
     qc_mask_file=None,
     expected_by_well: Optional[dict] = None,
+    min_read_length: int = 0,
 ) -> dict:
     """Run the demultiplexing pipeline based on the project's barcode kit.
 
@@ -1999,6 +2019,7 @@ def _run_demux(
             streakout=streakout,
             qc_mask_file=qc_mask_file,
             expected_by_well=expected_by_well,
+            min_read_length=min_read_length,
         )
     else:
         raise NotImplementedError(
@@ -2123,6 +2144,10 @@ def _save_demux_results(results: dict, output_dir: Path, project: Optional[dict]
     if "flank_5p_len" in results:
         summary["flank_5p_len"] = results["flank_5p_len"]
         summary["flank_3p_len"] = results["flank_3p_len"]
+    # The length filter this run applied, and what it removed.
+    if results.get("min_read_length"):
+        summary["min_read_length"] = results["min_read_length"]
+        summary["short_reads_dropped"] = results.get("short_reads_dropped", 0)
 
     # Pre-compute recovery curve if library_size is known
     if project:

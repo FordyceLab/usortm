@@ -321,8 +321,17 @@ def align_and_split_by_strand(
     threads=4,
     progress_callback=None,
     total_reads=None,
+    min_read_length: int = 0,
 ):
     """Align raw reads to a multi-ref library and split by strand.
+
+    *min_read_length* drops an aligned read shorter than that many bases
+    before it is written, so a fragment never reaches a well: it would count
+    towards the well's depth and, forced to a name, be called for whichever
+    member its end happens to fit.  A run of a 1,942-base construct whose
+    reads were 72% under 300 bases named wells for the last codon that way.
+    The length histogram still counts every read; the drop is reported as
+    ``short`` in the returned statistics.  0 keeps every aligned read.
 
     Streams minimap2 SAM output directly (no samtools sort, no BAM, no
     index) in a single pass.  Reverse-mapped reads are
@@ -382,6 +391,10 @@ def align_and_split_by_strand(
                 stale_reason = "reference changed"
             elif not _fingerprints_match(saved.get("input"), input_fp):
                 stale_reason = "input FASTQ changed"
+            elif int(saved.get("min_read_length", 0) or 0) != int(min_read_length or 0):
+                # The oriented FASTQ holds only what passed the filter, so
+                # a different filter means a different file.
+                stale_reason = "read-length filter changed"
             elif input_fp is None:
                 stale_reason = "input FASTQ could not be identified"
             else:
@@ -393,6 +406,8 @@ def align_and_split_by_strand(
                 progress_callback(None, None)  # signal: cached
             ref_map, align_stats = _rebuild_ref_map_from_fastq(oriented_fq)
             align_stats["unmapped"] = saved.get("unmapped", 0)
+            align_stats["short"] = saved.get("short", 0)
+            align_stats["min_read_length"] = int(saved.get("min_read_length", 0) or 0)
             # The oriented FASTQ holds only what aligned, so the unmapped
             # count and the length histogram cannot be rebuilt from it; both
             # come back from the sidecar.  A sidecar written before the
@@ -432,7 +447,7 @@ def align_and_split_by_strand(
     )
 
     ref_map = {}
-    n_fwd = n_rev = n_unmapped = n_processed = 0
+    n_fwd = n_rev = n_unmapped = n_processed = n_short = 0
     # Read lengths, tallied here because this pass already has every read.
     # Measuring them separately meant decompressing the whole input a second
     # time, minutes at the start of a run to draw one chart, and it is counted
@@ -473,6 +488,12 @@ def align_and_split_by_strand(
                 n_unmapped += 1
                 continue
 
+            # After the histogram, so the distribution still shows what was
+            # dropped; before orientation, so nothing is spent on it.
+            if min_read_length and len(seq) < min_read_length:
+                n_short += 1
+                continue
+
             if flag & _FLAG_REVERSE:
                 seq = str(Seq(seq).reverse_complement())
                 qual = qual[::-1]
@@ -505,10 +526,13 @@ def align_and_split_by_strand(
         "rev": n_rev,
         "mapped": n_fwd + n_rev,
         "unmapped": n_unmapped,
+        "short": n_short,
+        "min_read_length": int(min_read_length or 0),
         "read_len_hist": _hist_from_length_counts(length_counts),
     }
 
-    # Write sidecar for unmapped count + cache key (reference and input FASTQ)
+    # Write sidecar for unmapped count + cache key (reference, input FASTQ
+    # and the read-length filter the oriented FASTQ was written under)
     sidecar = dict(align_stats)
     sidecar["ref_hash"] = ref_hash
     sidecar["input"] = _input_fingerprint(fastq)

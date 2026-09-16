@@ -456,8 +456,12 @@ def run_levseq_pipeline(
     streakout: bool = False,
     qc_mask_file=None,
     expected_by_well: Optional[dict] = None,
+    min_read_length: int = 0,
 ) -> dict:
     """Run the full LevSeq demultiplexing pipeline.
+
+    *min_read_length* drops aligned reads shorter than that many bases at the
+    orientation stage, before any reaches a well; 0 keeps them all.
 
     *expected_by_well* maps a well (``"1A1"``: plate then well) to the variant
     known to have been put in it -- a sequenced pick plate.  Where given, the
@@ -677,8 +681,14 @@ def run_levseq_pipeline(
             threads=threads,
             progress_callback=_align_progress,
             total_reads=input_reads,
+            min_read_length=min_read_length,
         )
         pipeline_stats["align"] = align_stats
+        if min_read_length:
+            pipeline_stats["min_read_length"] = int(min_read_length)
+            pipeline_stats["short_reads_dropped"] = int(align_stats.get("short", 0))
+            _progress(f"Dropped {align_stats.get('short', 0):,} aligned reads "
+                      f"shorter than {min_read_length:,} bp")
 
         # The aligner saw every read, so its tallies are the authoritative
         # count and the exact length distribution.  Both survive the alignment
@@ -1297,4 +1307,9 @@ def _translate_to_cli_format(
     # than reading a config file that may have changed since the run.
     if stats.get("qc_mask"):
         result["qc_mask"] = stats["qc_mask"]
+    # What the read-length filter removed, so a run whose aligned count sits
+    # below what mapped says why rather than looking like a loss.
+    if stats.get("min_read_length"):
+        result["min_read_length"] = stats["min_read_length"]
+        result["short_reads_dropped"] = stats.get("short_reads_dropped", 0)
     return result
