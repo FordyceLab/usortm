@@ -11,6 +11,7 @@ import logging
 import gzip
 import json
 
+from usortm import pickplate as _pickplate
 from usortm import provenance as _provenance
 
 import os
@@ -223,6 +224,15 @@ def demux(
         help="Sequencing round to demultiplex (1 for initial sort, 2+ for re-order rounds).",
         min=1,
     ),
+    pick_plate: Optional[str] = typer.Option(
+        None,
+        "--pick-plate",
+        help="Demultiplex a sequencing of the built pick plate, named by its "
+             "sequencing run ID (e.g. G3Y8KW). Written to "
+             "7_pick_plate/<run>/, and each well is judged against the "
+             "variant the liquid-handler worklists moved into it. Not a "
+             "round: it never feeds a merge. Cannot be combined with --round.",
+    ),
 ):
     """
     Demultiplex sequencing data for a [#4096E3]uSort-M[/#4096E3] project.
@@ -264,8 +274,28 @@ def demux(
     # ------------------------------------------------------------------
     round_state_file: Optional[Path] = None
     round_state: Optional[dict] = None
+    run = None
 
-    if round_num > 1:
+    if pick_plate is not None:
+        if round_num > 1:
+            console.print("[red]Error:[/red] --pick-plate and --round cannot be "
+                          "combined: a pick-plate run is not a round.")
+            raise typer.Exit(1)
+        run, expected_by_well = _start_pick_plate_run(project_dir, project, pick_plate)
+        demux_output = run.demux
+        # The pick plate is read with the project's barcode kit and library,
+        # but it is one plate, so the sort's plate count is not inherited.
+        effective_params = dict(project, n_plates=1)
+        round_dir = run.root
+        if plate_map_file is None and run.plate_map.exists():
+            plate_map_file = run.plate_map
+            console.print(f"[green]✓[/green] Plate map: {run.plate_map}")
+        if library_csv is None and reference is None:
+            library_ref = project_dir / "demux_output" / "library_reference.fasta"
+            if library_ref.exists():
+                reference = library_ref
+                console.print(f"[green]✓[/green] Library reference: {library_ref}")
+    elif round_num > 1:
         round_dir = project_dir / "rounds" / str(round_num)
         round_state_file = round_dir / "usortm_round.json"
         if not round_state_file.exists():
@@ -525,7 +555,11 @@ def demux(
     # a later round looking for the wrong reverse barcodes.
     from usortm.demux.plate_map import total_sort_plates
 
-    if round_num > 1:
+    if run is not None:
+        # The pick plate is one plate; the project's count is the sort's and
+        # must not be overwritten by it.
+        pass
+    elif round_num > 1:
         _persist_sort_plate_count(
             round_state_file, round_state, total_sort_plates(segments)
         )
@@ -677,7 +711,8 @@ def demux(
 
     section(console, "Results")
 
-    _save_demux_results(results, demux_output, project=(None if round_num > 1 else project))
+    _save_demux_results(results, demux_output,
+                        project=(None if (round_num > 1 or run is not None) else project))
 
     # Build streakout wells set for plate map annotation
     streakout_wells = set()
@@ -773,7 +808,19 @@ def demux(
             for seg in segments
         ]
 
-    if round_num > 1:
+    if run is not None:
+        # The pick-plate run keeps its own record; round 1's is untouched.
+        # The per-well table and run summary are copied into results/, so
+        # deleting demux/ loses nothing the report and verify read.
+        run.results.mkdir(parents=True, exist_ok=True)
+        for name in ("well_assignments.csv", "demux_summary.json"):
+            if (demux_output / name).exists():
+                shutil.copy2(demux_output / name, run.results / name)
+        block = project.setdefault(_pickplate.STATE_KEY, {}).setdefault(run.name, {})
+        block.setdefault("workflow_steps", {})["demux"] = demux_step_data
+        with open(state_file, "w") as f:
+            json.dump(project, f, indent=2)
+    elif round_num > 1:
         # Update round-specific state file
         round_state["workflow_steps"]["demux"] = demux_step_data
         with open(round_state_file, "w") as f:
@@ -886,6 +933,19 @@ def demux(
             )
             raise typer.Exit(1)
 
+    if run is not None:
+        console.print("[green]\u2713[/green] Demultiplexing complete!")
+        console.print(f"  Reads and alignments: {run.demux}/")
+        console.print(f"  Per-well table: {run.wells_csv}")
+        console.print()
+        console.print("[bold]Next step:[/bold]")
+        console.print(
+            f"  [cyan]usortm verify {project_dir}/ --pick-plate {run.name}[/cyan]  "
+            "\u2192 judge each well against the variant moved into it"
+        )
+        console.print()
+        return
+
     _refresh_index(project_dir, round_num)
     console.print("[green]\u2713[/green] Demultiplexing complete!")
     console.print(f"  Results saved to: {demux_output}/")
@@ -896,6 +956,88 @@ def demux(
         "\u2192 Generate hit-picking list"
     )
     console.print()
+
+
+def _start_pick_plate_run(project_dir: Path, project: dict, name: str):
+    """Set up pick-plate run *name* and return its paths and expected wells.
+
+    The expected layout is a snapshot, taken the first time the run is
+    demultiplexed, of what the liquid-handler worklists moved into each well.
+    The worklists are the record of what was done: the pick can be re-run
+    after the plate is built, and they cannot.  The merged pick (or the
+    single pick) is read beside them to name each well's source and is
+    checked against them; a disagreement is printed and the worklists win.
+    A layout already written is kept, so a re-run is judged against what
+    was recorded before its reads were seen.
+    """
+    from datetime import datetime
+
+    from usortm.integra import read_integra_files
+    from usortm.paths import INTEGRA_DIRNAME
+
+    try:
+        run = _pickplate.run_paths(project_dir, name)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    run.root.mkdir(parents=True, exist_ok=True)
+
+    if run.layout.exists():
+        layout = _pickplate.read_expected_layout(run.layout)
+        console.print(f"[green]\u2713[/green] Expected layout: {len(layout)} wells, "
+                      f"recorded in {run.layout}")
+        source = None
+    else:
+        worklist_dir = project_dir / INTEGRA_DIRNAME
+        transfers = read_integra_files(worklist_dir)
+        pick_file = _pickplate.pick_for_layout(project_dir)
+        pick_list = None
+        if pick_file is not None:
+            with open(pick_file) as fh:
+                pick_list = json.load(fh)
+        if transfers:
+            layout, problems = _pickplate.layout_from_worklists(transfers, pick_list)
+            source = str(worklist_dir.relative_to(project_dir))
+            for p in problems:
+                console.print(f"[yellow]\u26a0[/yellow] {p}")
+            if problems:
+                console.print(f"[yellow]\u26a0[/yellow] {len(problems)} well(s) where "
+                              f"the pick and the worklists differ; the worklists "
+                              f"are what the robot ran, and are used.")
+            elif pick_list is not None:
+                console.print(f"[green]\u2713[/green] Worklists and "
+                              f"{pick_file.relative_to(project_dir)} agree on "
+                              f"every well")
+        elif pick_list is not None:
+            layout = _pickplate.expected_layout_from_pick(pick_list)
+            source = str(pick_file.relative_to(project_dir))
+            console.print(f"[yellow]\u26a0[/yellow] No worklists in {worklist_dir}; "
+                          f"the layout is taken from {source}")
+        else:
+            console.print("[red]Error:[/red] Nothing says what the plate holds: no "
+                          f"worklists in {worklist_dir} and no pick list. Run "
+                          "`usortm merge` (or `usortm pick`) first.")
+            raise typer.Exit(1)
+        if not layout:
+            console.print("[red]Error:[/red] The worklists place nothing on the plate.")
+            raise typer.Exit(1)
+        _pickplate.write_expected_layout(layout, run.layout)
+        console.print(f"[green]\u2713[/green] Expected layout: {len(layout)} wells "
+                      f"from {source}, written to {run.layout}")
+
+    block = project.setdefault(_pickplate.STATE_KEY, {}).setdefault(run.name, {})
+    block.setdefault("created", datetime.now().isoformat())
+    block["expected_layout"] = str(run.layout.relative_to(project_dir))
+    block["n_expected"] = len(layout)
+    if source is not None:
+        block["layout_source"] = source
+    with open(project_dir / PROJECT_STATE_FILE, "w") as fh:
+        json.dump(project, fh, indent=2)
+
+    expected_by_well = {f"1{r['well'].upper()}": r["variant"] for r in layout}
+    console.print(f"[green]\u2713[/green] Pick plate {run.name}: {len(expected_by_well)} "
+                  f"wells will be judged against the variant placed in them")
+    return run, expected_by_well
 
 
 def _extract_original_subset(

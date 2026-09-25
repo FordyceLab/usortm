@@ -156,6 +156,8 @@ PILEUP_SOURCES = (
     "pick/pileup",
     "demux_output/mutation/pileup",
     "demux_output/pileups/pileup",
+    # A pick-plate run's pages, written into its results/ by verify.
+    "results/pileups/pileup",
 )
 
 

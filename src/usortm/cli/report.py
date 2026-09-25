@@ -1429,54 +1429,75 @@ def _make_recovery_curve_bokeh(
 
 
 def _load_pick_plate_round(project_dir) -> "dict | None":
-    """The sequenced pick plate's verdicts, when such a round has been demuxed.
+    """The sequenced pick plate's verdicts, from the newest pick-plate run.
 
-    A pick-plate round is planned from the merged pick (``usortm plan --round
-    N --pick-plate``) and carries the layout the merge placed; once its demux
-    has run, every intended well can be judged.  The verdicts are computed
-    here from the round's own table rather than read from ``usortm verify``'s
-    file, so the page is right whether or not that command was run; the file
-    is the record, the page the view.
+    A pick-plate run (``usortm demux --pick-plate <run>``) lives in
+    ``7_pick_plate/<run>/`` and carries the layout the worklists put on the
+    plate; once its demux has run, every intended well can be judged.  The
+    verdicts are computed here from the run's own table rather than read
+    from ``usortm verify``'s file, so the page is right whether or not that
+    command was run; the file is the record, the page the view.
+
+    A pick plate recorded as a round, the form used before
+    ``7_pick_plate/``, is read when the project has no run, so a project made
+    then still draws its plate until it is moved.
     """
     from pathlib import Path
 
-    from usortm.pickplate import (LAYOUT_FILE, ROUND_KIND, designed_names,
-                                  judge, load_well_rows, read_expected_layout)
+    from usortm import pickplate as pp
     from usortm.report.plates import pileup_links
 
     root = Path(project_dir)
-    state_file = root / PROJECT_STATE_FILE
     try:
-        with open(state_file) as fh:
+        with open(root / PROJECT_STATE_FILE) as fh:
             project = json.load(fh)
     except (OSError, ValueError):
         return None
+
+    def build(layout_file, wells_file, demux_dir, base, label, run=None):
+        if not (layout_file.exists() and wells_file.exists()):
+            return None
+        try:
+            layout = pp.read_expected_layout(layout_file)
+            rows = pp.load_well_rows(wells_file)
+            designed = pp.designed_names(demux_dir)
+            verdicts, summary = pp.judge(rows, layout, designed)
+        except Exception:
+            return None
+        rel = base.relative_to(root).as_posix()
+        links = {k: f"{rel}/{v}" for k, v in pileup_links(base).items()}
+        return {"round": label, "run": run, "summary": summary,
+                "verdicts": verdicts,
+                "rows": {f'{r["plate"]}_{r["well"]}': r for r in rows},
+                "links": links,
+                "layout": {r["well"].upper(): r for r in layout}}
+
+    # Newest first, so the page shows the latest sequencing of the plate and
+    # names the earlier ones.
+    runs = pp.list_runs(project)
+    for name, block in reversed(runs):
+        paths = pp.run_paths(root, name)
+        out = build(paths.layout, paths.wells_csv, paths.demux, paths.root,
+                    label=name, run=name)
+        if out is not None:
+            out["earlier"] = [
+                {"run": n, "date": ((b.get("workflow_steps") or {}).get("demux") or {})
+                 .get("timestamp", "")[:10]}
+                for n, b in runs if n != name]
+            demux_step = (block.get("workflow_steps") or {}).get("demux") or {}
+            out["date"] = (demux_step.get("timestamp") or "")[:10]
+            return out
+
     for rnum, block in sorted((project.get("rounds") or {}).items(),
                               key=lambda kv: int(kv[0])):
-        if (block or {}).get("kind") != ROUND_KIND:
+        if (block or {}).get("kind") != pp.ROUND_KIND:
             continue
         round_dir = root / "rounds" / str(rnum)
-        layout_file = round_dir / LAYOUT_FILE
-        wells_file = round_dir / "demux_output" / "well_assignments.csv"
-        if not (layout_file.exists() and wells_file.exists()):
-            continue
-        try:
-            layout = read_expected_layout(layout_file)
-            rows = load_well_rows(wells_file)
-            designed = designed_names(round_dir / "demux_output")
-            verdicts, summary = judge(rows, layout, designed)
-        except Exception:
-            continue
-        rel = round_dir.relative_to(root).as_posix()
-        links = {k: f"{rel}/{v}" for k, v in pileup_links(round_dir).items()}
-        return {
-            "round": str(rnum),
-            "summary": summary,
-            "verdicts": verdicts,
-            "rows": {f'{r["plate"]}_{r["well"]}': r for r in rows},
-            "links": links,
-            "layout": {r["well"].upper(): r for r in layout},
-        }
+        out = build(round_dir / pp.LAYOUT_FILE,
+                    round_dir / "demux_output" / "well_assignments.csv",
+                    round_dir / "demux_output", round_dir, label=str(rnum))
+        if out is not None:
+            return out
     return None
 
 

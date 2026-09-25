@@ -66,6 +66,12 @@ def pileups(
         help="Sequencing round.",
         min=1,
     ),
+    pick_plate: Optional[str] = typer.Option(
+        None,
+        "--pick-plate",
+        help="Render a pick-plate run's wells (7_pick_plate/<run>/), by its "
+             "sequencing run ID. Written to the run's results/pileups.",
+    ),
 ):
     """
     Generate read pileups for every well in a [#4096E3]uSort-M[/#4096E3] run.
@@ -77,7 +83,13 @@ def pileups(
 
         usortm pileups my_project/ --min-reads 50
     """
-    if round_num > 1:
+    run = None
+    if pick_plate is not None:
+        from usortm.pickplate import run_paths
+
+        run = run_paths(project_dir, pick_plate)
+        demux_output = run.demux
+    elif round_num > 1:
         demux_output = project_dir / "rounds" / str(round_num) / "demux_output"
     else:
         demux_output = project_dir / "demux_output"
@@ -133,7 +145,9 @@ def pileups(
         )
         raise typer.Exit(0)
 
-    out_dir = output if output is not None else demux_output / "pileups"
+    out_dir = (output if output is not None
+               else run.pileups if run is not None
+               else demux_output / "pileups")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     console.print(
@@ -144,7 +158,7 @@ def pileups(
     # A re-ordered round's wells were assembled in one plate and consolidated
     # into another to be sequenced, so the well a page is named for is not the
     # well anyone handled.  The page leads with the one that was.
-    named = _reorder_well_names(project_dir, round_num)
+    named = {} if run is not None else _reorder_well_names(project_dir, round_num)
 
     pick_list = [
         {
@@ -209,7 +223,8 @@ def pileups(
     try:
         from usortm.cli.project_index import write_index
 
-        write_index(project_dir, round_num)
+        if run is None:
+            write_index(project_dir, round_num)
     except Exception:
         pass
     if relinked:

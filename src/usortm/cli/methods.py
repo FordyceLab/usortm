@@ -65,7 +65,9 @@ def methods(
     table.add_column("When", style="muted")
     table.add_column("Command", justify="right")
     for when, rnd, step, s in steps:
-        label = step if rnd == 1 else f"{step} (round {rnd})"
+        label = (step if rnd == 1
+                 else f"{step} (pick plate {rnd})" if isinstance(rnd, str)
+                 else f"{step} (round {rnd})")
         table.add_row(label, (when or "")[:10] or "—",
                       "recorded" if s.get("command") else "not recorded")
     console.print()

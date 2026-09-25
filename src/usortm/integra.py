@@ -90,6 +90,40 @@ def _default_skip(hit: dict) -> bool:
     return bool(hit.get("empty")) or hit.get("tier_override") == "Streakout"
 
 
+_ROUND_IN_NAME = re.compile(r"_R(\d+)_plate")
+
+
+def read_integra_files(worklist_dir) -> List[dict]:
+    """Every transfer in a directory of worklists, one dict per row.
+
+    The inverse of :func:`write_integra_files`: the variant name is restored
+    from its SampleID, and the round is read from the file name, which is
+    where the writer puts it (``integra_assist_R2_plate1.csv``); a file named
+    without a round is round 1.  Each dict carries ``variant``, ``round``,
+    ``source_plate`` (the number in the cell), ``source_well``,
+    ``target_plate``, ``target_well``, ``volume`` and ``file``.
+    """
+    out = []
+    for path in sorted(Path(worklist_dir).glob(FILE_GLOB)):
+        m = _ROUND_IN_NAME.search(path.name)
+        rnd = int(m.group(1)) if m else 1
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh, delimiter=";"):
+                if not (row.get("SampleID") or "").strip():
+                    continue
+                out.append({
+                    "variant": library_name(row["SampleID"].strip()),
+                    "round": rnd,
+                    "source_plate": str(row.get("SourcePlateID", "")).strip(),
+                    "source_well": str(row.get("SourceWell", "")).strip().upper(),
+                    "target_plate": str(row.get("TargetPlateID", "")).strip(),
+                    "target_well": str(row.get("TargetWell", "")).strip().upper(),
+                    "volume": str(row.get("TransferVolume", "")).strip(),
+                    "file": path.name,
+                })
+    return out
+
+
 def write_integra_files(
     pick_list: Iterable[dict],
     out_dir: Path,

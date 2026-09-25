@@ -83,7 +83,14 @@ def _steps(project: dict):
         rounds = [int(r) for r in (merged.get("rounds") or [1])]
         out.append((merged.get("timestamp") or "", max(rounds), "merge",
                     merged))
-    return sorted(out, key=lambda s: (s[0] or "", s[1],
+    # Pick-plate runs are not rounds: they are named by their sequencing run,
+    # and the name stands where a round number would.
+    for run, block in sorted((project.get("pick_plate_runs") or {}).items()):
+        for name, state in ((block or {}).get("workflow_steps") or {}).items():
+            if isinstance(state, dict) and state.get("completed"):
+                out.append((state.get("timestamp") or "", str(run), name, state))
+    return sorted(out, key=lambda s: (s[0] or "",
+                                      s[1] if isinstance(s[1], int) else 10 ** 6,
                                       STEP_ORDER.index(s[2])
                                       if s[2] in STEP_ORDER else 99))
 
@@ -116,6 +123,8 @@ def render_commands(project: dict, project_dir) -> str:
         if step == "merge":
             rounds = state.get("rounds") or [rnd]
             where = "rounds " + ", ".join(str(r) for r in rounds)
+        elif isinstance(rnd, str):
+            where = f"pick plate {rnd}"
         else:
             where = f"round {rnd}"
         lines.append(f"# {day} · {where} · {step}")

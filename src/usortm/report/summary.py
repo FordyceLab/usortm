@@ -788,12 +788,23 @@ def render_summary(project: dict, demux_summary: dict,
                          f'<th>Reason</th><th>From</th><th>Reads</th></tr>'
                          f'{"".join(items)}</table>\n')
         note = ("Each well of the destination plate, sequenced after picking and "
-                "judged against the variant the merge placed there by the same "
-                "test the pick used. A well that holds its variant is a glycerol "
-                "stock; one that does not is re-picked or made by mutagenesis.")
+                "judged against the variant the liquid-handler worklists moved "
+                "there, by the same test the pick used. A well that holds its "
+                "variant is a glycerol stock; one that does not is re-picked or "
+                "made by mutagenesis.")
+        title = "Pick plate, as sequenced"
+        if pc.get("run"):
+            title += f" · {pc['run']}"
+            if pc.get("date"):
+                title += f", {pc['date']}"
+            earlier = [e for e in (pc.get("earlier") or []) if e.get("run")]
+            if earlier:
+                note += " Earlier sequencing of this plate: " + "; ".join(
+                    e["run"] + (f", {e['date']}" if e.get("date") else "")
+                    for e in earlier) + "."
         pickcheck_html = (
             f'  <div class="cols contain">\n'
-            f'   <div>\n  {_section("Pick plate, as sequenced", note)}\n'
+            f'   <div>\n  {_section(title, note)}\n'
             f'  <table><tr><th>Well</th><th>Count</th><th style="width:34%"></th></tr>'
             f'{rows_html}</table>\n{fail_rows}   </div>\n'
             f'   <div>\n  {_section("", vp["note"])}\n'

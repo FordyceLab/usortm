@@ -14,6 +14,8 @@ pick, so the record of what was intended is fixed before the reads arrive.
 from __future__ import annotations
 
 import csv
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -51,6 +53,73 @@ def expected_layout_from_pick(pick_list: Iterable[dict]) -> List[dict]:
         })
     rows.sort(key=lambda r: (r["well"][0], int(r["well"][1:])))
     return rows
+
+
+def layout_from_worklists(transfers: Sequence[dict],
+                          pick_list: Optional[Iterable[dict]] = None
+                          ) -> Tuple[List[dict], List[str]]:
+    """One row per destination well, as the robot filled it.
+
+    The worklists are what the liquid handler ran, so they, not the pick,
+    say what went into each well: the pick can be re-run after the plate is
+    built, and the worklists cannot.  *transfers* are
+    :func:`usortm.integra.read_integra_files` rows.  The pick, when given,
+    supplies the sequenced source position and read count for each well and
+    is checked against the worklists; every well where the two disagree, and
+    every placed well with no transfer, is returned as a problem.  The
+    layout follows the worklists either way.
+    """
+    by_target: Dict[str, dict] = {}
+    problems: List[str] = []
+    for t in transfers:
+        well = t["target_well"]
+        if well in by_target:
+            problems.append(f"{well}: two transfers, from {by_target[well]['file']} "
+                            f"and {t['file']}")
+            continue
+        by_target[well] = t
+
+    placed = {}
+    for e in pick_list or ():
+        if e.get("empty") or not e.get("target_well") or not e.get("source_well"):
+            continue
+        if e.get("tier_override") == "Streakout":
+            continue
+        placed[str(e["target_well"]).upper()] = e
+
+    rows = []
+    for well, t in by_target.items():
+        e = placed.get(well)
+        bench_plate = f"R{t['round']}_{t['source_plate']}"
+        row = {"well": well, "variant": t["variant"], "source_round": t["round"],
+               "source_plate": bench_plate, "source_well": t["source_well"],
+               "bench_plate": "", "bench_well": "", "reads": 0}
+        if e is not None:
+            e_plate = str(e.get("bench_plate") or e.get("source_plate") or "")
+            e_well = str(e.get("bench_well") or e.get("source_well") or "").upper()
+            if (e["variant"], e_plate.split("_")[-1], e_well) != (
+                    t["variant"], t["source_plate"], t["source_well"]):
+                problems.append(
+                    f"{well}: the worklist moved {t['variant']} from plate "
+                    f"{t['source_plate']} {t['source_well']}; the pick places "
+                    f"{e['variant']} from {e_plate} {e_well}")
+            else:
+                # Agreed: keep the pick's sequenced position and depth, which
+                # is how the well's source is named everywhere else.
+                row.update({"source_plate": str(e.get("source_plate") or ""),
+                            "source_well": str(e.get("source_well") or "").upper(),
+                            "bench_plate": str(e.get("bench_plate") or ""),
+                            "bench_well": str(e.get("bench_well") or ""),
+                            "reads": e.get("reads") or 0})
+        elif pick_list is not None:
+            problems.append(f"{well}: the worklist moved {t['variant']} there; "
+                            f"the pick places nothing")
+        rows.append(row)
+    for well in sorted(set(placed) - set(by_target)):
+        problems.append(f"{well}: the pick places {placed[well]['variant']} there; "
+                        f"no worklist moved anything")
+    rows.sort(key=lambda r: (r["well"][0], int(r["well"][1:])))
+    return rows, problems
 
 
 def write_expected_layout(rows: Sequence[dict], path) -> Path:
@@ -179,6 +248,97 @@ def designed_names(demux_output_dir) -> set:
     return names
 
 
+# --- runs ------------------------------------------------------------------
+#
+# A pick-plate run sequences the plate the merge built.  It samples nothing
+# new, so it is not a round: it never feeds a merge and never counts toward
+# recovery.  Runs sit in their own numbered step directory, named by the
+# sequencing run that produced them, and are recorded under their own key in
+# the project state.  See docs/project-layout.md.
+
+#: The step directory runs live in, numbered for its place in the workflow.
+RUNS_DIR = "7_pick_plate"
+#: Where the project state records runs.
+STATE_KEY = "pick_plate_runs"
+#: Run names are sequencing IDs such as G3Y8KW, used as directory names.
+_RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+@dataclass(frozen=True)
+class RunPaths:
+    """Every path one pick-plate run uses.
+
+    ``demux/`` holds what the FASTQs can rebuild; ``results/`` holds what is
+    kept, so deleting ``demux/`` loses nothing the report needs.
+    """
+
+    project: Path
+    name: str
+
+    @property
+    def root(self) -> Path:
+        return self.project / RUNS_DIR / self.name
+
+    @property
+    def plate_map(self) -> Path:
+        return self.root / "plate_map.toml"
+
+    @property
+    def layout(self) -> Path:
+        return self.root / LAYOUT_FILE
+
+    @property
+    def demux(self) -> Path:
+        return self.root / "demux"
+
+    @property
+    def results(self) -> Path:
+        return self.root / "results"
+
+    @property
+    def wells_csv(self) -> Path:
+        """The per-well table, copied out of ``demux/`` when the demux ends."""
+        return self.results / "well_assignments.csv"
+
+    @property
+    def verdicts(self) -> Path:
+        return self.results / VERDICT_FILE
+
+    @property
+    def pileups(self) -> Path:
+        return self.results / "pileups"
+
+
+def run_paths(project_dir, name: str) -> RunPaths:
+    """Paths for run *name*, which must be usable as a directory name."""
+    if not _RUN_NAME.match(str(name or "")):
+        raise ValueError(
+            f"{name!r} is not a usable run name; use the sequencing run's "
+            f"ID, such as G3Y8KW (letters, digits, '.', '_' and '-')")
+    return RunPaths(Path(project_dir), str(name))
+
+
+def pick_for_layout(project_dir) -> Optional[Path]:
+    """The pick the plate was built from: the merge, else the single pick."""
+    for rel in ("merged/pick_list.json", "pick/pick_list.json"):
+        path = Path(project_dir) / rel
+        if path.exists():
+            return path
+    return None
+
+
+def list_runs(project: dict) -> List[Tuple[str, dict]]:
+    """Recorded runs, oldest first by the time each was started."""
+    runs = (project.get(STATE_KEY) or {}).items()
+    return sorted(((n, b or {}) for n, b in runs),
+                  key=lambda nb: (nb[1].get("created") or "", nb[0]))
+
+
+def newest_run(project: dict) -> Optional[str]:
+    runs = list_runs(project)
+    return runs[-1][0] if runs else None
+
+
 def pick_plate_rounds(project: dict) -> List[int]:
     """Round numbers planned as pick-plate verification rounds."""
     out = []
@@ -192,4 +352,5 @@ __all__ = ["CONFIRMED", "EMPTY", "WRONG", "ROUND_KIND", "LAYOUT_FILE",
            "VERDICT_FILE", "expected_layout_from_pick", "write_expected_layout",
            "read_expected_layout", "expected_wells_from_layout", "judge",
            "verdict_rows", "write_verdicts", "load_well_rows", "designed_names",
-           "pick_plate_rounds"]
+           "pick_plate_rounds", "RUNS_DIR", "STATE_KEY", "RunPaths", "run_paths",
+           "pick_for_layout", "list_runs", "newest_run", "layout_from_worklists"]
