@@ -35,6 +35,7 @@ usortm_project/
     G3Y8KW/
       plate_map.toml
       expected_layout.csv  the placements the run is judged against
+      qc_mask.toml         optional; the run's own sequencing artefacts
       results/
       demux/
   report/                  the report's tables, figures and zip
@@ -71,6 +72,11 @@ usortm_project/
   worklists the layout comes from the pick. A layout already written is
   kept, so a re-run is judged against what was recorded before its reads
   were seen.
+- **A pick-plate run may carry its own mask.** The plate is its own
+  preparation and can carry sequencing artefacts the sort does not. A
+  `qc_mask.toml` in the run's directory replaces the project's mask for that
+  run only, the way a round's own mask does, so it lists every position the
+  run forgives, with its evidence.
 - **Worklists become a record once the plate is built.** A merge re-run
   after that point rewrites `6_hitpick/` and removes files it did not write.
   The merge should refuse to overwrite worklists once a pick-plate run

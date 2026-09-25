@@ -128,13 +128,19 @@ def read_qc_mask(path) -> List[MaskedChange]:
     return parse_qc_mask(doc)
 
 
-def find_qc_mask(project_dir, round_num: int = 1) -> Optional[str]:
+def find_qc_mask(project_dir, round_num: int = 1,
+                 run_dir=None) -> Optional[str]:
     """The mask a project keeps, if it keeps one.
 
     A round may carry its own, since a re-order round is a different
     preparation and need not share the first round's artefacts; without one it
     falls back to the project's.  Both are looked up the way every other
     configuration file is, so either layout of the project works.
+
+    A pick-plate run may carry one too, in its own directory (*run_dir*),
+    for the same reason: the plate is its own preparation.  Like a round's,
+    it replaces the project's mask rather than adding to it, so it lists
+    every position the run forgives.
     """
     from pathlib import Path
 
@@ -142,6 +148,8 @@ def find_qc_mask(project_dir, round_num: int = 1) -> Optional[str]:
 
     root = Path(project_dir)
     candidates = []
+    if run_dir is not None:
+        candidates.append(Path(run_dir) / QC_MASK_FILE)
     if round_num and round_num > 1:
         candidates.append(config_file(root / "rounds" / str(round_num),
                                       QC_MASK_FILE))

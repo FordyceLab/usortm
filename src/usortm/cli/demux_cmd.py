@@ -524,7 +524,8 @@ def demux(
     elif qc_mask_file is not None:
         qc_mask_path = str(qc_mask_file)
     else:
-        qc_mask_path = find_qc_mask(project_dir, round_num)
+        qc_mask_path = find_qc_mask(project_dir, round_num,
+                                    run_dir=run.root if run is not None else None)
     if qc_mask_path:
         from usortm.demux.qc_mask import describe, read_qc_mask
 

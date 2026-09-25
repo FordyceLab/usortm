@@ -126,3 +126,19 @@ def test_a_bad_run_name_stops_the_demux(tmp_path):
     root, state = _project(tmp_path)
     with pytest.raises(typer.Exit):
         _start_pick_plate_run(root, state, "../elsewhere")
+
+
+def test_a_run_mask_replaces_the_project_mask_for_that_run_only(tmp_path):
+    """The pick plate is its own preparation, so it may forgive artefacts the
+    sort does not carry; the project's mask is left as it is."""
+    from usortm.demux.qc_mask import find_qc_mask
+
+    root = tmp_path / "proj"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "qc_mask.toml").write_text("")
+    run = pp.run_paths(root, "G3Y8KW")
+    assert find_qc_mask(root, 1, run_dir=run.root) == str(root / "config" / "qc_mask.toml")
+    run.root.mkdir(parents=True)
+    (run.root / "qc_mask.toml").write_text("")
+    assert find_qc_mask(root, 1, run_dir=run.root) == str(run.root / "qc_mask.toml")
+    assert find_qc_mask(root, 1) == str(root / "config" / "qc_mask.toml")
