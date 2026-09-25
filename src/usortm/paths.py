@@ -18,6 +18,11 @@ Round 1 writes to the top of the project and later rounds nest under
 module exists: computing it once here keeps it out of the fourteen places that
 previously worked it out for themselves, each of which was somewhere a path
 could be got wrong.
+
+This is the layout projects are written in today.  The layout they will move
+to -- numbered step directories, ``0_inputs/`` through ``7_pick_plate/`` --
+is recorded in ``docs/project-layout.md``, with the migration plan.  Only
+``7_pick_plate/`` is built so far, in :mod:`usortm.pickplate`.
 """
 
 from __future__ import annotations
