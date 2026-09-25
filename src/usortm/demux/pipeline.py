@@ -697,8 +697,13 @@ def run_levseq_pipeline(
         if read_len_hist:
             pipeline_stats["read_len_hist"] = read_len_hist
         if not pipeline_stats.get("input_reads"):
+            # Every read the aligner saw: those kept, those that did not map,
+            # and those the length filter dropped.  Leaving the last out
+            # reported the survivors of the filter as the run's input, and
+            # every percentage beneath it against that smaller number.
             pipeline_stats["input_reads"] = (
                 align_stats.get("mapped", 0) + align_stats.get("unmapped", 0)
+                + align_stats.get("short", 0)
             )
         input_reads = pipeline_stats.get("input_reads", 0)
         live.update(input_reads=input_reads, aligned=align_stats.get("mapped"),

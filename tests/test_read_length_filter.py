@@ -55,6 +55,10 @@ def test_short_reads_are_dropped_and_counted(tmp_path):
     assert stats["short"] == 3 and stats["mapped"] == 2 and stats["min_read_length"] == 1900
     # the histogram still counts every read, dropped or kept
     assert sum(stats["read_len_hist"]["counts"]) == 5
+    # and the tallies partition the input: the pipeline takes a run's input
+    # count from them when it did not subsample, and once reported only the
+    # filter's survivors (541,664 of 683,375 reads) as the run's input
+    assert stats["mapped"] + stats["unmapped"] + stats["short"] == 5
 
 
 @needs_tools
