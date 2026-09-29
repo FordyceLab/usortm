@@ -165,6 +165,7 @@ def run_expected_demux(
     # --- Read layout ------------------------------------------------------
     section(console, "Read layout")
     layout_summary = None
+    layout_lines = None
     mask_config = None
     if vector is not None:
         from usortm.demux.vector_layout import (
@@ -185,6 +186,7 @@ def run_expected_demux(
             source=vector.name,
         )
         layout_summary = layout.summary()
+        layout_lines = layout.describe()
         console.print(f"[green]✓[/green] Detected from {vector.name}:")
         for line in layout.describe():
             console.print(f"  {escape(line)}")
@@ -277,6 +279,14 @@ def run_expected_demux(
     }
     (output_dir / "verification_summary.json").write_text(json.dumps(summary, indent=2))
 
+    from usortm.report.plate_check import write_plate_check_page
+
+    page = write_plate_check_page(
+        plate, verdicts, output_dir / "plate_check.html", counts,
+        fastq=fastqs, layout_lines=layout_lines, stray_wells=strays,
+        min_reads=min_reads,
+    )
+
     section(console, "Wells")
     table = Table(box=box.ROUNDED, border_style=BORDER_STYLE, show_header=False)
     table.add_column("Verdict")
@@ -313,6 +323,7 @@ def run_expected_demux(
                           f"{csv_path.name}.[/muted]")
 
     section(console, "Outputs")
+    console.print(f"  {page}   plate map")
     console.print(f"  {csv_path}   one row per well")
     console.print(f"  {output_dir / 'verification_summary.json'}")
     if layout_summary is not None:
