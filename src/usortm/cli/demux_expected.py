@@ -335,8 +335,10 @@ def run_expected_demux(
 
     from usortm.report.plate_check import write_plate_check_page
 
-    page = write_plate_check_page(plate, verdicts, output_dir / "plate_check.html",
-                                  links=links)
+    # A well opens its pileup's summary; the pileup itself is beside it.
+    page = write_plate_check_page(
+        plate, verdicts, output_dir / "plate_check.html",
+        links={k: v["summary"] for k, v in links.items()})
 
     section(console, "Wells")
     table = Table(box=box.ROUNDED, border_style=BORDER_STYLE, show_header=False)
@@ -374,7 +376,7 @@ def run_expected_demux(
                           f"{csv_path.name}.[/muted]")
 
     section(console, "Outputs")
-    console.print(f"  {page}   plate map; each well links to its pileup")
+    console.print(f"  {page}   plate map; each well opens its pileup summary")
     console.print(f"  {csv_path}   one row per well")
     console.print(f"  {output_dir / 'verification_summary.json'}")
     if layout_summary is not None:
