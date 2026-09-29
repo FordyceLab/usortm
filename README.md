@@ -212,7 +212,8 @@ reads, and written as `derived_read_template.fasta`; `--read-template` or
 construct expected there and called as a match, mixed, wrong construct,
 changed (with the base and amino-acid changes), unrecognised, or without
 enough reads; reads in wells expected empty are reported. The run writes
-`plate_check.html`, a plate map in the CSV's own layout, and
+`plate_check.html`, a plate map in the CSV's own layout whose wells link
+to pileups against the expected construct, and
 `verification.csv`, one row per well. See the
 [demultiplexing docs](https://fordycelab.github.io/usortm/demultiplexing.html#plate-check)
 for the CSV format, how the layout is detected, and what each verdict means.

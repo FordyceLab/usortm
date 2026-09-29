@@ -836,8 +836,15 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           <tbody>
             <tr><td><code>plate_check.html</code></td>
                 <td>A plate map per plate as laid out in the CSV (a 96-well plate in
-                    its own coordinates), each well marked by verdict with the detail on
-                    hover, and a table of every well that is not a match.</td></tr>
+                    its own coordinates), in the form of the summary page's demux maps:
+                    each well filled by read depth, with the depth ramp beside the plate, a
+                    red corner where it does not hold the expected construct, and the
+                    verdict and detail on hover. Each well with reads links to its
+                    pileup.</td></tr>
+            <tr><td><code>pileup/</code></td>
+                <td>A seqviewer pileup per well with reads, of its reads aligned to
+                    the construct expected there, or for a well with no expectation, to
+                    what it appears to hold.</td></tr>
             <tr><td><code>verification.csv</code></td>
                 <td>One row per well: plate, 384-well position, the CSV's label,
                     expected and observed construct, verdict, reads, differences,

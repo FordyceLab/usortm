@@ -121,3 +121,14 @@ def test_every_well_gets_its_true_verdict(tmp_path):
     for name in ("plate_check.html", "verification_summary.json",
                  "derived_read_template.fasta"):
         assert (out / name).exists()
+
+    # Every well with reads has a pileup, linked from the map by a path
+    # beneath the page, and drawn against the construct expected there.
+    page = (out / "plate_check.html").read_text()
+    hrefs = set(re.findall(r'class="w[^"]*" href="(pileup/[^"]+)"', page))
+    with_reads = [w for w, v in truth.items() if v != "no reads"]
+    assert len(hrefs) == len(with_reads)
+    assert all((out / h).exists() for h in hrefs)
+    # A1 is expected to hold v0 and holds v1: its pileup is against v0.
+    a1 = (out / "pileup" / "well_1_A1.html").read_text()
+    assert ">v0<" in a1 and ">v1<" not in a1

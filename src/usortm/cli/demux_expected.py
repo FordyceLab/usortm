@@ -76,6 +76,55 @@ def _describe(v) -> str:
     return "; ".join(parts)
 
 
+def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
+                    flank_5p: str, flank_3p: str, tools: dict, workers: int) -> dict:
+    """A pileup for every well with reads, against the construct expected there.
+
+    Against the expected construct rather than the one the pipeline assigned,
+    so a well holding the wrong thing shows its reads disagreeing with what
+    should be there.  A well with no expectation -- expected empty, or not
+    listed -- is shown against what it appears to hold.
+
+    Returns:
+        ``{"<plate>_<384-well>": href}``, relative to *output_dir*.
+    """
+    from usortm.demux.streakout import generate_pick_pileups
+
+    # The pileup reads the flank lengths from here to mark the insert; a
+    # project demux writes it, and the plate check has to as well.
+    summary_path = demux_dir / "demux_summary.json"
+    if not summary_path.exists():
+        summary_path.write_text(json.dumps({
+            "flank_5p_len": len(flank_5p), "flank_3p_len": len(flank_3p),
+        }))
+
+    constructs = set(plate.constructs().values())
+    first = next(iter(plate.constructs().values()), None)
+    pick_list = []
+    for v in verdicts:
+        if v.reads <= 0:
+            continue
+        ref = v.expected or (v.observed if v.observed in constructs else first)
+        if not ref:
+            continue
+        pick_list.append({
+            "source_plate": v.plate, "source_well": v.well, "variant": ref,
+            "reads": v.reads, "consensus_fraction": 0.0, "cons_check": "",
+            "target_plate": v.plate, "target_well": v.well,
+        })
+    if not pick_list:
+        return {}
+    url_map = generate_pick_pileups(
+        pick_list=pick_list,
+        demux_output_dir=str(demux_dir),
+        output_dir=str(output_dir),
+        workers=workers,
+        minimap2_path=tools["minimap2"],
+        samtools_path=tools["samtools"],
+    )
+    return {f"{p}_{w}": url for p, wells in url_map.items() for w, url in wells.items()}
+
+
 def run_expected_demux(
     *,
     expected: Path,
@@ -165,7 +214,6 @@ def run_expected_demux(
     # --- Read layout ------------------------------------------------------
     section(console, "Read layout")
     layout_summary = None
-    layout_lines = None
     mask_config = None
     if vector is not None:
         from usortm.demux.vector_layout import (
@@ -186,7 +234,6 @@ def run_expected_demux(
             source=vector.name,
         )
         layout_summary = layout.summary()
-        layout_lines = layout.describe()
         console.print(f"[green]✓[/green] Detected from {vector.name}:")
         for line in layout.describe():
             console.print(f"  {escape(line)}")
@@ -254,6 +301,9 @@ def run_expected_demux(
             plate, demux_dir, flank_5p, flank_3p, tools,
             output_dir / "verify", min_reads=min_reads, workers=workers,
         )
+        progress.update(task, description="Rendering pileups...")
+        links = _render_pileups(plate, verdicts, demux_dir, output_dir,
+                                flank_5p, flank_3p, tools, workers)
     console.print(
         f"[green]✓[/green] {results.get('input_reads', 0):,} reads, "
         f"{results.get('demuxed_reads', 0):,} with both barcodes, "
@@ -281,11 +331,8 @@ def run_expected_demux(
 
     from usortm.report.plate_check import write_plate_check_page
 
-    page = write_plate_check_page(
-        plate, verdicts, output_dir / "plate_check.html", counts,
-        fastq=fastqs, layout_lines=layout_lines, stray_wells=strays,
-        min_reads=min_reads,
-    )
+    page = write_plate_check_page(plate, verdicts, output_dir / "plate_check.html",
+                                  links=links)
 
     section(console, "Wells")
     table = Table(box=box.ROUNDED, border_style=BORDER_STYLE, show_header=False)
@@ -323,7 +370,7 @@ def run_expected_demux(
                           f"{csv_path.name}.[/muted]")
 
     section(console, "Outputs")
-    console.print(f"  {page}   plate map")
+    console.print(f"  {page}   plate map; each well links to its pileup")
     console.print(f"  {csv_path}   one row per well")
     console.print(f"  {output_dir / 'verification_summary.json'}")
     if layout_summary is not None:
