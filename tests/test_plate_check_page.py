@@ -1,5 +1,7 @@
 """Tests for the plate check page."""
 
+import html as hesc
+import json
 import re
 
 from usortm.demux.expected_plate import quadrant_to_384, read_expected_plate
@@ -18,9 +20,12 @@ def _plate(tmp_path, text):
 
 
 def _cells(html):
-    """``(tag, classes, href)`` of every well cell, in grid order."""
-    return [(t, c, h or None) for t, c, h in
-            re.findall(r'<(a|i) class="(w[^"]*)"(?: href="([^"]*)")?', html)]
+    """``(classes, links)`` of every well cell, in grid order."""
+    out = []
+    for c, rest in re.findall(r'<i class="(w[^"]*)"([^>]*)>', html):
+        m = re.search(r'data-links="([^"]*)"', rest)
+        out.append((c, json.loads(hesc.unescape(m.group(1))) if m else None))
+    return out
 
 
 def test_quadrant_inverse():
@@ -45,8 +50,8 @@ plate,quadrant,well,name,sequence
     assert "BR quadrant (RB04)" in html
     cells = _cells(html)
     assert len(cells) == 96
-    assert cells[0][1] == "w"                  # A1 holds what it should
-    assert cells[-1][1] == "w mut"             # H12 does not
+    assert cells[0][0] == "w"                  # A1 holds what it should
+    assert cells[-1][0] == "w mut"             # H12 does not
 
 
 def test_384_well_plate_is_drawn_whole(tmp_path):
@@ -55,7 +60,7 @@ plate,well,name,sequence
 2,P24,a,ACGT
 """)
     cells = _cells(plate_maps(plate, [WellVerdict(2, "P24", "P24", "a", "changed", reads=30)]))
-    assert len(cells) == 384 and cells[-1][1] == "w mut"
+    assert len(cells) == 384 and cells[-1][0] == "w mut"
 
 
 def test_expected_empty_wells_are_hatched(tmp_path):
@@ -65,10 +70,10 @@ plate,well,name,sequence
 1,A2,,
 """)
     cells = _cells(plate_maps(plate, [WellVerdict(1, "A1", "A1", "a", "match", reads=40)]))
-    assert [c[1] for c in cells[:3]] == ["w", "w blank", "w"]
+    assert [c[0] for c in cells[:3]] == ["w", "w blank", "w"]
 
 
-def test_wells_link_to_their_pileups(tmp_path):
+def test_wells_open_their_pileup_and_summary(tmp_path):
     plate = _plate(tmp_path, """
 plate,well,name,sequence
 1,A1,a,ACGT
@@ -76,10 +81,11 @@ plate,well,name,sequence
 """)
     verdicts = [WellVerdict(1, "A1", "A1", "a", "match", reads=40),
                 WellVerdict(1, "A2", "A2", "b", "no reads")]
-    links = {"1_A1": "pileup/well_1_A1.html"}
+    links = {"1_A1": {"pileup": "pileup/well_1_A1.html",
+                      "summary": "pileup/well_1_A1_summary.html"}}
     cells = _cells(plate_maps(plate, verdicts, links))
-    assert cells[0] == ("a", "w", "pileup/well_1_A1.html")
-    assert cells[1][0] == "i" and cells[1][2] is None
+    assert cells[0] == ("w", links["1_A1"])
+    assert cells[1][1] is None
 
 
 def test_names_are_escaped(tmp_path):
@@ -107,3 +113,16 @@ plate,well,name,sequence
     assert "<table" not in body
     assert body.count('class="cbar"') == 1
     assert 'class="legend"' in body
+    assert 'class="themetoggle"' in body
+
+
+def test_rows_and_columns_are_labelled(tmp_path):
+    plate = _plate(tmp_path, """
+plate,quadrant,well,name,sequence
+1,TL,A1,a,ACGT
+""")
+    html = plate_maps(plate, [])
+    top = re.findall(r'<span class="ax top">(\d*)</span>', html)
+    side = re.findall(r'<span class="ax">([A-P])</span>', html)
+    assert top == [""] + [str(c) for c in range(1, 13)]
+    assert side == list("ABCDEFGH")

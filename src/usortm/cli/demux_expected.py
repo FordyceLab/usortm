@@ -78,7 +78,8 @@ def _describe(v) -> str:
 
 def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
                     flank_5p: str, flank_3p: str, tools: dict, workers: int) -> dict:
-    """A pileup for every well with reads, against the construct expected there.
+    """A pileup and its summary for every well with reads, against the
+    construct expected there.
 
     Against the expected construct rather than the one the pipeline assigned,
     so a well holding the wrong thing shows its reads disagreeing with what
@@ -86,9 +87,10 @@ def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
     listed -- is shown against what it appears to hold.
 
     Returns:
-        ``{"<plate>_<384-well>": href}``, relative to *output_dir*.
+        ``{"<plate>_<384-well>": {"pileup": href, "summary": href}}``, relative
+        to *output_dir*.
     """
-    from usortm.demux.streakout import generate_pick_pileups
+    from usortm.demux.streakout import generate_pick_pileups, summary_path_for
 
     # The pileup reads the flank lengths from here to mark the insert; a
     # project demux writes it, and the plate check has to as well.
@@ -121,8 +123,10 @@ def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
         workers=workers,
         minimap2_path=tools["minimap2"],
         samtools_path=tools["samtools"],
+        summaries=True,
     )
-    return {f"{p}_{w}": url for p, wells in url_map.items() for w, url in wells.items()}
+    return {f"{p}_{w}": {"pileup": url, "summary": summary_path_for(url)}
+            for p, wells in url_map.items() for w, url in wells.items()}
 
 
 def run_expected_demux(

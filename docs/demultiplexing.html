@@ -839,12 +839,15 @@ T203Y;2;C5;0;C1;5.0</code></pre>
                     its own coordinates), in the form of the summary page's demux maps:
                     each well filled by read depth, with the depth ramp beside the plate, a
                     red corner where it does not hold the expected construct, and the
-                    verdict and detail on hover. Each well with reads links to its
-                    pileup.</td></tr>
+                    verdict and detail on hover, with row letters and column numbers.
+                    Clicking a well with reads opens its pileup or the pileup's
+                    summary.</td></tr>
             <tr><td><code>pileup/</code></td>
                 <td>A seqviewer pileup per well with reads, of its reads aligned to
                     the construct expected there, or for a well with no expectation, to
-                    what it appears to hold.</td></tr>
+                    what it appears to hold; and beside it
+                    (<code>well_&lt;plate&gt;_&lt;well&gt;_summary.html</code>) seqviewer's
+                    summary of the same pileup.</td></tr>
             <tr><td><code>verification.csv</code></td>
                 <td>One row per well: plate, 384-well position, the CSV's label,
                     expected and observed construct, verdict, reads, differences,

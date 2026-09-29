@@ -45,9 +45,11 @@ from seqviewer import (
     PileupGroup,
     PileupView,
     Read,
+    SummaryView,
     grid_from_reads,
     reads_from_alignment,
     render,
+    render_summary,
 )
 
 from usortm.demux.deps import find_minimap2, find_samtools
@@ -1038,11 +1040,11 @@ def _build_pileup_grid(
     )
 
 
-def _render_pileup_html(well_pos: str, candidate: dict,
-                        groups: list,
-                        flank_lengths: tuple = None,
-                        features: list = None) -> str:
-    """Render one well's pileup page.
+def _pileup_view(well_pos: str, candidate: dict,
+                 groups: list,
+                 flank_lengths: tuple = None,
+                 features: list = None) -> PileupView:
+    """Build one well's pileup view.
 
     The page is seqviewer's, which is where this renderer now lives; what is
     left here is the mapping from uSort-M's group dicts onto its model.
@@ -1078,7 +1080,22 @@ def _render_pileup_html(well_pos: str, candidate: dict,
         features=list(features or []),
         ref_len=ref_len,
     )
-    return render(view)
+    return view
+
+
+def _render_pileup_html(well_pos: str, candidate: dict,
+                        groups: list,
+                        flank_lengths: tuple = None,
+                        features: list = None) -> str:
+    """Render one well's pileup page."""
+    return render(_pileup_view(well_pos, candidate, groups,
+                               flank_lengths=flank_lengths, features=features))
+
+
+def summary_path_for(pileup_path: str) -> str:
+    """Where a pileup page's summary is written: beside it, ``_summary`` added."""
+    root, ext = os.path.splitext(pileup_path)
+    return f"{root}_summary{ext}"
 
 
 def _generate_one_pick_pileup(
@@ -1099,6 +1116,7 @@ def _generate_one_pick_pileup(
     flank_3p_len: int = 0,
     parent_ref_fasta: str = None,
     features: list = None,
+    summary: bool = False,
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
 
@@ -1108,6 +1126,9 @@ def _generate_one_pick_pileup(
             column that disagrees rather than as an absence.
         features: Annotations to draw over the reference bar, in the
             coordinates of the group references.
+        summary: Also write seqviewer's summary of the same view, at
+            :func:`summary_path_for` of *output_path*.  Drawn from the view
+            the pileup is drawn from, so the two pages cannot disagree.
 
     Returns *output_path* on success, or None if the reference FASTA is
     missing or alignment produces no rows.
@@ -1195,12 +1216,14 @@ def _generate_one_pick_pileup(
     flank_lengths = None
     if flank_5p_len or flank_3p_len:
         flank_lengths = (flank_5p_len, flank_3p_len)
-    html = _render_pileup_html(well_pos, candidate_info, group_sections,
-                               flank_lengths=flank_lengths,
-                               features=features)
+    view = _pileup_view(well_pos, candidate_info, group_sections,
+                        flank_lengths=flank_lengths, features=features)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as fh:
-        fh.write(html)
+        fh.write(render(view))
+    if summary:
+        with open(summary_path_for(output_path), "w") as fh:
+            fh.write(render_summary(SummaryView.from_view(view)))
     return output_path
 
 
@@ -1324,6 +1347,7 @@ def _pick_pileup_worker(task: dict) -> bool:
         minimap2_path=task["minimap2_path"],
         samtools_path=task["samtools_path"],
         ref_index=task["ref_index"],
+        summary=task.get("summary", False),
         flank_5p_len=task["flank_5p_len"],
         flank_3p_len=task["flank_3p_len"],
         parent_ref_fasta=task.get("parent_ref_fasta"),
@@ -1383,6 +1407,7 @@ def generate_pick_pileups(
     samtools_path: str = None,
     progress_callback=None,
     annotation_file=None,
+    summaries: bool = False,
 ) -> dict:
     """Generate per-well pileup HTMLs for all picked (non-empty) hits.
 
@@ -1403,6 +1428,8 @@ def generate_pick_pileups(
         workers: Number of parallel alignment workers.
         minimap2_path: Path to minimap2 binary; auto-detected if None.
         samtools_path: Path to samtools binary; auto-detected if None.
+        summaries: Also write each well's summary page beside its pileup,
+            ``well_{plate}_{well}_summary.html``.
 
     Returns:
         Nested dict ``{str(target_plate): {target_well: relative_url}}``
@@ -1483,10 +1510,10 @@ def generate_pick_pileups(
     # for its directory, and a well rendered by an earlier run but not this one
     # otherwise keeps a page built from whatever reads existed then -- which
     # reads as a well whose depth collapsed rather than as a stale file.
-    _clear_stale_pileups(
-        pileup_dir,
-        keep={f"well_{t['source_plate']}_{t['source_well']}.html" for t in tasks},
-    )
+    keep = {f"well_{t['source_plate']}_{t['source_well']}.html" for t in tasks}
+    if summaries:
+        keep |= {summary_path_for(name) for name in keep}
+    _clear_stale_pileups(pileup_dir, keep=keep)
 
     # Build lookup: well_pos → reads DataFrame.
     #
@@ -1551,6 +1578,7 @@ def generate_pick_pileups(
             ref_index=variant_mmi.get(task["variant"]),
             flank_5p_len=flank_5p_len,
             flank_3p_len=flank_3p_len,
+            summary=summaries,
         )
 
     for ok, task in _map_pileup_tasks(tasks, workers):
