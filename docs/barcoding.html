@@ -267,7 +267,7 @@
               id="mmixPlates"
               class="mmix-input"
               value="1"
-              min="0.5"
+              min="0.01"
               max="99"
               step="any"
             />
@@ -548,7 +548,7 @@
             // directly (MIN), which is why the two floors differ. Wells round UP: you
             // cannot set up part of a well, and every rounding here goes up so the
             // master mix is never short.
-            const MIN = 0.5;      // lowest value that can be typed
+            const MIN = 0.01;     // lowest value that can be typed
             const BTN_MIN = 1;    // the buttons stay in whole plates
 
             function render(n) {
