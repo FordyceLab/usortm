@@ -1,0 +1,321 @@
+"""``usortm demux --expected``: check a barcoded plate against what it should hold.
+
+Outside a uSort-M sort there is no project, no library to recover and nothing
+to pick; there is a plate of known constructs and the question of whether
+each well holds its own.  This runs the same LevSeq pipeline as a project
+demux, with the expected plate as the reference, and then gives every well a
+verdict against its expectation (:mod:`usortm.demux.verify`).
+
+The construct is given one of three ways, in order of preference:
+
+``--vector``
+    The parent vector as sequenced.  The read layout -- amplicon, variable
+    region, primer tails -- is worked out from it, the expected sequences and
+    the reads (:mod:`usortm.demux.vector_layout`), and written out as a read
+    template to inspect or correct.
+``--read-template``
+    A read drawn by hand with its three spans masked.
+``--vector-fasta``
+    The vector with only the variable region masked, and barcode masks from
+    ``--mask-config`` or the defaults.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich import box
+from rich.markup import escape
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+
+from usortm.cli.theme import BORDER_STYLE, get_console, section
+from usortm.demux.verify import DEFAULT_MIN_READS  # noqa: F401  (re-exported)
+
+console = get_console()
+
+# Wells listed individually below the tally; the rest are in the CSV.
+MAX_LISTED = 40
+
+_VERDICT_STYLE = {
+    "match": "green",
+    "mixed": "yellow",
+    "wrong construct": "red",
+    "changed": "yellow",
+    "unrecognised": "red",
+    "too few reads": "muted",
+    "no reads": "muted",
+    "unexpected reads": "yellow",
+}
+
+
+def _fail(message: str, *hints: str) -> None:
+    console.print(f"[red]Error:[/red] {escape(message)}")
+    for hint in hints:
+        console.print(f"  {hint}")
+    raise typer.Exit(1)
+
+
+def _describe(v) -> str:
+    """The detail column: what differs, or what the note says."""
+    parts = []
+    if v.differences:
+        shown = " ".join(v.differences[:4])
+        if len(v.differences) > 4:
+            shown += f" (+{len(v.differences) - 4})"
+        parts.append(shown)
+    if v.protein_changes:
+        parts.append("(" + " ".join(v.protein_changes[:4]) + ")")
+    if v.note:
+        parts.append(v.note)
+    return "; ".join(parts)
+
+
+def run_expected_demux(
+    *,
+    expected: Path,
+    fastq: Optional[Path],
+    output_dir: Path,
+    vector: Optional[Path],
+    read_template: Optional[Path],
+    vector_fasta: Optional[Path],
+    mask_config_file: Optional[str],
+    min_reads: int,
+    threads: int,
+    workers: int,
+    subsample: Optional[int],
+    reads_per_well: int,
+    resume: bool,
+) -> None:
+    """Demultiplex a plate and check every well against its expectation."""
+    from usortm.demux.deps import check_all_dependencies
+    from usortm.demux.expected_plate import ExpectedPlateError, read_expected_plate
+    from usortm.demux.pipeline import run_levseq_pipeline
+    from usortm.demux.read_template import (
+        ReadTemplateError, parse_read_template, write_mask_config,
+        write_vector_fasta,
+    )
+    from usortm.demux.verify import (
+        stray_read_wells, tally, verify_plate, write_verification,
+    )
+    from usortm.cli.demux_cmd import (
+        _find_fastqs, _load_mask_config, _resolve_mask_config,
+    )
+
+    console.print()
+    console.print(Panel.fit("[brand]uSort-M[/brand] Plate check",
+                            border_style=BORDER_STYLE))
+
+    # --- Inputs ---------------------------------------------------------
+    section(console, "Inputs")
+    try:
+        plate = read_expected_plate(expected)
+    except (ExpectedPlateError, OSError) as exc:
+        _fail(str(exc))
+    n_expected = sum(1 for w in plate.wells.values() if not w.empty)
+    n_constructs = len(plate.constructs())
+    layout_word = ("96-well positions in LevSeq quadrants"
+                   if plate.layout == "96" else "384-well positions")
+    console.print(
+        f"[green]✓[/green] Expected plate: {n_expected} wells, "
+        f"{n_constructs} distinct construct(s), plate(s) "
+        f"{', '.join(map(str, plate.plates))}, as {layout_word}"
+    )
+    for note in plate.notes:
+        console.print(f"[yellow]⚠[/yellow] {note}")
+
+    if fastq is None:
+        _fail("--fastq is required.")
+    fastqs = _find_fastqs(fastq)
+    if not fastqs:
+        _fail(f"No FASTQ files found at {fastq}.")
+    console.print(f"[green]✓[/green] Reads: {len(fastqs)} FASTQ file(s) at {fastq}")
+
+    try:
+        tools = check_all_dependencies()
+    except Exception as exc:
+        _fail(str(exc), "Install missing tools or add them to your PATH.")
+
+    given = [flag for flag, v in (("--vector", vector),
+                                  ("--read-template", read_template),
+                                  ("--vector-fasta", vector_fasta)) if v]
+    if not given:
+        _fail(
+            "--expected needs the construct the reads come from.",
+            "Pass one of:",
+            "  [cyan]--vector[/cyan] parent.fasta         "
+            "(the parent vector; the read layout is worked out from it)",
+            "  [cyan]--read-template[/cyan] read.fasta    "
+            "(one read with both barcodes and the variable region masked)",
+            "  [cyan]--vector-fasta[/cyan] vector.fasta   "
+            "(the vector with the variable region masked)",
+        )
+    if len(given) > 1:
+        _fail(f"Give only one of {', '.join(given)}.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    demux_dir = output_dir / "demux"
+    reference = plate.write_reference_fasta(output_dir / "expected_reference.fasta")
+
+    # --- Read layout ------------------------------------------------------
+    section(console, "Read layout")
+    layout_summary = None
+    mask_config = None
+    if vector is not None:
+        from usortm.demux.vector_layout import (
+            LayoutError, detect_layout, write_read_template,
+        )
+
+        with console.status("Working out the read layout from the vector..."):
+            try:
+                layout = detect_layout(
+                    vector, list(plate.constructs()), fastqs,
+                    tools["minimap2"], output_dir / "read_layout",
+                    threads=threads,
+                )
+            except LayoutError as exc:
+                _fail(str(exc))
+        read_template = write_read_template(
+            layout, output_dir / "derived_read_template.fasta",
+            source=vector.name,
+        )
+        layout_summary = layout.summary()
+        console.print(f"[green]✓[/green] Detected from {vector.name}:")
+        for line in layout.describe():
+            console.print(f"  {escape(line)}")
+        console.print(
+            f"[muted]  Written as {read_template}; correct it by hand and pass "
+            "it back with --read-template if any of this is wrong.[/muted]"
+        )
+
+    flank_5p = flank_3p = None
+    if read_template is not None:
+        try:
+            parsed = parse_read_template(read_template)
+        except ReadTemplateError as exc:
+            _fail(str(exc))
+        derived = output_dir / "read_template"
+        vector_fasta = write_vector_fasta(parsed, derived / "vector.fasta")
+        mask_config = _load_mask_config(
+            write_mask_config(parsed, derived / "mask_config.toml",
+                              source=read_template.name)
+        )
+        flank_5p, flank_3p = parsed.flank_5p, parsed.flank_3p
+        if vector is None:
+            console.print(f"[green]✓[/green] Read template: {parsed.describe()}")
+        if mask_config_file is not None:
+            console.print("[yellow]Warning:[/yellow] --mask-config is ignored; "
+                          "the read template supplies the masks.")
+    else:
+        from usortm.demux.utils import parse_vector_fasta
+
+        try:
+            flank_5p, flank_3p = parse_vector_fasta(str(vector_fasta))
+        except ValueError as exc:
+            _fail(str(exc))
+        if mask_config_file is not None:
+            mask_config = _load_mask_config(_resolve_mask_config(mask_config_file))
+        console.print(
+            f"[green]✓[/green] Vector FASTA: 5' flank {len(flank_5p):,} bp, "
+            f"3' flank {len(flank_3p):,} bp"
+            + ("" if mask_config else ", default barcode masks")
+        )
+
+    # --- Demultiplex ------------------------------------------------------
+    section(console, "Demultiplexing")
+    started = datetime.now()
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+                  console=console) as progress:
+        task = progress.add_task("Starting pipeline...", total=None)
+        results = run_levseq_pipeline(
+            fastq=fastqs if len(fastqs) > 1 else fastqs[0],
+            output_dir=demux_dir,
+            reference=reference,
+            n_plates=plate.n_plates,
+            min_reads=min_reads,
+            threads=threads,
+            workers=workers,
+            progress_callback=lambda msg: progress.update(task, description=msg),
+            mask_config=mask_config,
+            subsample=subsample,
+            vector_fasta=vector_fasta,
+            reads_per_well=reads_per_well,
+            resume=resume,
+        )
+        progress.update(task, description="Checking each well against its construct...")
+        verdicts = verify_plate(
+            plate, demux_dir, flank_5p, flank_3p, tools,
+            output_dir / "verify", min_reads=min_reads, workers=workers,
+        )
+    console.print(
+        f"[green]✓[/green] {results.get('input_reads', 0):,} reads, "
+        f"{results.get('demuxed_reads', 0):,} with both barcodes, "
+        f"in {(datetime.now() - started).seconds // 60} min "
+        f"{(datetime.now() - started).seconds % 60} s"
+    )
+
+    # --- Results ------------------------------------------------------------
+    csv_path = write_verification(verdicts, output_dir / "verification.csv")
+    counts = tally(verdicts)
+    strays = stray_read_wells(plate, demux_dir, min_reads)
+    summary = {
+        "expected_plate": str(expected),
+        "fastq": [str(f) for f in fastqs],
+        "min_reads": min_reads,
+        "wells_expected": n_expected,
+        "verdicts": counts,
+        "stray_read_wells": strays,
+        "reads": {k: results.get(k) for k in
+                  ("input_reads", "aligned_reads", "demuxed_reads", "assigned_reads")},
+        "read_layout": layout_summary,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }
+    (output_dir / "verification_summary.json").write_text(json.dumps(summary, indent=2))
+
+    section(console, "Wells")
+    table = Table(box=box.ROUNDED, border_style=BORDER_STYLE, show_header=False)
+    table.add_column("Verdict")
+    table.add_column("Wells", justify="right")
+    for verdict, n in counts.items():
+        style = _VERDICT_STYLE.get(verdict, "")
+        table.add_row(f"[{style}]{verdict}[/{style}]" if style else verdict, f"{n:,}")
+    console.print(table)
+    if strays:
+        console.print(
+            f"[muted]{strays} well(s) expected empty or not listed carry 1–"
+            f"{min_reads - 1} reads, below the call; barcode crosstalk at that "
+            "level is usual.[/muted]"
+        )
+
+    flagged = [v for v in verdicts if v.verdict != "match"]
+    if flagged:
+        section(console, "Wells to look at")
+        t = Table(box=box.SIMPLE_HEAD, border_style=BORDER_STYLE)
+        for col in ("Well", "Expected", "Verdict", "Holds", "Reads", "Detail"):
+            t.add_column(col, justify="right" if col == "Reads" else "left",
+                         overflow="fold")
+        for v in flagged[:MAX_LISTED]:
+            style = _VERDICT_STYLE.get(v.verdict, "")
+            where = v.label if plate.layout == "96" else v.well
+            t.add_row(
+                f"{v.plate}:{where}", escape(v.expected or "—"),
+                f"[{style}]{v.verdict}[/{style}]" if style else v.verdict,
+                escape(v.observed or ""), f"{v.reads:,}", escape(_describe(v)),
+            )
+        console.print(t)
+        if len(flagged) > MAX_LISTED:
+            console.print(f"[muted]…and {len(flagged) - MAX_LISTED} more in "
+                          f"{csv_path.name}.[/muted]")
+
+    section(console, "Outputs")
+    console.print(f"  {csv_path}   one row per well")
+    console.print(f"  {output_dir / 'verification_summary.json'}")
+    if layout_summary is not None:
+        console.print(f"  {output_dir / 'derived_read_template.fasta'}")
+    console.print(f"  {demux_dir}/   pipeline outputs, including per-well reads")
+    console.print()

@@ -36,9 +36,12 @@ GHOST_PLATE_MIN_READS = 20
 
 
 def demux(
-    project_dir: Path = typer.Argument(
-        ...,
-        help="Path to uSort-M project directory (created by 'usortm plan').",
+    project_dir: Optional[Path] = typer.Argument(
+        None,
+        help=(
+            "Path to uSort-M project directory (created by 'usortm plan'). "
+            "Not used with --expected, which checks a plate outside a project."
+        ),
         exists=True,
     ),
     fastq: Optional[Path] = typer.Option(
@@ -85,10 +88,14 @@ def demux(
             "Auto-converted to reference FASTA (uppercase variable region)."
         ),
     ),
-    min_reads: int = typer.Option(
-        100,
+    min_reads: Optional[int] = typer.Option(
+        None,
         "--min-reads",
-        help="Minimum reads per well to call a variant.",
+        help=(
+            "Minimum reads per well to call a variant. Defaults to 100, or "
+            "10 with --expected, where a well is tested against one known "
+            "construct rather than picked from a library."
+        ),
     ),
     min_fraction: float = typer.Option(
         0.8,
@@ -198,6 +205,34 @@ def demux(
         help="Sequencing round to demultiplex (1 for initial sort, 2+ for re-order rounds).",
         min=1,
     ),
+    expected: Optional[Path] = typer.Option(
+        None,
+        "--expected", "-e",
+        help=(
+            "Check a barcoded plate against what each well should hold, "
+            "outside a uSort-M project. A CSV of plate, well, name, sequence "
+            "(384-well positions), or with a quadrant or rbc column for a "
+            "96-well plate barcoded as one LevSeq quadrant."
+        ),
+        exists=True,
+        dir_okay=False,
+    ),
+    vector: Optional[Path] = typer.Option(
+        None,
+        "--vector",
+        help=(
+            "Parent vector (FASTA or GenBank), unmasked. With --expected, the "
+            "read layout -- amplicon, variable region, primer tails -- is "
+            "worked out from it and written as a read template."
+        ),
+        exists=True,
+        dir_okay=False,
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output", "-o",
+        help="Output directory for --expected. Defaults to ./plate_check.",
+    ),
 ):
     """
     Demultiplex sequencing data for a [#4096E3]uSort-M[/#4096E3] project.
@@ -220,6 +255,35 @@ def demux(
     # threads and 6.4x at 8 against a single thread, flattening after that.
     if workers is None:
         workers = max(1, min(8, (os.cpu_count() or 4) - 2))
+
+    if expected is not None:
+        _run_expected_mode(
+            expected=expected, project_dir=project_dir, fastq=fastq,
+            output=output, vector=vector, read_template=read_template,
+            vector_fasta=vector_fasta, mask_config_file=mask_config_file,
+            min_reads=min_reads, threads=threads, workers=workers,
+            subsample=subsample, reads_per_well=reads_per_well, resume=resume,
+            conflicting={
+                "--reference": reference, "--library-csv": library_csv,
+                "--plate-map": plate_map_file, "--barcodes": barcodes,
+                "--orient-ref": orient_ref,
+                "--round": round_num if round_num != 1 else None,
+            },
+        )
+        return
+
+    if project_dir is None:
+        console.print(
+            "[red]Error:[/red] a project directory is required, unless "
+            "--expected is given to check a plate outside a project."
+        )
+        raise typer.Exit(1)
+    for flag, value in (("--vector", vector), ("--output", output)):
+        if value is not None:
+            console.print(f"[red]Error:[/red] {flag} is only used with --expected.")
+            raise typer.Exit(1)
+    if min_reads is None:
+        min_reads = 100
 
     # Load project state
     state_file = project_dir / PROJECT_STATE_FILE
@@ -813,6 +877,43 @@ def demux(
         "\u2192 Generate hit-picking list"
     )
     console.print()
+
+
+def _run_expected_mode(*, expected, project_dir, output, conflicting, min_reads,
+                       **kwargs) -> None:
+    """Hand ``--expected`` to the plate check, refusing flags it does not use."""
+    for flag, value in conflicting.items():
+        if value is not None:
+            console.print(
+                f"[red]Error:[/red] {flag} does not apply with --expected: the "
+                "expected plate is the reference, and the run is one plate "
+                "set outside a project."
+            )
+            raise typer.Exit(1)
+    if project_dir is not None:
+        if (project_dir / PROJECT_STATE_FILE).exists():
+            console.print(
+                "[red]Error:[/red] --expected checks a plate outside a "
+                f"project, but {project_dir} is a uSort-M project. Drop the "
+                "project directory, and pass --output for the results."
+            )
+            raise typer.Exit(1)
+        if output is not None and output != project_dir:
+            console.print(
+                "[red]Error:[/red] give the output directory once, either "
+                "as the argument or as --output."
+            )
+            raise typer.Exit(1)
+        output = project_dir
+
+    from usortm.cli.demux_expected import DEFAULT_MIN_READS, run_expected_demux
+
+    run_expected_demux(
+        expected=expected,
+        output_dir=output or Path("plate_check"),
+        min_reads=DEFAULT_MIN_READS if min_reads is None else min_reads,
+        **kwargs,
+    )
 
 
 def _extract_original_subset(
