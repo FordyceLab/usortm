@@ -14,7 +14,9 @@ runner = CliRunner()
 
 
 def _plain(text):
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+    """Output without colour codes, and unwrapped: the console wraps at the
+    terminal's width, which differs between runs."""
+    return " ".join(re.sub(r"\x1b\[[0-9;]*m", "", text).split())
 
 
 def _inputs(tmp_path):
@@ -30,7 +32,7 @@ def test_needs_a_construct(tmp_path):
     result = runner.invoke(app, ["demux", "--expected", str(csv), "--fastq", str(fq),
                                  "-o", str(tmp_path / "out")])
     assert result.exit_code == 1
-    assert "--vector" in result.output and "--read-template" in result.output
+    assert "--vector" in _plain(result.output) and "--read-template" in _plain(result.output)
 
 
 def test_library_flags_are_refused(tmp_path):
@@ -38,7 +40,7 @@ def test_library_flags_are_refused(tmp_path):
     result = runner.invoke(app, ["demux", "--expected", str(csv), "--fastq", str(fq),
                                  "--library-csv", str(csv)])
     assert result.exit_code == 1
-    assert "--library-csv does not apply" in result.output
+    assert "--library-csv does not apply" in _plain(result.output)
 
 
 def test_a_project_is_not_an_output_directory(tmp_path):
@@ -49,7 +51,7 @@ def test_a_project_is_not_an_output_directory(tmp_path):
     result = runner.invoke(app, ["demux", str(project), "--expected", str(csv),
                                  "--fastq", str(fq)])
     assert result.exit_code == 1
-    assert "outside a project" in result.output
+    assert "outside a project" in _plain(result.output)
 
 
 def test_bad_expected_plate_is_reported(tmp_path):
@@ -63,7 +65,7 @@ def test_bad_expected_plate_is_reported(tmp_path):
 def test_project_mode_still_needs_a_project(tmp_path):
     result = runner.invoke(app, ["demux", "--fastq", str(tmp_path)])
     assert result.exit_code == 1
-    assert "project directory is required" in result.output
+    assert "project directory is required" in _plain(result.output)
 
 
 def test_vector_without_expected_is_refused(tmp_path):
@@ -74,4 +76,4 @@ def test_vector_without_expected_is_refused(tmp_path):
     vec.write_text(">v\nACGT\n")
     result = runner.invoke(app, ["demux", str(project), "--vector", str(vec)])
     assert result.exit_code == 1
-    assert "only used with --expected" in result.output
+    assert "only used with --expected" in _plain(result.output)

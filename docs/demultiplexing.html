@@ -662,6 +662,204 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           <pre><code>usortm pick my_project/ --include-flank-errors</code></pre>
         </div>
 
+        <h2 id="plate-check">Checking a Plate Against Expected Contents</h2>
+
+        <p>
+          <code>usortm demux --expected</code> demultiplexes a LevSeq-barcoded plate
+          of known constructs outside a uSort-M project and reports, for each well,
+          whether it holds the construct listed for it. It takes a CSV of expected
+          wells, the reads, and the construct the reads come from. No project
+          directory is used.
+        </p>
+        <div class="code-container">
+          <pre><code>usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/</code></pre>
+        </div>
+
+        <h3>The Expected Plate CSV</h3>
+        <p>
+          One row per well. Headers are matched ignoring case. Sequences follow the
+          library CSV convention: uppercase is the variable region and lowercase
+          flanks are dropped; a sequence with no uppercase is used whole. A row with
+          an empty sequence is a well expected to be empty, and reads found there
+          are reported. Wells that share a sequence share one reference.
+        </p>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr><th>Layout</th><th>Columns</th><th>Wells</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>384-well</td>
+              <td><code>plate, well, name, sequence</code></td>
+              <td><code>A1</code>&ndash;<code>P24</code>, taken as given</td>
+            </tr>
+            <tr>
+              <td>96-well, one LevSeq quadrant</td>
+              <td><code>plate, quadrant, well, name, sequence</code>, or
+                  <code>rbc, well, name, sequence</code></td>
+              <td><code>A1</code>&ndash;<code>H12</code>, with the quadrant
+                  (<code>TL</code>/<code>TR</code>/<code>BL</code>/<code>BR</code> or
+                  1&ndash;4) or the reverse barcode (<code>RB01</code>&ndash;<code>RB32</code>)</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+        <p>
+          A LevSeq plate has 384 wells: the forward barcode gives the position in a
+          96 grid and the reverse barcode gives the plate and quadrant, four reverse
+          barcodes to a plate. The quadrants interleave: TL occupies odd rows and odd
+          columns, TR odd rows and even columns, BL even and odd, BR even and even.
+          A 96-well position is mapped into the 384-well plate the same way the
+          barcodes are decoded; <code>tests/test_expected_plate.py</code> checks the
+          mapping against the decoder for every quadrant and position. Plates 1&ndash;8
+          are supported, the range the reverse barcodes cover.
+        </p>
+        <p>
+          A CSV without a quadrant or <code>rbc</code> column is read as 384-well
+          positions. When every well in such a CSV falls within
+          <code>A1</code>&ndash;<code>H12</code>, the run prints a note, since that
+          is also what a 96-well plate without its quadrant column looks like.
+        </p>
+
+        <h3>The Construct</h3>
+        <p>One of three options gives the construct:</p>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr><th>Option</th><th>Input</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--vector</code></td>
+              <td>The parent vector, FASTA or GenBank, unmasked. The read layout is
+                  detected from it (below).</td>
+            </tr>
+            <tr>
+              <td><code>--read-template</code></td>
+              <td>One read with the forward barcode, variable region and reverse
+                  barcode masked, as for a project demux.</td>
+            </tr>
+            <tr>
+              <td><code>--vector-fasta</code></td>
+              <td>The vector with only the variable region masked; barcode masks
+                  from <code>--mask-config</code> or the defaults.</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h3>Read Layout Detection</h3>
+        <p>
+          With <code>--vector</code>, the layout is detected from the vector, the
+          expected sequences and a sample of 4,000 reads, and written to
+          <code>derived_read_template.fasta</code>. That file is an ordinary read
+          template: if any part of the detection is wrong it can be edited and passed
+          back with <code>--read-template</code>.
+        </p>
+        <ul>
+          <li><strong>Variable region.</strong> The first and last 20 bases of each
+            expected sequence are located in the vector, on either strand and across
+            the origin, and the majority position is taken. The ends of a
+            substitution scan agree with the parent except where a mutation falls,
+            so the parent span is found by vote. When the expected sequences do not
+            occur in the vector, the variable region is the stretch of vector whose
+            15-mers the reads do not contain: a stuffer replaced by the insert.</li>
+          <li><strong>Amplicon.</strong> The stretch of vector the reads align to.
+            The vector is rotated so the amplicon does not cross the origin.</li>
+          <li><strong>Primer tails.</strong> LevSeq barcodes are located in the read
+            ends outside the amplicon, and the sequence beyond each barcode is taken
+            by consensus as the barcode mask.</li>
+          <li><strong>Orientation.</strong> The pipeline turns reads to match the
+            reference before reading barcodes, so the forward barcode must be 5' of
+            the expected sequences. A run with the barcodes the other way round is
+            refused, since it would demultiplex without error and swap every well's
+            forward and reverse barcodes. RB13&ndash;RB96 are the same sequences as
+            FB13&ndash;FB96, so orientation can only be checked from wells using
+            FB01&ndash;FB12 or RB01&ndash;RB12; when a run uses none, the layout
+            summary says orientation was not checked.</li>
+        </ul>
+        <p>
+          In <code>tests/test_vector_layout.py</code> the detected flanks and masks
+          equal those synthetic plasmids were built with, at 3% read error, for a substitution scan, the
+          vector on the reverse strand, an amplicon across the origin, inserts
+          unrelated to the vector, and inserts sharing bases with the stuffer they
+          replace.
+        </p>
+
+        <h3>Verdicts</h3>
+        <p>
+          Each well's reads are aligned to the full-length construct expected there,
+          and the consensus insert is compared with the expected insert. The
+          pipeline's own variant assignment names the closest library member, which
+          does not distinguish a well holding something outside the plate; it is
+          used only to name what a well holds when that is not the expected
+          construct. Wells are called at 10 reads or more
+          (<code>--min-reads</code>).
+        </p>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr><th>Verdict</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>match</code></td>
+                <td>The consensus insert equals the expected one; unread bases (N) are not counted as differences.</td></tr>
+            <tr><td><code>mixed</code></td>
+                <td>At some insert position more than 25% of reads disagree with the majority base. Judged among the reads rather than against the expected sequence, so a clean well of the wrong construct is not called mixed. The note names the majority, or both constructs when the consensus fits two.</td></tr>
+            <tr><td><code>wrong construct</code></td>
+                <td>The insert is another construct on the plate. The note gives the wells it was expected in, or the partner well when two wells hold each other's construct.</td></tr>
+            <tr><td><code>changed</code></td>
+                <td>The insert is at least 90% identical to the expected one but differs from it. Differences are listed on the expected insert, 1-based (<code>A271G</code>, <code>271-273 ATT&gt;CGG</code>, <code>del12-14</code>), with amino-acid changes when the insert is in frame.</td></tr>
+            <tr><td><code>unrecognised</code></td>
+                <td>None of the above; the note gives the nearest construct, or says the reads do not align across the insert.</td></tr>
+            <tr><td><code>too few reads</code>, <code>no reads</code></td>
+                <td>Fewer reads than <code>--min-reads</code>, or none.</td></tr>
+            <tr><td><code>unexpected reads</code></td>
+                <td>A well expected empty, or not in the CSV, with at least <code>--min-reads</code> reads, and what it appears to hold. Wells with fewer stray reads are counted in the summary but not listed.</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>
+          <code>tests/test_demux_expected_e2e.py</code> runs a 24-well plate with a
+          swapped pair, a changed well, a 50/50 mixed well, a dropout, a construct
+          absent from the plate and a contaminated empty well through the full
+          toolchain from the parent vector alone, and checks every verdict.
+        </p>
+
+        <h3>Outputs</h3>
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr><th>File</th><th>Contents</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>plate_check.html</code></td>
+                <td>A plate map per plate as laid out in the CSV (a 96-well plate in
+                    its own coordinates), each well marked by verdict with the detail on
+                    hover, and a table of every well that is not a match.</td></tr>
+            <tr><td><code>verification.csv</code></td>
+                <td>One row per well: plate, 384-well position, the CSV's label,
+                    expected and observed construct, verdict, reads, differences,
+                    protein changes, read disagreement, and a note.</td></tr>
+            <tr><td><code>verification_summary.json</code></td>
+                <td>Verdict counts, read totals, and the detected layout.</td></tr>
+            <tr><td><code>derived_read_template.fasta</code></td>
+                <td>The detected layout as a read template (with <code>--vector</code>).</td></tr>
+            <tr><td><code>demux/</code></td>
+                <td>The pipeline's outputs, as for a project demux, including per-well reads.</td></tr>
+            <tr><td><code>verify/</code></td>
+                <td>Each well's reads aligned to its expected construct, and the consensus.</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>
+          Options that only apply within a project (<code>--library-csv</code>,
+          <code>--reference</code>, <code>--plate-map</code>, <code>--round</code>,
+          <code>--barcodes</code>, <code>--orient-ref</code>) are refused with
+          <code>--expected</code>.
+        </p>
+
         <h2 id="remote-execution">Remote Execution</h2>
 
         <p>

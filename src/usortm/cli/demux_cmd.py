@@ -249,6 +249,13 @@ def demux(
     [bold]Example:[/bold]
 
         usortm demux my_project/ --fastq reads.fastq --reference ref.fasta
+
+    [bold]Checking a plate outside a project:[/bold]
+
+    With --expected, each well of a barcoded plate is checked against the
+    construct listed for it in a CSV, and no project directory is used.
+
+        usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/
     """
     # Variant assignment is one minimap2 run over every well's reads against
     # the whole library, and it scales close to linearly: measured 3.7x at 4

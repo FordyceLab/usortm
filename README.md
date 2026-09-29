@@ -80,6 +80,7 @@ usortm report my_project/
 | `plan` | Initialize project from variant list |
 | `skew` | Measure library skew from sequencing reads and recommend a sorting depth |
 | `demux` | Demultiplex sequencing data (LevSeq barcodes via dorado, reference alignment, consensus, variant calling) |
+| `demux --expected` | Check a LevSeq-barcoded plate of known constructs against the construct expected in each well, outside a project |
 | `pick` | Generate Integra ASSIST hit-picking list (ordered by input library) |
 | `reorder` | Export synthesis order for dropout variants (unrecovered after round 1) |
 | `merge` | Merge hit-picking lists from multiple rounds into a single final pick list |
@@ -192,6 +193,29 @@ usortm report my_project/ --round merged
 ```
 
 After `usortm merge`, the combined Integra ASSIST pick list is written to `my_project/merged/pick/integra_assist_input/`. Variants are placed at their library-ordered positions across both rounds, with round 2 hits filling in wherever round 1 did not recover.
+
+### Checking a plate against expected contents
+
+`usortm demux --expected` checks a barcoded plate of known constructs well by
+well, with no project.
+
+```bash
+usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/
+```
+
+The CSV lists `plate, well, name, sequence` by 384-well position, or adds a
+`quadrant` (or `rbc`) column for a 96-well plate barcoded as one LevSeq
+quadrant. Given the parent vector, the read layout (amplicon, variable region
+and primer tails) is detected from the vector, the expected sequences and the
+reads, and written as `derived_read_template.fasta`; `--read-template` or
+`--vector-fasta` can be given instead. Each well's reads are aligned to the
+construct expected there and called as a match, mixed, wrong construct,
+changed (with the base and amino-acid changes), unrecognised, or without
+enough reads; reads in wells expected empty are reported. The run writes
+`plate_check.html`, a plate map in the CSV's own layout, and
+`verification.csv`, one row per well. See the
+[demultiplexing docs](https://fordycelab.github.io/usortm/demultiplexing.html#plate-check)
+for the CSV format, how the layout is detected, and what each verdict means.
 
 ### Example: Cost Estimate
 
