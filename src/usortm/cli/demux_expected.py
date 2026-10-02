@@ -147,6 +147,22 @@ def _usortm_commit() -> str:
         return ""
 
 
+def _tool_version(path) -> str:
+    """A tool's version as it reports it, or "" if it will not say."""
+    import subprocess
+
+    for flag in ("--version", "-V"):
+        try:
+            out = subprocess.run([str(path), flag], capture_output=True, text=True,
+                                 timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        text = (out.stdout or out.stderr).strip().splitlines()
+        if out.returncode == 0 and text:
+            return text[0].strip()
+    return ""
+
+
 def _command(parts: list) -> str:
     """A shell command, one option to a line."""
     import shlex
@@ -167,13 +183,24 @@ def _write_commands(output_dir: Path, *, expected, fastq, vector, read_template,
                     columns=None) -> Path:
     """Write commands.txt: how to run this check again, on this machine or another.
 
-    Paths are written absolute, so the command runs from any directory; on
-    another machine they are the ones to change.
+    Paths are written relative to the folder holding the run's inputs and its
+    output, so the folder can be copied to another machine and the command
+    run from inside it.  Tools are named by version rather than by where they
+    sit on this machine.
     """
+    import os
     from usortm import __version__
 
+    given = [p for p in (expected, fastq, vector, read_template, derived_template,
+                         vector_fasta, output_dir) if p is not None]
+    resolved = [Path(p).expanduser().resolve() for p in given]
+    root = Path(os.path.commonpath([str(r) for r in resolved]))
+    if root in resolved and root.is_file():
+        root = root.parent
+
     def a(path) -> str:
-        return str(Path(path).expanduser().resolve())
+        rel = os.path.relpath(Path(path).expanduser().resolve(), root)
+        return rel if rel != "." else "."
 
     base = ["usortm", "demux", "--expected", a(expected), "--fastq", a(fastq)]
     if columns:
@@ -205,10 +232,12 @@ def _write_commands(output_dir: Path, *, expected, fastq, vector, read_template,
         f"{install}",
         "#    and the external tools on PATH: dorado (1.3+), minimap2, samtools.",
         "#    This run used:",
-        *[f"#      {name}: {path}" for name, path in sorted(tools.items())],
+        *[f"#      {name} {_tool_version(path)}" for name, path in sorted(tools.items())],
         "",
-        "# 2. Run the check.  Paths are absolute; change them on another machine.",
-        "#    The output folder is overwritten.",
+        f"# 2. Run the check from the folder holding the inputs ({root.name}/):",
+        f"#      cd {root.name}",
+        "#    Paths are relative to it, so it can be copied to another machine as",
+        "#    is.  The output folder is written over.",
         _command(rerun),
     ]
     if derived_template is not None:

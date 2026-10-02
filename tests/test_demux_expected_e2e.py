@@ -120,7 +120,9 @@ def test_every_well_gets_its_true_verdict(tmp_path, plate):
 
     assert rows["A1"]["note"] == "swapped with TL:A2"
     commands = (out / "commands.txt").read_text()
-    assert "--expected" in commands and str(tmp_path / "expected.csv") in commands
+    # Relative to the folder holding the inputs, so it runs on another machine.
+    assert "--expected expected.csv" in commands and "-o check" in commands
+    assert str(tmp_path) not in commands
     assert rows["C8"]["observed"] == "v3"
     assert rows["B3"]["differences"]
     for name in ("plate_check.html", "verification_summary.json",
