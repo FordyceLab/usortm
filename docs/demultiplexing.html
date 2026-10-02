@@ -716,6 +716,22 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           are supported, the range the reverse barcodes cover.
         </p>
         <p>
+          A LevSeq mapping sheet's own names are recognised:
+          <code>bc_plate</code>, <code>bc_well</code>, <code>amplicon_seq</code> and
+          <code>id</code>, with <code>clone_plate</code> and <code>clone_well</code>
+          shown on the plate map as each well's source. A CSV that names its
+          columns otherwise gives them with <code>--columns</code>, as
+          <code>field=column</code> pairs:
+        </p>
+        <div class="code-container">
+          <pre><code>--columns plate=bc_plate,well=bc_well,sequence=amplicon_seq,name=name</code></pre>
+        </div>
+        <p>
+          The fields are <code>plate</code>, <code>well</code>, <code>name</code>,
+          <code>sequence</code>, <code>quadrant</code>, <code>rbc</code>,
+          <code>clone_plate</code> and <code>clone_well</code>.
+        </p>
+        <p>
           A CSV without a quadrant or <code>rbc</code> column is read as 384-well
           positions. When every well in such a CSV falls within
           <code>A1</code>&ndash;<code>H12</code>, the run prints a note, since that
@@ -723,7 +739,15 @@ T203Y;2;C5;0;C1;5.0</code></pre>
         </p>
 
         <h3>The Construct</h3>
-        <p>One of three options gives the construct:</p>
+        <p>
+          When the CSV's sequences are whole amplicons, primer to primer, with
+          nothing marked uppercase, the construct comes from the CSV itself: the
+          sequence every amplicon shares at its start and end (at least 50 bp
+          each) is taken as the flanks, and what lies between as each well's
+          variable region. The run says so, with the lengths, and only the
+          barcodes and primer tails are read off the reads. Otherwise, one of
+          three options gives the construct:
+        </p>
         <div class="table-wrapper">
           <table>
           <thead>
@@ -856,6 +880,11 @@ T203Y;2;C5;0;C1;5.0</code></pre>
                 <td>Verdict counts, read totals, and the detected layout.</td></tr>
             <tr><td><code>derived_read_template.fasta</code></td>
                 <td>The detected layout as a read template (with <code>--vector</code>).</td></tr>
+            <tr><td><code>commands.txt</code></td>
+                <td>The command this run was, with absolute paths, the usortm commit
+                    to install, and the tools used, so the check can be run again on
+                    another machine; and a second command that reruns it from the
+                    derived read template.</td></tr>
             <tr><td><code>demux/</code></td>
                 <td>The pipeline's outputs, as for a project demux, including per-well reads.</td></tr>
             <tr><td><code>verify/</code></td>
@@ -863,6 +892,17 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           </tbody>
         </table>
         </div>
+        <h3>Plates 4&ndash;8</h3>
+        <p>
+          RB13&ndash;RB96 are the same sequences as FB13&ndash;FB96, so on a run
+          that uses plates 4&ndash;8 each Dorado pass, which scores both ends of a
+          read, also finds the reverse barcode at the 3' end as a forward barcode.
+          Such a run gives each pass only its own end of every read: the first and
+          last 300 bases, turned to the forward strand. On a synthetic plate-8 run
+          this raised the reads given a forward barcode from 74% to 98.5% and a
+          reverse barcode from 82% to 99.9%. Runs on plates 1&ndash;3 are
+          demultiplexed as before. This applies to project runs as well.
+        </p>
         <p>
           Options that only apply within a project (<code>--library-csv</code>,
           <code>--reference</code>, <code>--plate-map</code>, <code>--round</code>,

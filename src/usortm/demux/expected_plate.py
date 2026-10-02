@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import csv
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -55,6 +55,8 @@ class ExpectedWell:
         sequence: Expected variable region, uppercase; empty when empty.
         label: The well as the CSV gave it, e.g. ``"A6"`` or ``"TR:A6"``.
         row: CSV line the well came from, for error messages.
+        source: Where the clone came from, when the CSV says
+            (``clone_plate``/``clone_well``), e.g. ``"1:A3"``.
     """
 
     plate: int
@@ -63,6 +65,7 @@ class ExpectedWell:
     sequence: str
     label: str
     row: int
+    source: str = ""
 
     @property
     def key(self) -> tuple:
@@ -82,12 +85,22 @@ class ExpectedPlate:
         layout: ``"384"`` or ``"96"``, whichever the CSV used.
         source: The CSV path.
         notes: Things worth telling the user that are not errors.
+        flank_5p: Sequence every construct shares before its variable
+            region, when the CSV gave whole amplicons; empty otherwise.
+        flank_3p: The same after it.
     """
 
     wells: dict
     layout: str
     source: Path
     notes: list = field(default_factory=list)
+    flank_5p: str = ""
+    flank_3p: str = ""
+
+    @property
+    def amplicons(self) -> bool:
+        """Whether the flanks came from the CSV's own whole amplicons."""
+        return bool(self.flank_5p and self.flank_3p)
 
     @property
     def plates(self) -> list:
@@ -150,6 +163,42 @@ def quadrant_to_384(quadrant: int, row96: int, col96: int) -> str:
     return f"{chr(ord('A') + row384 - 1)}{col384}"
 
 
+#: Other names a column goes by, first match taken.  A LevSeq mapping sheet,
+#: for one, gives ``bc_plate``, ``bc_well`` and ``amplicon_seq``.
+_ALIASES = {
+    "plate": ("bc_plate", "barcode_plate", "levseq_plate"),
+    "well": ("bc_well", "barcode_well", "levseq_well"),
+    "sequence": ("amplicon_seq", "amplicon", "seq", "insert"),
+    "name": ("id", "construct", "variant"),
+}
+
+# Shared ends shorter than this are not taken as flanks: a handful of bases
+# common to every construct is as likely a start codon as a backbone.
+MIN_SHARED_FLANK = 50
+
+
+def _split_amplicons(seqs) -> Optional[tuple]:
+    """``(flank_5p, flank_3p)`` shared by every sequence, or None.
+
+    Whole amplicons drawn from one backbone share everything outside their
+    variable region, so what every one of them begins and ends with is the
+    flanks.  Needs at least two distinct sequences to tell flank from insert.
+    """
+    import os
+
+    distinct = sorted(set(seqs))
+    if len(distinct) < 2:
+        return None
+    pre = os.path.commonprefix(distinct)
+    suf = os.path.commonprefix([s[::-1] for s in distinct])[::-1]
+    # The two ends may not overlap in the shortest sequence.
+    room = min(len(s) for s in distinct) - len(pre)
+    suf = suf[len(suf) - min(len(suf), max(room, 0)):] if suf else ""
+    if len(pre) < MIN_SHARED_FLANK or len(suf) < MIN_SHARED_FLANK:
+        return None
+    return pre, suf
+
+
 def _insert(seq: str) -> str:
     """The variable region: uppercase only, unless nothing is uppercase."""
     seq = re.sub(r"\s+", "", seq or "")
@@ -166,13 +215,42 @@ def _parse_quadrant(value: str) -> Optional[int]:
     return None
 
 
-def read_expected_plate(path) -> ExpectedPlate:
+#: The columns a CSV can supply, by the names :func:`read_expected_plate` uses.
+FIELDS = ("plate", "well", "name", "sequence", "quadrant", "rbc",
+          "clone_plate", "clone_well")
+
+
+def parse_columns(text: str) -> dict:
+    """``"plate=bc_plate,well=bc_well"`` as ``{"plate": "bc_plate", ...}``.
+
+    Raises:
+        ExpectedPlateError: On an entry that is not ``field=column``, or a
+            field that is not one of :data:`FIELDS`.
+    """
+    out = {}
+    for entry in filter(None, (e.strip() for e in (text or "").split(","))):
+        field_name, sep, column = (x.strip() for x in entry.partition("="))
+        if not sep or not field_name or not column:
+            raise ExpectedPlateError(
+                f"--columns entry {entry!r} is not field=column, e.g. well=bc_well.")
+        if field_name.lower() not in FIELDS:
+            raise ExpectedPlateError(
+                f"--columns: {field_name!r} is not a field; use one of "
+                f"{', '.join(FIELDS)}.")
+        out[field_name.lower()] = column
+    return out
+
+
+def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
     """Read an expected-plate CSV.
 
     Args:
         path: CSV with ``plate``, ``well``, ``name`` and ``sequence`` columns,
             plus ``quadrant`` or ``rbc`` for a 96-well plate.  Headers are
             matched ignoring case and surrounding space.
+        columns: ``{field: CSV header}`` for a CSV that names its columns
+            otherwise, e.g. ``{"well": "bc_well"}``.  Overrides the names the
+            reader would otherwise recognise.
 
     Returns:
         ExpectedPlate.
@@ -189,6 +267,19 @@ def read_expected_plate(path) -> ExpectedPlate:
             raise ExpectedPlateError(f"{path}: no header row.")
         cols = {h.strip().lower(): h for h in reader.fieldnames if h}
         rows = list(reader)
+    for field_name, header in (columns or {}).items():
+        match = next((h for h in reader.fieldnames if h and h.strip().lower()
+                      == header.strip().lower()), None)
+        if match is None:
+            raise ExpectedPlateError(
+                f"{path}: no column {header!r} (given for {field_name}). Found: "
+                f"{', '.join(reader.fieldnames)}.")
+        cols[field_name] = match
+    for canonical, aliases in _ALIASES.items():
+        if canonical not in cols:
+            hit = next((a for a in aliases if a in cols), None)
+            if hit:
+                cols[canonical] = cols[hit]
 
     missing = [c for c in ("well", "sequence") if c not in cols]
     if missing:
@@ -216,6 +307,7 @@ def read_expected_plate(path) -> ExpectedPlate:
         return (row.get(cols[col]) or "").strip() if col in cols else ""
 
     wells: dict = {}
+    marked = False
     for i, row in enumerate(rows, start=2):
         if not any((v or "").strip() for v in row.values()):
             continue
@@ -283,9 +375,14 @@ def read_expected_plate(path) -> ExpectedPlate:
         name = _get(row, "name") if "name" in cols else ""
         if seq and not name:
             name = f"{plate}_{label}"
+        marked = marked or any(c.isupper() for c in _get(row, "sequence"))
+        src = ""
+        if "clone_well" in cols and _get(row, "clone_well"):
+            cp = _get(row, "clone_plate") if "clone_plate" in cols else ""
+            src = f"{cp}:{_get(row, 'clone_well')}" if cp else _get(row, "clone_well")
 
         entry = ExpectedWell(plate=plate, well=well, name=name if seq else "",
-                             sequence=seq, label=label, row=i)
+                             sequence=seq, label=label, row=i, source=src)
         if entry.key in wells:
             first = wells[entry.key]
             raise ExpectedPlateError(
@@ -298,6 +395,23 @@ def read_expected_plate(path) -> ExpectedPlate:
         raise ExpectedPlateError(f"{path}: no well has an expected sequence.")
 
     notes = []
+    flank_5p = flank_3p = ""
+    # Whole amplicons, with nothing marked as the insert: what they all share
+    # at either end is the backbone, and only the middle is the construct.
+    if not marked:
+        split = _split_amplicons([w.sequence for w in wells.values() if not w.empty])
+        if split:
+            flank_5p, flank_3p = split
+            for key, w in list(wells.items()):
+                if not w.empty:
+                    wells[key] = replace(
+                        w, sequence=w.sequence[len(flank_5p):len(w.sequence) - len(flank_3p)])
+            mids = [len(w.sequence) for w in wells.values() if not w.empty]
+            notes.append(
+                f"Sequences are whole amplicons sharing a {len(flank_5p):,} bp start "
+                f"and a {len(flank_3p):,} bp end; those are taken as the flanks, and "
+                f"the {min(mids):,}-{max(mids):,} bp between as the variable region."
+            )
     if layout == "384":
         rows_used = {w.well[0] for w in wells.values()}
         cols_used = {int(w.well[1:]) for w in wells.values()}
@@ -308,4 +422,5 @@ def read_expected_plate(path) -> ExpectedPlate:
                 "this is a 96-well plate barcoded as one quadrant, add a "
                 "quadrant column."
             )
-    return ExpectedPlate(wells=wells, layout=layout, source=path, notes=notes)
+    return ExpectedPlate(wells=wells, layout=layout, source=path, notes=notes,
+                         flank_5p=flank_5p, flank_3p=flank_3p)

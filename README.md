@@ -205,7 +205,9 @@ usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o chec
 
 The CSV lists `plate, well, name, sequence` by 384-well position, or adds a
 `quadrant` (or `rbc`) column for a 96-well plate barcoded as one LevSeq
-quadrant. Given the parent vector, the read layout (amplicon, variable region
+quadrant; other column names are given with `--columns plate=bc_plate,...`.
+Whole amplicons in the sequence column carry the layout themselves, and need
+no vector. Given the parent vector, the read layout (amplicon, variable region
 and primer tails) is detected from the vector, the expected sequences and the
 reads, and written as `derived_read_template.fasta`; `--read-template` or
 `--vector-fasta` can be given instead. Each well's reads are aligned to the
@@ -214,7 +216,8 @@ changed (with the base and amino-acid changes), unrecognised, or without
 enough reads; reads in wells expected empty are reported. The run writes
 `plate_check.html`, a plate map in the CSV's own layout whose wells open a
 pileup against the expected construct and its summary, and
-`verification.csv`, one row per well. See the
+`verification.csv`, one row per well, and `commands.txt`, to run the check
+again. See the
 [demultiplexing docs](https://fordycelab.github.io/usortm/demultiplexing.html#plate-check)
 for the CSV format, how the layout is detected, and what each verdict means.
 

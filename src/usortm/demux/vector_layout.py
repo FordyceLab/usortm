@@ -174,8 +174,11 @@ class VectorLayout:
         located, total = self.inserts_located
         placed_5, placed_3 = self.barcodes_placed
         turned = ", reverse strand" if self.reverse_complemented else ""
+        whole = (f"amplicon {a1 - a0:,} bp, as given in the expected amplicons"
+                 if self.variable_source == "expected amplicons" else
+                 f"amplicon {a1 - a0:,} bp of a {len(self.vector):,} bp vector{turned}")
         return [
-            f"amplicon {a1 - a0:,} bp of a {len(self.vector):,} bp vector{turned}",
+            whole,
             f"variable region {v1 - v0:,} bp of vector at {v0 - a0:,} bp into "
             f"the amplicon, from the {self.variable_source}"
             + (f" ({located}/{total} located)"
@@ -729,17 +732,28 @@ def detect_layout(
     workdir,
     threads: int = 4,
     n_reads: int = DEFAULT_SAMPLE_READS,
+    amplicon: Optional[str] = None,
+    variable: Optional[tuple] = None,
 ) -> VectorLayout:
     """Work out the read layout from a parent vector.
 
     Args:
-        vector_path: FASTA or GenBank file holding the parent vector.
+        vector_path: FASTA or GenBank file holding the parent vector.  Unused
+            when *amplicon* is given.
         inserts: The expected sequences' variable regions.
         fastq: The run's reads: a FASTQ, a list of them, or a directory.
         minimap2_path: minimap2 executable.
         workdir: Scratch directory for the alignments.
         threads: minimap2 threads.
         n_reads: Reads to sample.
+        amplicon: One construct's whole amplicon, primer to primer, in place
+            of a vector, with *variable* its ``(start, end)``.  The layout
+            then comes from the expected sequences themselves, and only the
+            barcodes and primer tails are read off the reads.  The amplicon
+            is linear and already the right way round, so it is neither
+            searched nor rotated: with many different inserts, any one
+            construct's is matched by few reads, and its middle would look
+            like plasmid the reads never reach.
 
     Returns:
         VectorLayout.
@@ -749,7 +763,7 @@ def detect_layout(
             barcodes sit the wrong way round for the pipeline.
     """
     workdir = Path(workdir)
-    vector = load_vector(vector_path)
+    vector = amplicon.upper() if amplicon else load_vector(vector_path)
     length = len(vector)
     inserts = [s.upper() for s in inserts if s]
     if not inserts:
@@ -760,7 +774,7 @@ def detect_layout(
     if not reads:
         raise LayoutError(f"No reads found in {fastq}.")
 
-    located = locate_inserts(vector, inserts)
+    located = None if amplicon else locate_inserts(vector, inserts)
     reverse = bool(located and located[0] == "-")
     if reverse:
         vector = _rc(vector)
@@ -773,19 +787,25 @@ def detect_layout(
     if aligned < MIN_SPANNING_READS:
         raise LayoutError(
             f"Only {aligned} of {len(reads):,} sampled reads align to the "
-            "vector. Check that it is the construct that was sequenced."
+            f"{'amplicon' if amplicon else 'vector'}. Check that it is the "
+            "construct that was sequenced."
         )
-    cov = _coverage(hits, length)
-    gap = _longest_run(cov < UNCOVERED_FRACTION * cov.max(), circular=True)
-    rotation = (gap[0] + gap[1] // 2) % length if gap else 0
-    vector = vector[rotation:] + vector[:rotation]
-    hits = _align(reads, vector, minimap2_path, threads, workdir / "pass2")
-    cov = _coverage(hits, length)
+    rotation = 0
+    if not amplicon:
+        cov = _coverage(hits, length)
+        gap = _longest_run(cov < UNCOVERED_FRACTION * cov.max(), circular=True)
+        rotation = (gap[0] + gap[1] // 2) % length if gap else 0
+        vector = vector[rotation:] + vector[:rotation]
+        hits = _align(reads, vector, minimap2_path, threads, workdir / "pass2")
+        cov = _coverage(hits, length)
+        covered = np.flatnonzero(cov >= UNCOVERED_FRACTION * cov.max())
+        lo, hi = int(covered[0]), int(covered[-1]) + 1
 
-    covered = np.flatnonzero(cov >= UNCOVERED_FRACTION * cov.max())
-    lo, hi = int(covered[0]), int(covered[-1]) + 1
-
-    if located:
+    if amplicon:
+        v0, v1 = variable
+        n_located = len(inserts)
+        source = "expected amplicons"
+    elif located:
         _, start, end, n_located = located
         v0 = (start - rotation) % length
         v1 = v0 + (end - start)

@@ -233,6 +233,16 @@ def demux(
         "--output", "-o",
         help="Output directory for --expected. Defaults to ./plate_check.",
     ),
+    columns: Optional[str] = typer.Option(
+        None,
+        "--columns",
+        help=(
+            "With --expected, the CSV's own names for its columns, as "
+            "field=column pairs: e.g. plate=bc_plate,well=bc_well,"
+            "sequence=amplicon_seq. Fields: plate, well, name, sequence, "
+            "quadrant, rbc, clone_plate, clone_well."
+        ),
+    ),
 ):
     """
     Demultiplex sequencing data for a [#4096E3]uSort-M[/#4096E3] project.
@@ -270,6 +280,7 @@ def demux(
             vector_fasta=vector_fasta, mask_config_file=mask_config_file,
             min_reads=min_reads, threads=threads, workers=workers,
             subsample=subsample, reads_per_well=reads_per_well, resume=resume,
+            columns=columns,
             conflicting={
                 "--reference": reference, "--library-csv": library_csv,
                 "--plate-map": plate_map_file, "--barcodes": barcodes,
@@ -285,7 +296,8 @@ def demux(
             "--expected is given to check a plate outside a project."
         )
         raise typer.Exit(1)
-    for flag, value in (("--vector", vector), ("--output", output)):
+    for flag, value in (("--vector", vector), ("--output", output),
+                        ("--columns", columns)):
         if value is not None:
             console.print(f"[red]Error:[/red] {flag} is only used with --expected.")
             raise typer.Exit(1)

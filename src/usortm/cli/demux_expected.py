@@ -129,6 +129,110 @@ def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
             for p, wells in url_map.items() for w, url in wells.items()}
 
 
+def _usortm_commit() -> str:
+    """The commit this usortm was installed from, or "" when not a checkout."""
+    import subprocess
+
+    here = Path(__file__).resolve().parent
+    try:
+        commit = subprocess.run(["git", "-C", str(here), "rev-parse", "HEAD"],
+                                capture_output=True, text=True, timeout=10)
+        if commit.returncode != 0:
+            return ""
+        dirty = subprocess.run(["git", "-C", str(here), "status", "--porcelain",
+                                "--untracked-files=no"],
+                               capture_output=True, text=True, timeout=10).stdout.strip()
+        return commit.stdout.strip() + (" (with uncommitted changes)" if dirty else "")
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _command(parts: list) -> str:
+    """A shell command, one option to a line."""
+    import shlex
+
+    lines, current = [], []
+    for part in parts:
+        if part.startswith("-") and current:
+            lines.append(" ".join(current))
+            current = []
+        current.append(shlex.quote(part) if not part.startswith("-") else part)
+    lines.append(" ".join(current))
+    return " \\\n    ".join(lines)
+
+
+def _write_commands(output_dir: Path, *, expected, fastq, vector, read_template,
+                    derived_template, vector_fasta, mask_config_file, min_reads,
+                    threads, workers, subsample, reads_per_well, tools,
+                    columns=None) -> Path:
+    """Write commands.txt: how to run this check again, on this machine or another.
+
+    Paths are written absolute, so the command runs from any directory; on
+    another machine they are the ones to change.
+    """
+    from usortm import __version__
+
+    def a(path) -> str:
+        return str(Path(path).expanduser().resolve())
+
+    base = ["usortm", "demux", "--expected", a(expected), "--fastq", a(fastq)]
+    if columns:
+        base += ["--columns", columns]
+    if vector is not None:
+        base += ["--vector", a(vector)]
+    if vector_fasta is not None:
+        base += ["--vector-fasta", a(vector_fasta)]
+    if mask_config_file and vector_fasta is not None:
+        base += ["--mask-config", str(mask_config_file)]
+    rest = ["--min-reads", str(min_reads), "--threads", str(threads),
+            "--workers", str(workers)]
+    if subsample:
+        rest += ["--subsample", str(subsample)]
+    if reads_per_well != 20:
+        rest += ["--reads-per-well", str(reads_per_well)]
+    out = ["-o", a(output_dir)]
+
+    rerun = base + (["--read-template", a(read_template)] if read_template else []) + rest + out
+    commit = _usortm_commit()
+    install = (f'pip install "usortm[demux] @ git+https://github.com/FordyceLab/usortm@'
+               f'{commit.split()[0]}"' if commit else "pip install \"usortm[demux]\"")
+    lines = [
+        "# How this plate check was run, so it can be run again.",
+        f"# Written {datetime.now().strftime('%Y-%m-%d %H:%M')} by usortm {__version__}"
+        + (f", commit {commit}" if commit else "") + ".",
+        "",
+        "# 1. Install the same usortm (Python 3.9+), with the demux extras:",
+        f"{install}",
+        "#    and the external tools on PATH: dorado (1.3+), minimap2, samtools.",
+        "#    This run used:",
+        *[f"#      {name}: {path}" for name, path in sorted(tools.items())],
+        "",
+        "# 2. Run the check.  Paths are absolute; change them on another machine.",
+        "#    The output folder is overwritten.",
+        _command(rerun),
+    ]
+    if derived_template is not None:
+        lines += [
+            "",
+            "# 3. Or run it from the read layout this run worked out, which skips",
+            "#    detecting it again.  Edit derived_read_template.fasta first if",
+            "#    any part of the layout was wrong: it is one read, with the forward",
+            "#    barcode, the variable region and the reverse barcode written as N.",
+            _command([x for x in base if x != "--vector" and x != (a(vector) if vector else None)]
+                     + ["--read-template", a(derived_template)] + rest + out),
+        ]
+    lines += [
+        "",
+        "# Then open plate_check.html in this folder.  Each well opens the summary",
+        "# of its reads against the construct expected there; verification.csv has",
+        "# one row per well.",
+        "",
+    ]
+    path = output_dir / "commands.txt"
+    path.write_text("\n".join(lines))
+    return path
+
+
 def run_expected_demux(
     *,
     expected: Path,
@@ -144,10 +248,13 @@ def run_expected_demux(
     subsample: Optional[int],
     reads_per_well: int,
     resume: bool,
+    columns: Optional[str] = None,
 ) -> None:
     """Demultiplex a plate and check every well against its expectation."""
     from usortm.demux.deps import check_all_dependencies
-    from usortm.demux.expected_plate import ExpectedPlateError, read_expected_plate
+    from usortm.demux.expected_plate import (
+        ExpectedPlateError, parse_columns, read_expected_plate,
+    )
     from usortm.demux.pipeline import run_levseq_pipeline
     from usortm.demux.read_template import (
         ReadTemplateError, parse_read_template, write_mask_config,
@@ -167,7 +274,7 @@ def run_expected_demux(
     # --- Inputs ---------------------------------------------------------
     section(console, "Inputs")
     try:
-        plate = read_expected_plate(expected)
+        plate = read_expected_plate(expected, columns=parse_columns(columns))
     except (ExpectedPlateError, OSError) as exc:
         _fail(str(exc))
     n_expected = sum(1 for w in plate.wells.values() if not w.empty)
@@ -197,10 +304,13 @@ def run_expected_demux(
     given = [flag for flag, v in (("--vector", vector),
                                   ("--read-template", read_template),
                                   ("--vector-fasta", vector_fasta)) if v]
-    if not given:
+    # Whole amplicons in the CSV carry the layout themselves: the flanks are
+    # what they all share, so no construct needs to be given.
+    from_amplicons = not given and plate.amplicons
+    if not given and not from_amplicons:
         _fail(
             "--expected needs the construct the reads come from.",
-            "Pass one of:",
+            "Give whole amplicons in the CSV's sequence column, or pass one of:",
             "  [cyan]--vector[/cyan] parent.fasta         "
             "(the parent vector; the read layout is worked out from it)",
             "  [cyan]--read-template[/cyan] read.fasta    "
@@ -219,26 +329,31 @@ def run_expected_demux(
     section(console, "Read layout")
     layout_summary = None
     mask_config = None
-    if vector is not None:
+    if vector is not None or from_amplicons:
         from usortm.demux.vector_layout import (
             LayoutError, detect_layout, write_read_template,
         )
 
-        with console.status("Working out the read layout from the vector..."):
+        inserts = list(plate.constructs())
+        amplicon = variable = None
+        if from_amplicons:
+            amplicon = plate.flank_5p + inserts[0] + plate.flank_3p
+            variable = (len(plate.flank_5p), len(plate.flank_5p) + len(inserts[0]))
+        origin = vector.name if vector is not None else Path(expected).name
+        with console.status("Working out the read layout..."):
             try:
                 layout = detect_layout(
-                    vector, list(plate.constructs()), fastqs,
+                    vector, inserts, fastqs,
                     tools["minimap2"], output_dir / "read_layout",
-                    threads=threads,
+                    threads=threads, amplicon=amplicon, variable=variable,
                 )
             except LayoutError as exc:
                 _fail(str(exc))
         read_template = write_read_template(
-            layout, output_dir / "derived_read_template.fasta",
-            source=vector.name,
+            layout, output_dir / "derived_read_template.fasta", source=origin,
         )
         layout_summary = layout.summary()
-        console.print(f"[green]✓[/green] Detected from {vector.name}:")
+        console.print(f"[green]✓[/green] Detected from {origin} and the reads:")
         for line in layout.describe():
             console.print(f"  {escape(line)}")
         console.print(
@@ -375,8 +490,20 @@ def run_expected_demux(
             console.print(f"[muted]…and {len(flagged) - MAX_LISTED} more in "
                           f"{csv_path.name}.[/muted]")
 
+    commands = _write_commands(
+        output_dir, expected=expected, fastq=fastq, vector=vector,
+        read_template=read_template if layout_summary is None else None,
+        derived_template=(output_dir / "derived_read_template.fasta"
+                          if layout_summary is not None else None),
+        vector_fasta=vector_fasta if layout_summary is None else None,
+        mask_config_file=mask_config_file, min_reads=min_reads,
+        threads=threads, workers=workers, subsample=subsample,
+        reads_per_well=reads_per_well, tools=tools, columns=columns,
+    )
+
     section(console, "Outputs")
     console.print(f"  {page}   plate map; each well opens its pileup summary")
+    console.print(f"  {commands}   how to run this again")
     console.print(f"  {csv_path}   one row per well")
     console.print(f"  {output_dir / 'verification_summary.json'}")
     if layout_summary is not None:

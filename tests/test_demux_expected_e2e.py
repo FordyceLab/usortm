@@ -39,7 +39,7 @@ def _rc(s):
     return s.translate(_COMP)[::-1]
 
 
-def _build(tmp_path):
+def _build(tmp_path, plate=1):
     rng = np.random.default_rng(11)
     up, down = _random_seq(rng, 1200), _random_seq(rng, 1200)
     p5, p3 = _random_seq(rng, 22), _random_seq(rng, 26)
@@ -78,9 +78,9 @@ def _build(tmp_path):
         w.writerow(["plate", "quadrant", "well", "name", "sequence"])
         for well in wells:
             n = expected[well]
-            w.writerow([1, "TL", well, n or "", constructs[n] if n else ""])
+            w.writerow([plate, "TL", well, n or "", constructs[n] if n else ""])
 
-    rbc = LEVSEQ_RBC[0]                                                # RB01: plate 1, TL
+    rbc = LEVSEQ_RBC[(plate - 1) * 4]                                  # the plate's TL
     with open(tmp_path / "reads.fastq", "w") as fh:
         for well in wells:
             if not holds[well]:
@@ -97,8 +97,11 @@ def _build(tmp_path):
     return truth
 
 
-def test_every_well_gets_its_true_verdict(tmp_path):
-    truth = _build(tmp_path)
+@pytest.mark.parametrize("plate", [1, 8])
+def test_every_well_gets_its_true_verdict(tmp_path, plate):
+    """Plate 8 uses RB29, the same sequence as FB29, which the barcode passes
+    once confused; plate 1's reverse barcode is shared with nothing."""
+    truth = _build(tmp_path, plate=plate)
     out = tmp_path / "check"
     result = CliRunner().invoke(app, [
         "demux", "--expected", str(tmp_path / "expected.csv"),
@@ -116,10 +119,12 @@ def test_every_well_gets_its_true_verdict(tmp_path):
     assert {w: rows[w]["verdict"] for w in truth} == truth
 
     assert rows["A1"]["note"] == "swapped with TL:A2"
+    commands = (out / "commands.txt").read_text()
+    assert "--expected" in commands and str(tmp_path / "expected.csv") in commands
     assert rows["C8"]["observed"] == "v3"
     assert rows["B3"]["differences"]
     for name in ("plate_check.html", "verification_summary.json",
-                 "derived_read_template.fasta"):
+                 "derived_read_template.fasta", "commands.txt"):
         assert (out / name).exists()
 
     # Every well with reads opens its pileup summary, by a path beneath the
@@ -134,5 +139,5 @@ def test_every_well_gets_its_true_verdict(tmp_path):
         assert (out / href).exists()
         assert (out / href.replace("_summary.html", ".html")).exists()
     # A1 is expected to hold v0 and holds v1: its pileup is against v0.
-    a1 = (out / "pileup" / "well_1_A1.html").read_text()
+    a1 = (out / "pileup" / f"well_{plate}_A1.html").read_text()
     assert ">v0<" in a1 and ">v1<" not in a1

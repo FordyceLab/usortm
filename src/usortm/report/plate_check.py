@@ -32,7 +32,7 @@ def quadrant_of_384(well: str) -> tuple:
     return quadrant, (row + 1) // 2, (col + 1) // 2
 
 
-def _tip(title: str, v, state: str, linked: bool) -> str:
+def _tip(title: str, v, state: str, linked: bool, source: str = "") -> str:
     """The hover card for one well, as HTML, in the summary page's form."""
     head = f'<div style="line-height:1.2"><div style="font-size:13px;">{_esc(title)}</div>'
     if v is None:
@@ -42,6 +42,8 @@ def _tip(title: str, v, state: str, linked: bool) -> str:
     lines = [f'<div style="font-size:11px;color:#666;margin-top:4px;">'
              f'Expected: {_esc(v.expected or "empty")} &nbsp;|&nbsp; '
              f'Reads: {v.reads:,}</div>']
+    if source:
+        lines.append(f'<div {small}>Clone: {_esc(source)}</div>')
     if v.observed and v.observed != v.expected:
         lines.append(f'<div {small}>Holds: {_esc(v.observed)}</div>')
     if v.differences:
@@ -74,7 +76,9 @@ def _well(plate, by_key, links, key, row, col, title) -> Well:
     else:
         flag = "" if v.verdict == "match" else "mut"
     return Well(row=row, col=col, depth=v.reads if v else 0, flag=flag,
-                tip=_tip(title, v, state, bool(href)), href=href)
+                tip=_tip(title, v, state, bool(href),
+                         source=getattr(plate.wells.get(key), "source", "")),
+                href=href)
 
 
 def plate_maps(plate: ExpectedPlate, verdicts: Sequence,

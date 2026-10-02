@@ -10,6 +10,7 @@ import pytest
 from usortm.demux.expected_plate import (
     QUADRANTS,
     ExpectedPlateError,
+    parse_columns,
     quadrant_to_384,
     read_expected_plate,
 )
@@ -167,3 +168,61 @@ plate,well,name,sequence
 1,A2,v/1,ACGA
 """))
         assert sorted(p.constructs().values()) == ["v_1", "v_1_2"]
+
+
+class TestOtherSheets:
+    """A LevSeq mapping sheet names its columns its own way, and may give
+    whole amplicons rather than marked-up inserts."""
+
+    FLANK_5 = "ttaatacgactcactatagggagaccacaacggtttccctctagaaataattttgtttaactttaag"
+    FLANK_3 = "ggatccgaattcgagctccgtcgacaagcttgcggccgcactcgagcaccaccaccaccaccactga"
+
+    def _sheet(self, tmp_path,
+               header="id,name,bc_plate,bc_well,clone_plate,clone_well,amplicon_seq"):
+        inserts = ["atgaaacgtgcaattggc", "atgcccgggtttaaatag", "atgaaacgtgcaattggc"]
+        lines = [header] + [
+            f"lib.{i},g{i % 2},8,{w},1,{w},{self.FLANK_5}{ins}{self.FLANK_3}"
+            for i, (w, ins) in enumerate(zip(("A1", "A2", "B13"), inserts))
+        ]
+        return _csv(tmp_path, "\n".join(lines))
+
+    def test_mapping_sheet_columns_are_recognised(self, tmp_path):
+        p = read_expected_plate(self._sheet(tmp_path))
+        assert p.plates == [8] and set(p.wells) == {(8, "A1"), (8, "A2"), (8, "B13")}
+        assert p.wells[(8, "A1")].source == "1:A1"
+
+    def test_whole_amplicons_are_split_at_the_shared_ends(self, tmp_path):
+        p = read_expected_plate(self._sheet(tmp_path))
+        assert p.amplicons
+        assert p.flank_5p.startswith(self.FLANK_5.upper())
+        assert p.wells[(8, "A1")].sequence.endswith("TGCAATTGGC")
+        assert len(p.constructs()) == 2
+        assert any("whole amplicons" in n for n in p.notes)
+
+    def test_columns_can_be_named(self, tmp_path):
+        path = self._sheet(tmp_path, header="ident,construct name,lp,lw,cp,cw,amp")
+        cols = parse_columns("plate=lp,well=lw,sequence=amp,name=construct name,"
+                             "clone_plate=cp,clone_well=cw")
+        p = read_expected_plate(path, columns=cols)
+        assert p.wells[(8, "B13")].name == "g0"
+        assert p.wells[(8, "B13")].source == "1:B13"
+
+    def test_a_named_column_must_exist(self, tmp_path):
+        with pytest.raises(ExpectedPlateError, match="no column 'wellz'"):
+            read_expected_plate(self._sheet(tmp_path), columns={"well": "wellz"})
+
+    @pytest.mark.parametrize("text, match", [
+        ("well", "not field=column"),
+        ("colour=red", "not a field"),
+    ])
+    def test_bad_columns_option(self, text, match):
+        with pytest.raises(ExpectedPlateError, match=match):
+            parse_columns(text)
+
+    def test_marked_inserts_are_not_split(self, tmp_path):
+        p = read_expected_plate(_csv(tmp_path, f"""
+plate,well,name,sequence
+1,A1,a,{self.FLANK_5}ATGAAACGT{self.FLANK_3}
+1,A2,b,{self.FLANK_5}ATGCCCGGG{self.FLANK_3}
+"""))
+        assert not p.amplicons and p.wells[(1, "A1")].sequence == "ATGAAACGT"
