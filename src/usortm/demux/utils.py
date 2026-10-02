@@ -472,6 +472,14 @@ def align_and_split_by_strand(
                 n_unmapped += 1
                 continue
 
+            # SAM already stores a reverse-strand read reverse-complemented,
+            # so turning it again puts it back the way it was sequenced: the
+            # reads written here are as sequenced, with dir= saying which
+            # strand each aligned to.  The Dorado arrangements are tuned to
+            # that -- given truly oriented whole reads, the forward pass
+            # classified 40% of a synthetic plate-1 run rather than 98% -- so
+            # it is kept.  Anything that needs a read the right way round
+            # turns the dir=rev ones itself (pipeline._barcode_end_windows).
             if flag & _FLAG_REVERSE:
                 seq = str(Seq(seq).reverse_complement())
                 qual = qual[::-1]
