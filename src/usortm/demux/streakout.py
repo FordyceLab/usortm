@@ -1219,12 +1219,44 @@ def _generate_one_pick_pileup(
     view = _pileup_view(well_pos, candidate_info, group_sections,
                         flank_lengths=flank_lengths, features=features)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    if not summary:
+        with open(output_path, "w") as fh:
+            fh.write(render(view))
+        return output_path
+    # The two pages of one well link to each other: the summary is what a
+    # plate map opens, and the pileup -- every read -- is one click from it.
+    summary_path = summary_path_for(output_path)
+    pileup_name = os.path.basename(output_path)
+    summary_name = os.path.basename(summary_path)
     with open(output_path, "w") as fh:
-        fh.write(render(view))
-    if summary:
-        with open(summary_path_for(output_path), "w") as fh:
-            fh.write(render_summary(SummaryView.from_view(view)))
+        fh.write(_render_linked(render, view, "summary_href", summary_name,
+                                "← Summary"))
+    with open(summary_path, "w") as fh:
+        fh.write(_render_linked(render_summary, SummaryView.from_view(view),
+                                "pileup_href", pileup_name, "All reads →"))
     return output_path
+
+
+def _render_linked(fn, view, link_arg: str, href: str, label: str) -> str:
+    """Render *view* with a link to its counterpart page.
+
+    seqviewer draws the link itself from the version that takes *link_arg*;
+    an older one, such as the version usortm pins, draws none, so the link is
+    placed on the page here instead, fixed in its top-right corner.
+    """
+    import inspect
+    import html as _html
+
+    if link_arg in inspect.signature(fn).parameters:
+        return fn(view, **{link_arg: href})
+    page = fn(view)
+    link = (f'<a href="{_html.escape(href, quote=True)}" style="position:fixed;'
+            'top:.8rem;right:1rem;z-index:99;font:12px/1.4 system-ui,-apple-system,'
+            'sans-serif;padding:.25rem .65rem;border:1px solid #c8c8c8;'
+            'border-radius:4px;background:#fff;color:#111;text-decoration:none">'
+            f'{_html.escape(label)}</a>')
+    at = page.find(">", page.find("<body")) + 1 if "<body" in page else 0
+    return page[:at] + link + page[at:]
 
 
 def _clear_stale_pileups(pileup_dir: str, keep=None) -> int:
