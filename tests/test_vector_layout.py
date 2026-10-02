@@ -260,6 +260,42 @@ class TestDetectLayout:
         assert any("not checked" in line for line in layout.describe())
         _assert_recovers(layout, p, tmp_path, len(p.parent))
 
+    def test_primer_between_barcode_and_given_amplicon(self, tmp_path):
+        """The amplicon given can start inside the barcoding primer: on a real
+        Fordyce-primer run, 32 bp lay between the forward barcode and it and
+        17 bp after it.  Those are found at their full length and carried in
+        the template, and the masks are the primer either side of each
+        barcode."""
+        p = Plasmid()
+        inserts = p.scan(30)
+        outer_5, outer_3 = "CACCCAAGACCACTCTCCGG", "GCACCTACTTCGCACACCG"
+        spacer_5 = "CGCGCACATTTCCCCGAAAAGTGCTAGTGGTG"
+        spacer_3 = "GCACTGACTCGCTGCGC"
+        r = p.rng
+        reads = []
+        for _ in range(1500):
+            insert = inserts[int(r.integers(len(inserts)))]
+            fbc = LEVSEQ_FBC[int(r.integers(96))]
+            rbc = LEVSEQ_RBC[int(r.integers(0, 4))]
+            amp = p.template_flank_5 + insert + p.template_flank_3
+            read = outer_5 + fbc + spacer_5 + amp + spacer_3 + _rc(rbc) + outer_3
+            if r.random() < 0.5:
+                read = _rc(read)
+            reads.append(_apply_errors(r, read, 0.03))
+        amplicon = p.template_flank_5 + p.parent + p.template_flank_3
+        v0 = len(p.template_flank_5)
+        vec, fq = _write(tmp_path, amplicon, reads)
+        layout = detect_layout(None, inserts, fq, shutil.which("minimap2"),
+                               tmp_path / "work", threads=2, amplicon=amplicon,
+                               variable=(v0, v0 + len(p.parent)))
+        assert layout.spacer_5p == spacer_5 and layout.spacer_3p == spacer_3
+        t = parse_read_template(write_read_template(layout, tmp_path / "t.fa"))
+        assert t.flank_5p == spacer_5 + p.template_flank_5
+        assert t.flank_3p == p.template_flank_3 + spacer_3
+        assert t.masks["mask1_front"].endswith(outer_5)
+        assert t.masks["mask2_rear"].startswith(outer_3)
+        assert t.masks["mask1_rear"] == spacer_5[:22]
+
     def test_reads_from_another_construct_are_refused(self, tmp_path):
         p, other = Plasmid(seed=1), Plasmid(seed=2)
         inserts = other.scan(20)

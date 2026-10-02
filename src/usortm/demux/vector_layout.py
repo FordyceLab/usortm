@@ -56,6 +56,12 @@ MIN_BARCODE_MARGIN = 3
 # How far either side of the expected position a barcode is looked for;
 # alignment ends wander a few bases in noisy reads.
 SEARCH_SLACK = 12
+# How far outside the amplicon a barcode may sit.  The sequence given as the
+# amplicon can start inside the barcoding primer rather than at its 3' end --
+# on a real Fordyce-primer run, 32 bp of primer lay between the forward
+# barcode and the given amplicon, and 17 bp after it on the other side -- so
+# the barcode is looked for across the whole of Dorado's 150 bp end window.
+MAX_SPACER = 120
 
 # Primer-tail consensus: at most this many bases, kept while this share of
 # reads agree, and refused if fewer than MIN_OUTER_LENGTH bases survive.
@@ -608,12 +614,13 @@ def _place_barcode(window: str, catalog: _Catalog) -> Optional[tuple]:
     return catalog.labels[idx], int(off)
 
 
-def _consensus(seqs: Sequence[str], anchored_right: bool) -> str:
+def _consensus(seqs: Sequence[str], anchored_right: bool,
+               length: int = OUTER_LENGTH) -> str:
     """Column consensus, kept outward from the anchor while reads agree."""
     if not seqs:
         return ""
     cols = []
-    for i in range(OUTER_LENGTH):
+    for i in range(length):
         column = [s[-1 - i] if anchored_right else s[i]
                   for s in seqs if len(s) > i]
         if len(column) < max(5, 0.3 * len(seqs)):
@@ -652,7 +659,7 @@ def _primer_ends(reads, spans, amplicon, barcode_length) -> _PrimerEnds:
     cat_5 = _catalog({"fbc": LEVSEQ_FBC, "rbc": LEVSEQ_RBC})
     cat_3 = _catalog({"fbc": [_rc(s) for s in LEVSEQ_FBC],
                       "rbc": [_rc(s) for s in LEVSEQ_RBC]})
-    reach = barcode_length + SEARCH_SLACK
+    reach = barcode_length + MAX_SPACER
 
     votes = Counter()
     placed_5 = placed_3 = 0
@@ -702,17 +709,28 @@ def _primer_ends(reads, spans, amplicon, barcode_length) -> _PrimerEnds:
             "sequenced. Pass --read-template to give the layout directly."
         )
 
-    def _spacer(gaps, seqs, anchored_right):
+    def _spacer(gaps, seqs, barcode_side_right):
+        """Primer between barcode and amplicon, at the length the reads put it.
+
+        Read from the barcode inward; where an indel ends the agreement short
+        of the full length, the rest is read from the amplicon's side.
+        """
         if not gaps or statistics.median(gaps) < 2:
             return ""
-        # Consensus-called like the tails, anchored on the barcode side.
-        return _consensus([s for s in seqs if s], anchored_right=anchored_right)
+        length = int(round(statistics.median(g for g in gaps if g > 0)))
+        seqs = [s for s in seqs if s]
+        near = _consensus(seqs, anchored_right=barcode_side_right, length=length)
+        if len(near) >= length:
+            return near
+        far = _consensus(seqs, anchored_right=not barcode_side_right,
+                         length=length - len(near))
+        return near + far if not barcode_side_right else far + near
 
     return _PrimerEnds(
         outer_5p=_consensus(tails_5, anchored_right=True),
         outer_3p=_consensus(tails_3, anchored_right=False),
-        spacer_5p=_spacer(gaps_5, spacer_5, anchored_right=False),
-        spacer_3p=_spacer(gaps_3, spacer_3, anchored_right=True),
+        spacer_5p=_spacer(gaps_5, spacer_5, barcode_side_right=False),
+        spacer_3p=_spacer(gaps_3, spacer_3, barcode_side_right=True),
         placed_5=placed_5,
         placed_3=placed_3,
         standard=votes["standard"],
