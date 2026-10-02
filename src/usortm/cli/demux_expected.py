@@ -159,7 +159,10 @@ def _tool_version(path) -> str:
             return ""
         text = (out.stdout or out.stderr).strip().splitlines()
         if out.returncode == 0 and text:
-            return text[0].strip()
+            # "samtools 1.21" already names itself; the line is printed after it.
+            name = Path(str(path)).name
+            first = text[0].strip()
+            return first[len(name):].strip() if first.startswith(name + " ") else first
     return ""
 
 
@@ -250,11 +253,12 @@ def _write_commands(output_dir: Path, *, expected, fastq, vector, read_template,
             _command([x for x in base if x != "--vector" and x != (a(vector) if vector else None)]
                      + ["--read-template", a(derived_template)] + rest + out),
         ]
+    out_rel = a(output_dir)
     lines += [
         "",
-        "# Then open plate_check.html in this folder.  Each well opens the summary",
-        "# of its reads against the construct expected there; verification.csv has",
-        "# one row per well.",
+        f"# Then open {out_rel}/plate_check.html.  Each well opens the summary of its",
+        "# reads against the construct expected there, which links to the pileup of",
+        f"# every read; {out_rel}/verification.csv has one row per well.",
         "",
     ]
     path = output_dir / "commands.txt"
