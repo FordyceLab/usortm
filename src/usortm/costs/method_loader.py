@@ -29,8 +29,15 @@ __all__ = [
     "find_methods",
     "platform_type",
     "METHODS_DIR",
+    "PRICE_DISCOUNTS",
     "compute_cost",
 ]
+
+
+# Multipliers on vendor list price, by method slug. The shared registry holds
+# list prices only; uSort-M's cost models price Twist Oligo Pools at the
+# discounted rate it pays.
+PRICE_DISCOUNTS = {"twist_oligo_pools": 0.667}
 
 
 def compute_cost(method, n_seqs, seq_length):
@@ -56,7 +63,7 @@ def compute_cost(method, n_seqs, seq_length):
 def _compute_lookup(method, n_seqs, seq_length):
     """Lookup-table pricing (e.g. Twist Oligo Pools)."""
     pricing = method.pricing
-    discount = pricing.get("commercial_discount", 1.0)
+    discount = PRICE_DISCOUNTS.get(method.slug, 1.0)
 
     for tier in pricing["tiers"]:
         low, high = tier["library_size"]

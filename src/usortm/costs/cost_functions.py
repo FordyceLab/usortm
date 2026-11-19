@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from usortm.costs.method_loader import load_all_methods, compute_cost, find_methods
+from usortm.costs.method_loader import load_all_methods, compute_cost, find_methods, PRICE_DISCOUNTS
 
 # --- SDM Kit Prices (NEB catalog, 2026) ---
 SDM_Q5_KIT_PRICE = 219.0         # NEB E0554S, 96 reactions
@@ -432,8 +432,8 @@ def usortm_synthesis_cost(n_seqs,
         cost = compute_cost(m, n_seqs, seq_length)
         if cost is not None:
             if not commercial_discount:
-                # Undo the discount baked into the TOML
-                return cost / m.pricing.get("commercial_discount", 1.0)
+                # Undo the discount compute_cost applies
+                return cost / PRICE_DISCOUNTS.get(m.slug, 1.0)
             return cost
     else:
         # No single oligo pool covers >350 bp, so use Twist Gene Pools
