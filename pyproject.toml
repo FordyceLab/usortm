@@ -27,10 +27,9 @@ dependencies = [
     "openpyxl>=3.0",
     "numba",
     # Shared synthesis-method registry (model, TOML loader, method definitions).
-    # Private repo, not yet published: for local dev install it editable first
-    # (`pip install -e ../synthesis-methods`) so pip sees this requirement satisfied.
-    # Switch to a git/index source once the package is public.
-    "synthesis-methods",
+    # Not on PyPI; installed from GitHub. For local development, install a
+    # checkout editable first (`pip install -e ../synthesis-methods`).
+    "synthesis-methods @ git+https://github.com/micah-olivas/synthesis-methods.git",
     "tomli>=1.0; python_version < '3.11'",  # <3.11 TOML backend for demux/preset/remote config loaders
 ]
 

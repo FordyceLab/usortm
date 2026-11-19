@@ -13,6 +13,13 @@ from usortm.costs.method_loader import compute_cost, load_all_methods
 
 BARCODE_PER_PLATE = 97.73
 
+# Gene Pools pricing is not public, so the published registry omits it; these
+# tests run only where a local methods directory supplies it.
+needs_gene_pools = pytest.mark.skipif(
+    "twist_gene_pools" not in load_all_methods(),
+    reason="twist_gene_pools not in the installed synthesis-methods registry",
+)
+
 
 # --- synthesis ---------------------------------------------------------------
 
@@ -20,6 +27,7 @@ def test_synthesis_pooled_le_350_is_positive():
     assert cf.usortm_synthesis_cost(500, 300) > 0
 
 
+@needs_gene_pools
 def test_synthesis_gt_350_uses_gene_pools():
     # >350 bp used to look up a nonexistent method and silently return $0.
     cost = cf.usortm_synthesis_cost(500, 500)
@@ -28,11 +36,18 @@ def test_synthesis_gt_350_uses_gene_pools():
     assert cost == compute_cost(gene_pools, 500, 500)
 
 
+def test_synthesis_gt_350_without_gene_pools_warns(monkeypatch):
+    monkeypatch.setattr(cf, "_get_methods", lambda methods_dir=None: {})
+    with pytest.warns(UserWarning, match="Gene Pools"):
+        assert cf.usortm_synthesis_cost(500, 500) == 0
+
+
 def test_synthesis_short_insert_model_is_positive():
     # Substitution/tiled libraries are priced via the ~30 bp insert length.
     assert cf.usortm_synthesis_cost(500, 30) > 0
 
 
+@needs_gene_pools
 def test_synthesis_very_long_still_prices_via_gene_pools():
     # The gene-pools lookup clamps to the nearest tabulated length, so a very
     # long sequence still returns a (top-bucket) price rather than a silent $0.

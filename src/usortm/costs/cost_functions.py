@@ -1,5 +1,6 @@
 import os
 import math
+import warnings
 import numpy as np
 import pandas as pd
 
@@ -440,6 +441,15 @@ def usortm_synthesis_cost(n_seqs,
         # (consistent with the published docs cost model).
         m = methods.get("twist_gene_pools")
         if m is None:
+            # Gene Pools pricing is not public, so the published registry
+            # omits it; it is read from a local methods directory if present.
+            warnings.warn(
+                "Twist Gene Pools pricing is not in the installed synthesis-methods "
+                "registry; synthesis cost for sequences over 350 bp is reported as $0. "
+                "Add twist_gene_pools.toml to ~/.config/synthesis-methods/methods/ "
+                "to include it.",
+                stacklevel=2,
+            )
             return 0
         cost = compute_cost(m, n_seqs, seq_length)
         if cost is not None:
