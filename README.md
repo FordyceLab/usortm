@@ -27,6 +27,19 @@ pip install -e .
 pip install -e ".[all]"
 ```
 
+This also installs [synthesis-methods](https://github.com/micah-olivas/synthesis-methods),
+the registry of vendor synthesis methods and prices, from GitHub. If a command
+fails with `No module named 'synthesis_methods'`, the packages went into a
+different Python from the one that runs `usortm`; reinstall with that Python
+(`"$(head -1 "$(which usortm)" | sed 's/^#!//')" -m pip install -e ".[all]"`).
+
+The registry carries only publicly available prices. Twist Gene Pools pricing
+is not public, so for sequences over 350 bp `plan` and `estimate` report a
+synthesis cost of $0 and print a warning. `estimate` takes a quoted price with
+`--actual-synthesis`. To include Gene Pools pricing everywhere, write a
+`twist_gene_pools.toml` from your own quote and place it in
+`~/.config/synthesis-methods/methods/`.
+
 ### External Tools (for demultiplexing)
 
 The `usortm demux` command requires these tools installed separately:

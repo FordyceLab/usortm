@@ -156,7 +156,15 @@
 git clone https://github.com/FordyceLab/usortm.git
 cd usortm
 pip install -e ".[all]"</code></pre>
-        
+
+        <p>This also installs <a href="https://github.com/micah-olivas/synthesis-methods" target="_blank">synthesis-methods</a>, the registry of vendor synthesis methods and prices, from GitHub. If a command then fails with <code>No module named 'synthesis_methods'</code>, the packages went into a different Python from the one that runs <code>usortm</code>. Reinstall with that Python:</p>
+
+        <pre><code class="language-bash">PY=$(head -1 "$(which usortm)" | sed 's/^#!//')
+"$PY" -m pip install -e ".[all]"</code></pre>
+
+        <h3>Synthesis Pricing</h3>
+        <p>The registry carries only publicly available prices. Twist Gene Pools pricing is not public, so for sequences over 350 bp <code>plan</code> and <code>estimate</code> report a synthesis cost of $0 and print a warning; the other cost components are unaffected. <code>estimate</code> takes a quoted price with <code>--actual-synthesis</code>. To include Gene Pools pricing everywhere, write a <code>twist_gene_pools.toml</code> from your own quote (same format as the files in the registry) and place it in <code>~/.config/synthesis-methods/methods/</code>.</p>
+
         <h3>Optional Dependencies</h3>
         <p>The base installation includes cost estimation and CLI tools. Optional dependencies provide additional functionality:</p>
 
