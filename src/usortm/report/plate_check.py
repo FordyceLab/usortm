@@ -43,7 +43,7 @@ def _tip(title: str, v, state: str, linked: bool, source: str = "") -> str:
              f'Expected: {_esc(v.expected or "empty")} &nbsp;|&nbsp; '
              f'Reads: {v.reads:,}</div>']
     if source:
-        lines.append(f'<div {small}>Clone: {_esc(source)}</div>')
+        lines.append(f'<div {small}>Sample well: {_esc(source)}</div>')
     if v.observed and v.observed != v.expected:
         lines.append(f'<div {small}>Holds: {_esc(v.observed)}</div>')
     if v.differences:

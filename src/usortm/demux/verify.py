@@ -54,9 +54,9 @@ class WellVerdict:
     """One well's result.
 
     Attributes:
-        plate: LevSeq plate.
-        well: 384-well position.
-        label: The well as the expected-plate CSV named it.
+        plate: LevSeq barcode plate.
+        well: Barcode well as a 384-well position.
+        label: The barcode well as the expected-plate CSV named it.
         expected: Expected construct, empty for a well expected empty.
         verdict: One of :data:`VERDICTS`.
         observed: Construct the well appears to hold, if one can be named.
@@ -66,6 +66,7 @@ class WellVerdict:
         disagreement: Largest share of reads disagreeing with the majority at
             any insert position; high in a well holding two templates.
         note: Anything else worth saying.
+        sample: Where the sample sits, when the CSV gives ``sample_well``.
     """
 
     plate: int
@@ -79,12 +80,14 @@ class WellVerdict:
     protein_changes: list = field(default_factory=list)
     disagreement: Optional[float] = None
     note: str = ""
+    sample: str = ""
 
     def row(self) -> dict:
         return {
-            "plate": self.plate,
-            "well": self.well,
+            "barcode_plate": self.plate,
+            "barcode_well": self.well,
             "label": self.label,
+            "sample_well": self.sample,
             "expected": self.expected,
             "verdict": self.verdict,
             "observed": self.observed,
@@ -375,7 +378,7 @@ def verify_plate(
         row = observed.get(w.key)
         name = plate.reference_name(w) or ""
         v = WellVerdict(plate=w.plate, well=w.well, label=w.label,
-                        expected=name, verdict="", reads=depth)
+                        expected=name, verdict="", reads=depth, sample=w.source)
 
         if w.empty:
             if depth < min_reads:

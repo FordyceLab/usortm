@@ -42,7 +42,7 @@ class TestRead384:
 
     def test_positions_are_taken_as_given(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,wt,ACGTACGT
 1,P24,m1,ACGTTCGT
 2,C05,m2,ACGTACGA
@@ -53,14 +53,14 @@ plate,well,name,sequence
 
     def test_headers_ignore_case_and_space(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
- Plate , Well ,Name, SEQUENCE
+ Barcode_Plate , Barcode_Well ,Name, SEQUENCE
 1,B2,x,ACGT
 """))
         assert (1, "B2") in p.wells
 
     def test_lowercase_flanks_are_dropped(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,x,ggccACGTACGTttaa
 1,A2,y,acgtacgt
 """))
@@ -70,7 +70,7 @@ plate,well,name,sequence
 
     def test_blank_sequence_is_an_expected_empty_well(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,x,ACGT
 1,A2,,
 """))
@@ -78,7 +78,7 @@ plate,well,name,sequence
         assert p.reference_name(p.wells[(1, "A2")]) is None
 
     def test_top_left_only_is_noted(self, tmp_path):
-        lines = ["plate,well,name,sequence"] + [
+        lines = ["barcode_plate,barcode_well,name,sequence"] + [
             f"1,{r}{c},v{r}{c},ACGT" for r in "ABCDEFGH" for c in range(1, 13)
         ]
         p = read_expected_plate(_csv(tmp_path, "\n".join(lines)))
@@ -90,7 +90,7 @@ class TestRead96:
 
     def test_quadrant_column(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,quadrant,well,name,sequence
+barcode_plate,quadrant,barcode_well,name,sequence
 1,TL,A1,a,ACGT
 1,br,A1,b,ACGA
 2,2,H12,c,ACGG
@@ -101,7 +101,7 @@ plate,quadrant,well,name,sequence
 
     def test_rbc_column(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-rbc,well,name,sequence
+rbc,barcode_well,name,sequence
 RB06,A1,a,ACGT
 7,A1,b,ACGA
 """))
@@ -111,21 +111,21 @@ RB06,A1,a,ACGT
     def test_rbc_disagreeing_with_plate_is_refused(self, tmp_path):
         with pytest.raises(ExpectedPlateError, match="RB06 is on plate 2"):
             read_expected_plate(_csv(tmp_path, """
-plate,rbc,well,name,sequence
+barcode_plate,rbc,barcode_well,name,sequence
 1,RB06,A1,a,ACGT
 """))
 
     def test_384_position_with_a_quadrant_is_refused(self, tmp_path):
         with pytest.raises(ExpectedPlateError, match="outside A1-H12"):
             read_expected_plate(_csv(tmp_path, """
-plate,quadrant,well,name,sequence
+barcode_plate,quadrant,barcode_well,name,sequence
 1,TL,J3,a,ACGT
 """))
 
     def test_quadrant_needs_a_plate(self, tmp_path):
-        with pytest.raises(ExpectedPlateError, match="plate column"):
+        with pytest.raises(ExpectedPlateError, match="barcode_plate column"):
             read_expected_plate(_csv(tmp_path, """
-quadrant,well,name,sequence
+quadrant,barcode_well,name,sequence
 TL,A1,a,ACGT
 """))
 
@@ -141,18 +141,18 @@ class TestRefusals:
     ])
     def test_bad_rows(self, tmp_path, body, match):
         with pytest.raises(ExpectedPlateError, match=match):
-            read_expected_plate(_csv(tmp_path, "plate,well,name,sequence\n" + body))
+            read_expected_plate(_csv(tmp_path, "barcode_plate,barcode_well,name,sequence\n" + body))
 
     def test_missing_column(self, tmp_path):
         with pytest.raises(ExpectedPlateError, match="sequence"):
-            read_expected_plate(_csv(tmp_path, "plate,well,name\n1,A1,a"))
+            read_expected_plate(_csv(tmp_path, "barcode_plate,barcode_well,name\n1,A1,a"))
 
 
 class TestReferences:
 
     def test_one_reference_per_distinct_sequence(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,wt rep1,ACGTACGT
 1,A2,wt rep2,ACGTACGT
 1,A3,m/1,ACGTTCGT
@@ -163,7 +163,7 @@ plate,well,name,sequence
 
     def test_clashing_names_stay_distinct(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,v 1,ACGT
 1,A2,v/1,ACGA
 """))
@@ -201,19 +201,40 @@ class TestOtherSheets:
 
     def test_columns_can_be_named(self, tmp_path):
         path = self._sheet(tmp_path, header="ident,construct name,lp,lw,cp,cw,amp")
-        cols = parse_columns("plate=lp,well=lw,sequence=amp,name=construct name,"
-                             "clone_plate=cp,clone_well=cw")
+        cols = parse_columns("barcode_plate=lp,barcode_well=lw,sequence=amp,name=construct name,"
+                             "sample_plate=cp,sample_well=cw")
         p = read_expected_plate(path, columns=cols)
         assert p.wells[(8, "B13")].name == "g0"
         assert p.wells[(8, "B13")].source == "1:B13"
 
     def test_a_named_column_must_exist(self, tmp_path):
         with pytest.raises(ExpectedPlateError, match="no column 'wellz'"):
-            read_expected_plate(self._sheet(tmp_path), columns={"well": "wellz"})
+            read_expected_plate(self._sheet(tmp_path), columns={"barcode_well": "wellz"})
+
+    @pytest.mark.parametrize("header", ["well,sequence", "plate,barcode_well,sequence"])
+    def test_a_bare_well_or_plate_is_refused(self, tmp_path, header):
+        # A bare "well" could be the barcode well or the sample well; read as
+        # the wrong one, every read goes to the wrong sample.
+        n = header.count(",") + 1
+        row = ",".join(["1", "A1", "ACGT"][-n:])
+        with pytest.raises(ExpectedPlateError, match="does not say which") as err:
+            read_expected_plate(_csv(tmp_path, f"{header}\n{row}"))
+        assert "barcode_" in str(err.value) and "sample_" in str(err.value)
+
+    def test_a_bare_well_is_read_when_named(self, tmp_path):
+        path = _csv(tmp_path, "well,sequence\nB3,ACGT")
+        p = read_expected_plate(path, columns=parse_columns("barcode_well=well"))
+        assert set(p.wells) == {(1, "B3")}
+
+    def test_two_column_sheet_defaults_to_plate_1(self, tmp_path):
+        p = read_expected_plate(_csv(tmp_path, "barcode_well,sequence\nB3,ACGT\nB4,ACGA"))
+        assert set(p.wells) == {(1, "B3"), (1, "B4")}
+        assert p.wells[(1, "B3")].name == "1_B3"
 
     @pytest.mark.parametrize("text, match", [
         ("well", "not field=column"),
         ("colour=red", "not a field"),
+        ("well=Well", "not a field"),
     ])
     def test_bad_columns_option(self, text, match):
         with pytest.raises(ExpectedPlateError, match=match):
@@ -221,7 +242,7 @@ class TestOtherSheets:
 
     def test_marked_inserts_are_not_split(self, tmp_path):
         p = read_expected_plate(_csv(tmp_path, f"""
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,a,{self.FLANK_5}ATGAAACGT{self.FLANK_3}
 1,A2,b,{self.FLANK_5}ATGCCCGGG{self.FLANK_3}
 """))

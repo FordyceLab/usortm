@@ -10,15 +10,24 @@ position in a 96 grid, and the reverse barcode gives the plate and the
 quadrant, four reverse barcodes to a plate.  The quadrants interleave rather
 than tile -- TL takes odd rows and odd columns, TR odd and even, BL even and
 odd, BR even and even -- which is what :func:`usortm.demux.utils.barcode_to_well`
-decodes.  So a CSV can say where a well is in either of two ways:
+decodes.
 
-``plate, well, name, sequence``
-    A 384-well position, A1-P24, taken as it is.
+Two wells matter for each sample, and the CSV names them apart: the barcode
+well, the LevSeq address it was barcoded with, which is what demultiplexing
+reads; and the sample well, where it sits on the plate it came from, which
+is only reported.  A bare ``well`` or ``plate`` column is refused.  The
+barcode well can be given in either of two ways:
 
-``plate, quadrant, well, name, sequence`` (or ``rbc, well, ...``)
+``barcode_plate, barcode_well, name, sequence``
+    A 384-well position, A1-P24, taken as it is.  ``barcode_plate``
+    defaults to 1.
+
+``barcode_plate, quadrant, barcode_well, ...`` (or ``rbc, barcode_well, ...``)
     A 96-well plate barcoded as one quadrant of a LevSeq plate: its A1-H12
     position, and the quadrant (TL/TR/BL/BR or 1-4) or the reverse barcode
     (RB01-RB32) it was given.
+
+``sample_plate`` and ``sample_well`` may be added to either.
 
 Sequences follow the library CSV convention: uppercase is the variable
 region, and lowercase flanks are dropped.  A row with no sequence is a well
@@ -49,14 +58,16 @@ class ExpectedWell:
     """One well's expectation.
 
     Attributes:
-        plate: LevSeq plate, 1-8.
-        well: 384-well position, e.g. ``"B12"``, as the pipeline reports it.
+        plate: LevSeq barcode plate, 1-8.
+        well: Barcode well as a 384-well position, e.g. ``"B12"``, as the
+            pipeline reports it.
         name: Construct name, empty for a well expected to be empty.
         sequence: Expected variable region, uppercase; empty when empty.
-        label: The well as the CSV gave it, e.g. ``"A6"`` or ``"TR:A6"``.
+        label: The barcode well as the CSV gave it, e.g. ``"A6"`` or
+            ``"TR:A6"``.
         row: CSV line the well came from, for error messages.
-        source: Where the clone came from, when the CSV says
-            (``clone_plate``/``clone_well``), e.g. ``"1:A3"``.
+        source: Where the sample sits, when the CSV says
+            (``sample_plate``/``sample_well``), e.g. ``"1:A3"``.
     """
 
     plate: int
@@ -164,13 +175,20 @@ def quadrant_to_384(quadrant: int, row96: int, col96: int) -> str:
 
 
 #: Other names a column goes by, first match taken.  A LevSeq mapping sheet,
-#: for one, gives ``bc_plate``, ``bc_well`` and ``amplicon_seq``.
+#: for one, gives ``bc_plate``, ``bc_well``, ``clone_plate``, ``clone_well``
+#: and ``amplicon_seq``.
 _ALIASES = {
-    "plate": ("bc_plate", "barcode_plate", "levseq_plate"),
-    "well": ("bc_well", "barcode_well", "levseq_well"),
+    "barcode_plate": ("bc_plate", "levseq_plate"),
+    "barcode_well": ("bc_well", "levseq_well"),
+    "sample_plate": ("clone_plate", "source_plate"),
+    "sample_well": ("clone_well", "source_well"),
     "sequence": ("amplicon_seq", "amplicon", "seq", "insert"),
     "name": ("id", "construct", "variant"),
 }
+
+#: Headers that do not say whether they mean the barcode or the sample, and
+#: so are refused rather than guessed at.
+_AMBIGUOUS = {"well": "barcode_well", "plate": "barcode_plate"}
 
 # Shared ends shorter than this are not taken as flanks: a handful of bases
 # common to every construct is as likely a start codon as a backbone.
@@ -216,12 +234,12 @@ def _parse_quadrant(value: str) -> Optional[int]:
 
 
 #: The columns a CSV can supply, by the names :func:`read_expected_plate` uses.
-FIELDS = ("plate", "well", "name", "sequence", "quadrant", "rbc",
-          "clone_plate", "clone_well")
+FIELDS = ("barcode_plate", "barcode_well", "name", "sequence", "quadrant", "rbc",
+          "sample_plate", "sample_well")
 
 
 def parse_columns(text: str) -> dict:
-    """``"plate=bc_plate,well=bc_well"`` as ``{"plate": "bc_plate", ...}``.
+    """``"barcode_well=Well,sequence=Seq"`` as ``{"barcode_well": "Well", ...}``.
 
     Raises:
         ExpectedPlateError: On an entry that is not ``field=column``, or a
@@ -232,7 +250,8 @@ def parse_columns(text: str) -> dict:
         field_name, sep, column = (x.strip() for x in entry.partition("="))
         if not sep or not field_name or not column:
             raise ExpectedPlateError(
-                f"--columns entry {entry!r} is not field=column, e.g. well=bc_well.")
+                f"--columns entry {entry!r} is not field=column, e.g. "
+                "barcode_well=Well.")
         if field_name.lower() not in FIELDS:
             raise ExpectedPlateError(
                 f"--columns: {field_name!r} is not a field; use one of "
@@ -245,12 +264,17 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
     """Read an expected-plate CSV.
 
     Args:
-        path: CSV with ``plate``, ``well``, ``name`` and ``sequence`` columns,
-            plus ``quadrant`` or ``rbc`` for a 96-well plate.  Headers are
-            matched ignoring case and surrounding space.
+        path: CSV with ``barcode_well`` and ``sequence`` columns, and
+            optionally ``barcode_plate`` (default 1), ``name``, ``quadrant``
+            or ``rbc`` for a 96-well plate, and ``sample_plate`` /
+            ``sample_well`` for where each sample sits.  The barcode columns
+            are the LevSeq address the sample was barcoded with, which is
+            what demultiplexing reads.  Headers are matched ignoring case and
+            surrounding space; a bare ``well`` or ``plate`` is refused, since
+            it does not say which of the two it means.
         columns: ``{field: CSV header}`` for a CSV that names its columns
-            otherwise, e.g. ``{"well": "bc_well"}``.  Overrides the names the
-            reader would otherwise recognise.
+            otherwise, e.g. ``{"barcode_well": "Well"}``.  Overrides the
+            names the reader would otherwise recognise.
 
     Returns:
         ExpectedPlate.
@@ -267,6 +291,7 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
             raise ExpectedPlateError(f"{path}: no header row.")
         cols = {h.strip().lower(): h for h in reader.fieldnames if h}
         rows = list(reader)
+    mapped = set()
     for field_name, header in (columns or {}).items():
         match = next((h for h in reader.fieldnames if h and h.strip().lower()
                       == header.strip().lower()), None)
@@ -275,13 +300,27 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
                 f"{path}: no column {header!r} (given for {field_name}). Found: "
                 f"{', '.join(reader.fieldnames)}.")
         cols[field_name] = match
+        mapped.add(match)
     for canonical, aliases in _ALIASES.items():
         if canonical not in cols:
             hit = next((a for a in aliases if a in cols), None)
             if hit:
                 cols[canonical] = cols[hit]
 
-    missing = [c for c in ("well", "sequence") if c not in cols]
+    # A bare "well" could be where the sample was barcoded or where it sits,
+    # and reading one as the other assigns every read to the wrong sample.
+    for bare, explicit in _AMBIGUOUS.items():
+        if bare in cols and cols[bare] not in mapped and explicit not in cols:
+            other = explicit.replace("barcode_", "sample_")
+            raise ExpectedPlateError(
+                f"{path}: the column {cols[bare]!r} does not say which "
+                f"{bare} it is. Rename it {explicit} if it is the LevSeq "
+                f"{bare} the sample was barcoded in, or {other} if it is "
+                f"where the sample sits (or pass --columns "
+                f"{explicit}={cols[bare]})."
+            )
+
+    missing = [c for c in ("barcode_well", "sequence") if c not in cols]
     if missing:
         raise ExpectedPlateError(
             f"{path}: missing column(s) {', '.join(missing)}. Found: "
@@ -295,11 +334,11 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
             "both; each says which reverse barcode a 96-well plate was given."
         )
     layout = "96" if (by_rbc or by_quadrant) else "384"
-    if not by_rbc and "plate" not in cols:
+    if not by_rbc and "barcode_plate" not in cols:
         if layout == "96":
             raise ExpectedPlateError(
-                f"{path}: a quadrant column needs a plate column beside it; "
-                "the quadrant says where on the LevSeq plate, not which plate."
+                f"{path}: a quadrant column needs a barcode_plate column beside "
+                "it; the quadrant says where on the LevSeq plate, not which plate."
             )
     max_row, max_col = ("H", 12) if layout == "96" else ("P", 24)
 
@@ -313,9 +352,10 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
             continue
         where = f"{path}, line {i}"
 
-        m = _WELL.match(_get(row, "well"))
+        m = _WELL.match(_get(row, "barcode_well"))
         if not m:
-            raise ExpectedPlateError(f"{where}: well {_get(row, 'well')!r} is not a well name.")
+            raise ExpectedPlateError(
+                f"{where}: barcode well {_get(row, 'barcode_well')!r} is not a well name.")
         r_letter, col = m.group(1).upper(), int(m.group(2))
         if r_letter > max_row or not 1 <= col <= max_col:
             hint = (" A 384-well position needs no quadrant or rbc column."
@@ -334,16 +374,16 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
                     f"RB01-RB{4 * MAX_PLATES}."
                 )
             plate, quadrant = (rb - 1) // 4 + 1, (rb - 1) % 4
-            if "plate" in cols and _get(row, "plate") and _get(row, "plate") != str(plate):
+            if "barcode_plate" in cols and _get(row, "barcode_plate") and _get(row, "barcode_plate") != str(plate):
                 raise ExpectedPlateError(
                     f"{where}: RB{rb:02d} is on plate {plate}, but the plate "
-                    f"column says {_get(row, 'plate')}."
+                    f"column says {_get(row, 'barcode_plate')}."
                 )
         else:
             try:
-                plate = int(_get(row, "plate") or "1") if "plate" in cols else 1
+                plate = int(_get(row, "barcode_plate") or "1") if "barcode_plate" in cols else 1
             except ValueError:
-                raise ExpectedPlateError(f"{where}: plate {_get(row, 'plate')!r} is not a number.")
+                raise ExpectedPlateError(f"{where}: plate {_get(row, 'barcode_plate')!r} is not a number.")
             quadrant = None
             if by_quadrant:
                 quadrant = _parse_quadrant(_get(row, "quadrant"))
@@ -377,17 +417,17 @@ def read_expected_plate(path, columns: Optional[dict] = None) -> ExpectedPlate:
             name = f"{plate}_{label}"
         marked = marked or any(c.isupper() for c in _get(row, "sequence"))
         src = ""
-        if "clone_well" in cols and _get(row, "clone_well"):
-            cp = _get(row, "clone_plate") if "clone_plate" in cols else ""
-            src = f"{cp}:{_get(row, 'clone_well')}" if cp else _get(row, "clone_well")
+        if "sample_well" in cols and _get(row, "sample_well"):
+            cp = _get(row, "sample_plate") if "sample_plate" in cols else ""
+            src = f"{cp}:{_get(row, 'sample_well')}" if cp else _get(row, "sample_well")
 
         entry = ExpectedWell(plate=plate, well=well, name=name if seq else "",
                              sequence=seq, label=label, row=i, source=src)
         if entry.key in wells:
             first = wells[entry.key]
             raise ExpectedPlateError(
-                f"{where}: plate {plate} {label} is already given on line "
-                f"{first.row}."
+                f"{where}: barcode plate {plate} well {label} is already given "
+                f"on line {first.row}; each sample needs its own barcode well."
             )
         wells[entry.key] = entry
 

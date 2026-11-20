@@ -658,7 +658,7 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
 
         <pre><code class="language-bash">usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/</code></pre>
 
-        <p><code>plate.csv</code> has one row per well: <code>plate,well,name,sequence</code> with 384-well positions (A1&ndash;P24), or a <code>quadrant</code> or <code>rbc</code> column for a 96-well plate barcoded as one LevSeq quadrant. Uppercase is the variable region and lowercase flanks are dropped; a row with no sequence is a well expected to be empty. A LevSeq mapping sheet with <code>bc_plate</code>, <code>bc_well</code> and <code>amplicon_seq</code> columns is read as it is. See <a href="demultiplexing.html#plate-check">Checking a Plate Against Expected Contents</a> for the CSV formats, verdicts and output files.</p>
+        <p><code>plate.csv</code> has one row per sample. <code>barcode_well</code> (the LevSeq well the sample was barcoded in, A1&ndash;P24) and <code>sequence</code> are required; <code>barcode_plate</code> (default 1), <code>name</code>, and <code>sample_plate</code>/<code>sample_well</code> (where the sample sits) are optional. A <code>quadrant</code> or <code>rbc</code> column marks a 96-well plate barcoded as one LevSeq quadrant. A bare <code>well</code> or <code>plate</code> column is refused, since it does not say which well it is. Uppercase is the variable region and lowercase flanks are dropped; a row with no sequence is a well expected to be empty. A LevSeq mapping sheet (<code>bc_plate</code>, <code>bc_well</code>, <code>clone_plate</code>, <code>clone_well</code>, <code>amplicon_seq</code>) is read as it is. See <a href="demultiplexing.html#plate-check">Checking a Plate Against Expected Contents</a> for the CSV formats, verdicts and output files.</p>
 
         <div class="table-wrapper">
           <table>
@@ -692,7 +692,7 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
             <tr>
               <td><code>--columns</code></td>
               <td></td>
-              <td>The CSV's own column names, as <code>field=column</code> pairs, e.g. <code>well=bc_well,sequence=amplicon_seq</code></td>
+              <td>The CSV's own column names, as <code>field=column</code> pairs, e.g. <code>barcode_well=Well,sequence=Seq</code></td>
               <td>None</td>
             </tr>
           </tbody>

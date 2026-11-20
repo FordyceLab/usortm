@@ -75,7 +75,7 @@ def _build(tmp_path, plate=1):
 
     with open(tmp_path / "expected.csv", "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["plate", "quadrant", "well", "name", "sequence"])
+        w.writerow(["barcode_plate", "quadrant", "barcode_well", "name", "sequence"])
         for well in wells:
             n = expected[well]
             w.writerow([plate, "TL", well, n or "", constructs[n] if n else ""])

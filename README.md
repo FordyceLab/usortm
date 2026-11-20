@@ -216,9 +216,13 @@ well, with no project.
 usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/
 ```
 
-The CSV lists `plate, well, name, sequence` by 384-well position, or adds a
-`quadrant` (or `rbc`) column for a 96-well plate barcoded as one LevSeq
-quadrant; other column names are given with `--columns plate=bc_plate,...`.
+The CSV has one row per sample, with `barcode_well` (the LevSeq well the sample
+was barcoded in, A1-P24) and `sequence`; `barcode_plate` (default 1), `name`,
+and `sample_plate`/`sample_well` (where the sample sits) are optional. A
+`quadrant` (or `rbc`) column marks a 96-well plate barcoded as one LevSeq
+quadrant. A bare `well` or `plate` column is refused, since it does not say
+which of the two wells it is; other column names are given with
+`--columns barcode_well=Well,...`.
 Whole amplicons in the sequence column carry the layout themselves, and need
 no vector. Given the parent vector, the read layout (amplicon, variable region
 and primer tails) is detected from the vector, the expected sequences and the

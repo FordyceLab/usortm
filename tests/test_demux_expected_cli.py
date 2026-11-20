@@ -21,7 +21,7 @@ def _plain(text):
 
 def _inputs(tmp_path):
     csv = tmp_path / "plate.csv"
-    csv.write_text("plate,well,name,sequence\n1,A1,wt,ACGTACGTACGT\n")
+    csv.write_text("barcode_plate,barcode_well,name,sequence\n1,A1,wt,ACGTACGTACGT\n")
     fq = tmp_path / "reads.fastq"
     fq.write_text("@r\nACGT\n+\nIIII\n")
     return csv, fq
@@ -56,7 +56,7 @@ def test_a_project_is_not_an_output_directory(tmp_path):
 
 def test_bad_expected_plate_is_reported(tmp_path):
     csv, fq = _inputs(tmp_path)
-    csv.write_text("plate,well,name,sequence\n9,A1,wt,ACGT\n")
+    csv.write_text("barcode_plate,barcode_well,name,sequence\n9,A1,wt,ACGT\n")
     result = runner.invoke(app, ["demux", "--expected", str(csv), "--fastq", str(fq)])
     assert result.exit_code == 1
     assert "outside 1-8" in _plain(result.output)

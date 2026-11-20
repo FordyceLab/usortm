@@ -73,6 +73,13 @@ class TestSwapsAndTally:
         return WellVerdict(plate=1, well=label, label=label, expected=expected,
                            verdict=verdict, observed=observed)
 
+    def test_row_names_barcode_and_sample_wells(self):
+        v = WellVerdict(plate=2, well="B3", label="TR:B2", expected="x",
+                        verdict="match", sample="1:A3")
+        row = v.row()
+        assert (row["barcode_plate"], row["barcode_well"], row["sample_well"]) == (2, "B3", "1:A3")
+        assert "plate" not in row and "well" not in row
+
     def test_pairs_are_marked(self):
         a, b = self._v("A1", "x", "y"), self._v("A2", "y", "x")
         c = self._v("A3", "z", "x")

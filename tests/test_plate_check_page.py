@@ -93,7 +93,7 @@ def test_quadrant_inverse():
 
 def test_96_well_plate_is_drawn_in_its_own_coordinates(tmp_path):
     plate = _plate(tmp_path, """
-plate,quadrant,well,name,sequence
+barcode_plate,quadrant,barcode_well,name,sequence
 1,BR,A1,a,ACGT
 1,BR,H12,b,ACGA
 """)
@@ -112,7 +112,7 @@ plate,quadrant,well,name,sequence
 
 def test_384_well_plate_is_drawn_whole(tmp_path):
     plate = _plate(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 2,P24,a,ACGT
 """)
     cells = _cells(plate_maps(plate, [WellVerdict(2, "P24", "P24", "a", "changed", reads=30)]))
@@ -121,7 +121,7 @@ plate,well,name,sequence
 
 def test_expected_empty_wells_are_hatched(tmp_path):
     plate = _plate(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,a,ACGT
 1,A2,,
 """)
@@ -131,7 +131,7 @@ plate,well,name,sequence
 
 def test_page_is_the_maps_and_legend(tmp_path):
     plate = _plate(tmp_path, """
-plate,well,name,sequence
+barcode_plate,barcode_well,name,sequence
 1,A1,<b>x</b>,ACGT
 """)
     v = [WellVerdict(1, "A1", "A1", "_b_x_b_", "unrecognised", reads=40,

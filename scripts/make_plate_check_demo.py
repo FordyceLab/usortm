@@ -122,7 +122,7 @@ def make_demo(out: Path, seed: int = 7) -> dict:
 
     with open(out / "expected.csv", "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["plate", "quadrant", "well", "name", "sequence"])
+        w.writerow(["barcode_plate", "quadrant", "barcode_well", "name", "sequence"])
         for well in wells:
             n = expected[well]
             w.writerow([1, "TR", well, n or "", constructs[n] if n else ""])

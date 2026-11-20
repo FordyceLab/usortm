@@ -210,9 +210,12 @@ def demux(
         "--expected", "-e",
         help=(
             "Check a barcoded plate against what each well should hold, "
-            "outside a uSort-M project. A CSV of plate, well, name, sequence "
-            "(384-well positions), or with a quadrant or rbc column for a "
-            "96-well plate barcoded as one LevSeq quadrant."
+            "outside a uSort-M project. A CSV with barcode_well (the LevSeq "
+            "well each sample was barcoded in, A1-P24) and sequence; "
+            "optionally barcode_plate (default 1), name, sample_plate and "
+            "sample_well (where the sample sits), and a quadrant or rbc "
+            "column when barcode_well is A1-H12 on a 96-well plate barcoded "
+            "as one LevSeq quadrant."
         ),
         exists=True,
         dir_okay=False,
@@ -238,9 +241,9 @@ def demux(
         "--columns",
         help=(
             "With --expected, the CSV's own names for its columns, as "
-            "field=column pairs: e.g. plate=bc_plate,well=bc_well,"
-            "sequence=amplicon_seq. Fields: plate, well, name, sequence, "
-            "quadrant, rbc, clone_plate, clone_well."
+            "field=column pairs: e.g. barcode_well=Well,sequence=Seq. "
+            "Fields: barcode_plate, barcode_well, name, sequence, quadrant, "
+            "rbc, sample_plate, sample_well."
         ),
     ),
 ):

@@ -677,27 +677,53 @@ T203Y;2;C5;0;C1;5.0</code></pre>
 
         <h3>The Expected Plate CSV</h3>
         <p>
-          One row per well. Headers are matched ignoring case. Sequences follow the
-          library CSV convention: uppercase is the variable region and lowercase
-          flanks are dropped; a sequence with no uppercase is used whole. A row with
-          an empty sequence is a well expected to be empty, and reads found there
-          are reported. Wells that share a sequence share one reference.
+          One row per sample. Each sample has two wells, and the CSV names them
+          apart:
+        </p>
+        <ul>
+          <li><strong>Barcode well</strong> (<code>barcode_plate</code>,
+            <code>barcode_well</code>): the LevSeq well the sample was barcoded
+            in. This is what demultiplexing reads, and it is required.
+            <code>barcode_plate</code> defaults to 1.</li>
+          <li><strong>Sample well</strong> (<code>sample_plate</code>,
+            <code>sample_well</code>): where the sample sits on the plate it came
+            from. Optional; shown on the plate map and in
+            <code>verification.csv</code>.</li>
+        </ul>
+        <p>
+          A bare <code>well</code> or <code>plate</code> column is refused, since
+          read as the wrong one it would match every read to the wrong sample.
+          The minimal CSV is two columns:
+        </p>
+        <div class="code-container">
+          <pre><code>barcode_well,sequence
+A1,ATGGTTCGACCATTGAACTGC...
+A2,ATGGTTCGACCATTGAACGGC...</code></pre>
+        </div>
+        <p>
+          Headers are matched ignoring case. A <code>name</code> column is
+          optional; without it a sample is named by its barcode well. Sequences
+          follow the library CSV convention: uppercase is the variable region and
+          lowercase flanks are dropped; a sequence with no uppercase is used whole.
+          A row with an empty sequence is a well expected to be empty, and reads
+          found there are reported. Wells that share a sequence share one
+          reference.
         </p>
         <div class="table-wrapper">
           <table>
           <thead>
-            <tr><th>Layout</th><th>Columns</th><th>Wells</th></tr>
+            <tr><th>Layout</th><th>Barcode columns</th><th>Barcode wells</th></tr>
           </thead>
           <tbody>
             <tr>
               <td>384-well</td>
-              <td><code>plate, well, name, sequence</code></td>
+              <td><code>barcode_plate, barcode_well</code></td>
               <td><code>A1</code>&ndash;<code>P24</code>, taken as given</td>
             </tr>
             <tr>
               <td>96-well, one LevSeq quadrant</td>
-              <td><code>plate, quadrant, well, name, sequence</code>, or
-                  <code>rbc, well, name, sequence</code></td>
+              <td><code>barcode_plate, quadrant, barcode_well</code>, or
+                  <code>rbc, barcode_well</code></td>
               <td><code>A1</code>&ndash;<code>H12</code>, with the quadrant
                   (<code>TL</code>/<code>TR</code>/<code>BL</code>/<code>BR</code> or
                   1&ndash;4) or the reverse barcode (<code>RB01</code>&ndash;<code>RB32</code>)</td>
@@ -716,24 +742,24 @@ T203Y;2;C5;0;C1;5.0</code></pre>
           are supported, the range the reverse barcodes cover.
         </p>
         <p>
-          A LevSeq mapping sheet's own names are recognised:
-          <code>bc_plate</code>, <code>bc_well</code>, <code>amplicon_seq</code> and
-          <code>id</code>, with <code>clone_plate</code> and <code>clone_well</code>
-          shown on the plate map as each well's source. A CSV that names its
+          A LevSeq mapping sheet's own names are recognised: <code>bc_plate</code>
+          and <code>bc_well</code> as the barcode well, <code>clone_plate</code> and
+          <code>clone_well</code> as the sample well, <code>amplicon_seq</code> as
+          the sequence and <code>id</code> as the name. A CSV that names its
           columns otherwise gives them with <code>--columns</code>, as
           <code>field=column</code> pairs:
         </p>
         <div class="code-container">
-          <pre><code>--columns plate=bc_plate,well=bc_well,sequence=amplicon_seq,name=name</code></pre>
+          <pre><code>--columns barcode_well=Well,sequence=Seq,sample_well=Source</code></pre>
         </div>
         <p>
-          The fields are <code>plate</code>, <code>well</code>, <code>name</code>,
-          <code>sequence</code>, <code>quadrant</code>, <code>rbc</code>,
-          <code>clone_plate</code> and <code>clone_well</code>.
+          The fields are <code>barcode_plate</code>, <code>barcode_well</code>,
+          <code>name</code>, <code>sequence</code>, <code>quadrant</code>,
+          <code>rbc</code>, <code>sample_plate</code> and <code>sample_well</code>.
         </p>
         <p>
           A CSV without a quadrant or <code>rbc</code> column is read as 384-well
-          positions. When every well in such a CSV falls within
+          positions. When every barcode well in such a CSV falls within
           <code>A1</code>&ndash;<code>H12</code>, the run prints a note, since that
           is also what a 96-well plate without its quadrant column looks like.
         </p>
@@ -873,7 +899,8 @@ T203Y;2;C5;0;C1;5.0</code></pre>
                     (<code>well_&lt;plate&gt;_&lt;well&gt;_summary.html</code>) seqviewer's
                     summary of the same pileup.</td></tr>
             <tr><td><code>verification.csv</code></td>
-                <td>One row per well: plate, 384-well position, the CSV's label,
+                <td>One row per well: barcode plate, barcode well as a 384-well
+                    position, the barcode well as the CSV gave it, sample well,
                     expected and observed construct, verdict, reads, differences,
                     protein changes, read disagreement, and a note.</td></tr>
             <tr><td><code>verification_summary.json</code></td>
