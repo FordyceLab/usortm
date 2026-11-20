@@ -182,6 +182,10 @@
               <td>Demultiplex sequencing data (LevSeq barcodes via Dorado, reference alignment, consensus, variant calling)</td>
             </tr>
             <tr>
+              <td><code>demux --expected</code></td>
+              <td>Check a LevSeq-barcoded plate of known constructs well by well, without a project from <code>plan</code></td>
+            </tr>
+            <tr>
               <td><code>pick</code></td>
               <td>Generate Integra ASSIST hit-picking list (ordered by input library)</td>
             </tr>
@@ -553,6 +557,8 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
 
         <pre><code class="language-bash">usortm demux my_project/ --fastq data.fastq --library-csv variants.csv</code></pre>
 
+        <p>The first argument is a project directory created by <code>usortm plan</code>. To check a plate of known constructs without a project, use <a href="#demux-expected"><code>--expected</code></a>.</p>
+
         <h3>Options</h3>
         <div class="table-wrapper">
           <table>
@@ -599,7 +605,7 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
               <td><code>--min-reads</code></td>
               <td></td>
               <td>Minimum reads per well to call a variant</td>
-              <td>100</td>
+              <td>100 (10 with <code>--expected</code>)</td>
             </tr>
             <tr>
               <td><code>--min-fraction</code></td>
@@ -616,8 +622,8 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
             <tr>
               <td><code>--workers</code></td>
               <td><code>-w</code></td>
-              <td>Parallel workers for per-well consensus alignment</td>
-              <td>4</td>
+              <td>Threads for variant assignment and per-well consensus</td>
+              <td>CPU cores minus 2, at most 8</td>
             </tr>
             <tr>
               <td><code>--subsample</code></td>
@@ -646,6 +652,54 @@ usortm skew /tmp/lib/library.fastq --variants /tmp/lib/variants.csv --output /tm
           </tbody>
         </table>
         </div>
+
+        <h3 id="demux-expected">Checking a plate: <code>--expected</code></h3>
+        <p>Checks a LevSeq-barcoded plate of known constructs against the construct listed for each well. No project directory or <code>plan</code> step is needed.</p>
+
+        <pre><code class="language-bash">usortm demux --expected plate.csv --fastq reads.fastq --vector parent.gb -o check/</code></pre>
+
+        <p><code>plate.csv</code> has one row per sample. <code>barcode_well</code> (the LevSeq well the sample was barcoded in, A1&ndash;P24) and <code>sequence</code> are required; <code>barcode_plate</code> (default 1), <code>name</code>, and <code>sample_plate</code>/<code>sample_well</code> (where the sample sits) are optional. A <code>quadrant</code> or <code>rbc</code> column marks a 96-well plate barcoded as one LevSeq quadrant. A bare <code>well</code> or <code>plate</code> column is refused, since it does not say which well it is. Uppercase is the variable region and lowercase flanks are dropped; a row with no sequence is a well expected to be empty. A LevSeq mapping sheet (<code>bc_plate</code>, <code>bc_well</code>, <code>clone_plate</code>, <code>clone_well</code>, <code>amplicon_seq</code>) is read as it is. See <a href="demultiplexing.html#plate-check">Checking a Plate Against Expected Contents</a> for the CSV formats, verdicts and output files.</p>
+
+        <div class="table-wrapper">
+          <table>
+          <thead>
+            <tr>
+              <th>Option</th>
+              <th>Short</th>
+              <th>Description</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--expected</code></td>
+              <td><code>-e</code></td>
+              <td>CSV of what each well should hold</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--vector</code></td>
+              <td></td>
+              <td>Parent vector (FASTA or GenBank), unmasked; the read layout is worked out from it. Not needed when the CSV gives whole amplicons. <code>--read-template</code> or <code>--vector-fasta</code> can be given instead.</td>
+              <td>None</td>
+            </tr>
+            <tr>
+              <td><code>--output</code></td>
+              <td><code>-o</code></td>
+              <td>Output directory</td>
+              <td><code>./plate_check</code></td>
+            </tr>
+            <tr>
+              <td><code>--columns</code></td>
+              <td></td>
+              <td>The CSV's own column names, as <code>field=column</code> pairs, e.g. <code>barcode_well=Well,sequence=Seq</code></td>
+              <td>None</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+
+        <p>Project-only options (<code>--library-csv</code>, <code>--reference</code>, <code>--plate-map</code>, <code>--barcodes</code>, <code>--orient-ref</code>, <code>--round</code>) are refused with <code>--expected</code>. Open <code>plate_check.html</code> in the output directory; <code>verification.csv</code> has one row per well.</p>
 
         <h2 id="pick"><code>usortm pick</code></h2>
         <p>Generate hit-picking list from demultiplexing results. Output is formatted for Integra ASSIST PLUS liquid handling robots. The pick list is ordered to match the input library CSV, so variants appear in the same order they were defined.</p>
