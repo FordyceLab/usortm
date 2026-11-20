@@ -45,6 +45,47 @@ def _open_fastq(fastq_path: str):
     return gzip.open if magic == b'\x1f\x8b' else open
 
 
+# The first reverse barcode whose sequence is also a forward barcode.
+SHARED_RBC_FROM = 13
+# Bases kept from each end of a read for its barcode pass: the primer tail,
+# the 24 bp barcode and its mask fit with room to spare, and Dorado's two
+# 150 bp end windows stay apart, so the far end of a cut read is insert.
+BARCODE_END_WINDOW = 300
+
+
+def _barcode_end_windows(fastq: str, out_dir: Path, window: int) -> Tuple[str, str]:
+    """Write each read's first and last *window* bases as two FASTQs.
+
+    The reads from :func:`utils.align_and_split_by_strand` are as sequenced,
+    with ``dir=rev`` marking those on the reverse strand, so those are turned
+    here first: the forward barcode is then at every read's start and the
+    reverse barcode at its end.  Read names are kept, so the two barcode
+    calls still join on read id, and the reads' sequences are still taken
+    from *fastq* itself.
+
+    Returns:
+        ``(heads, tails)`` paths, for the forward and reverse barcode passes.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    heads, tails = out_dir / "fbc_ends.fastq", out_dir / "rbc_ends.fastq"
+    comp = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+    open_fn = _open_fastq(str(fastq))
+    with open_fn(str(fastq), "rt") as fh, open(heads, "w") as fh5, open(tails, "w") as fh3:
+        while True:
+            header = fh.readline()
+            if not header:
+                break
+            seq = fh.readline().rstrip("\n")
+            fh.readline()
+            qual = fh.readline().rstrip("\n")
+            if "|dir=rev" in header:
+                seq, qual = seq.translate(comp)[::-1], qual[::-1]
+            fh5.write(f"{header}{seq[:window]}\n+\n{qual[:window]}\n")
+            fh3.write(f"{header}{seq[-window:]}\n+\n{qual[-window:]}\n")
+    return str(heads), str(tails)
+
+
 def _count_fastq_reads(fastq_path: str) -> int:
     """Count reads in a FASTQ file (4 lines per record)."""
     open_fn = _open_fastq(fastq_path)
@@ -534,12 +575,28 @@ def run_levseq_pipeline(
     # second and third full copy of the reads — measured at 1.24x the input
     # each, against 0.35x for summary-only — for data nothing reads: the
     # sequences come from the oriented FASTQ, not from here.
+    # RB13-RB96 are the same sequences as FB13-FB96.  Each Dorado pass scores
+    # both ends of a read against one list, so once a run uses RB13 or above
+    # the forward pass also finds the reverse barcode at the 3' end -- as a
+    # forward barcode -- and either refuses the read as ambiguous or calls it
+    # by the wrong end, putting it in another well.  Measured on a synthetic
+    # plate-8 run: 74% of reads given a forward barcode against 98% on plate
+    # 1, with FB29-FB32 inflated.  Reads are oriented by now, so the forward
+    # barcode is at the 5' end and the reverse at the 3' end; each pass is
+    # given only its own end, and the shared sequences cannot meet.  Runs on
+    # plates 1-3 never use a shared reverse barcode and are left as they were.
+    fbc_input = rbc_input = oriented_fq
+    if n_rbc > SHARED_RBC_FROM - 1:
+        _progress("Cutting reads to their barcode ends...")
+        fbc_input, rbc_input = _barcode_end_windows(
+            oriented_fq, output_dir / "barcode_ends", BARCODE_END_WINDOW)
+
     live.set_stage("fbc")
     _progress("Running forward barcode demultiplexing...")
     fbc_output = output_dir / "fbc"
     fbc_output.mkdir(exist_ok=True)
     utils.demux(
-        data=oriented_fq,
+        data=fbc_input,
         output=str(fbc_output),
         toml=str(fbc_toml),
         barcodes=str(fbc_fasta),
@@ -555,7 +612,7 @@ def run_levseq_pipeline(
     rbc_output = output_dir / "rbc"
     rbc_output.mkdir(exist_ok=True)
     utils.demux(
-        data=oriented_fq,
+        data=rbc_input,
         output=str(rbc_output),
         toml=str(rbc_toml),
         barcodes=str(rbc_fasta),
