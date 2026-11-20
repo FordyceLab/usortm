@@ -329,12 +329,7 @@ def run_expected_demux(
         _fail(f"No FASTQ files found at {fastq}.")
     console.print(f"[green]✓[/green] Reads: {len(fastqs)} FASTQ file(s) at {fastq}")
 
-    try:
-        tools = check_all_dependencies()
-    except Exception as exc:
-        _fail(str(exc), "Install missing tools or add them to your PATH.")
-
-    given = [flag for flag, v in (("--vector", vector),
+    given =[flag for flag, v in (("--vector", vector),
                                   ("--read-template", read_template),
                                   ("--vector-fasta", vector_fasta)) if v]
     # Whole amplicons in the CSV carry the layout themselves: the flanks are
@@ -353,6 +348,13 @@ def run_expected_demux(
         )
     if len(given) > 1:
         _fail(f"Give only one of {', '.join(given)}.")
+
+    # After the argument checks, so a mistake in the command is reported
+    # before a missing tool.
+    try:
+        tools = check_all_dependencies()
+    except Exception as exc:
+        _fail(str(exc), "Install missing tools or add them to your PATH.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     demux_dir = output_dir / "demux"

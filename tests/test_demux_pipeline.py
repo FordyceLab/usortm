@@ -950,7 +950,7 @@ class TestConcatFastqDir:
 
     def test_raises_on_empty_dir(self, tmp_path):
         """Exits with typer.Exit when no FASTQ files are found."""
-        import click
+        import typer
         from usortm.cli.demux_cmd import _concat_fastq_dir
 
         empty_dir = tmp_path / "empty"
@@ -958,7 +958,7 @@ class TestConcatFastqDir:
         out_dir = tmp_path / "out"
         out_dir.mkdir()
 
-        with pytest.raises(click.exceptions.Exit):
+        with pytest.raises(typer.Exit):
             _concat_fastq_dir(empty_dir, out_dir)
 
 
