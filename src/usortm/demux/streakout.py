@@ -1117,6 +1117,7 @@ def _generate_one_pick_pileup(
     parent_ref_fasta: str = None,
     features: list = None,
     summary: bool = False,
+    note: str = "",
 ) -> Optional[str]:
     """Generate a pileup HTML for one picked well.
 
@@ -1129,6 +1130,8 @@ def _generate_one_pick_pileup(
         summary: Also write seqviewer's summary of the same view, at
             :func:`summary_path_for` of *output_path*.  Drawn from the view
             the pileup is drawn from, so the two pages cannot disagree.
+        note: One line of context for the summary's heading, such as what
+            the well was expected to hold and the verdict on it.
 
     Returns *output_path* on success, or None if the reference FASTA is
     missing or alignment produces no rows.
@@ -1232,9 +1235,23 @@ def _generate_one_pick_pileup(
         fh.write(_render_linked(render, view, "summary_href", summary_name,
                                 "← Summary"))
     with open(summary_path, "w") as fh:
-        fh.write(_render_linked(render_summary, SummaryView.from_view(view),
+        fh.write(_render_linked(render_summary, _summary_view(view, note),
                                 "pileup_href", pileup_name, "All reads →"))
     return output_path
+
+
+def _summary_view(view, note: str = ""):
+    """Reduce *view* for its summary page, with *note* drawn under the heading.
+
+    A seqviewer from before summary notes takes no *note*; the page is then
+    drawn without it rather than not at all.
+    """
+    if note:
+        try:
+            return SummaryView.from_view(view, note=note)
+        except TypeError:
+            pass
+    return SummaryView.from_view(view)
 
 
 def _render_linked(fn, view, link_arg: str, href: str, label: str) -> str:
@@ -1384,6 +1401,7 @@ def _pick_pileup_worker(task: dict) -> bool:
         flank_3p_len=task["flank_3p_len"],
         parent_ref_fasta=task.get("parent_ref_fasta"),
         features=task.get("features"),
+        note=task.get("note", ""),
     )
     return result is not None
 
@@ -1536,6 +1554,7 @@ def generate_pick_pileups(
             "cons_check": hit.get("cons_check", ""),
             "target_plate": str(hit.get("target_plate", "")),
             "target_well": hit.get("target_well", ""),
+            "note": hit.get("note", ""),
         })
 
     # Clear pileups this call will not regenerate.  Each call is authoritative

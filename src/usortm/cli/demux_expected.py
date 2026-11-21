@@ -76,6 +76,44 @@ def _describe(v) -> str:
     return "; ".join(parts)
 
 
+def _assigned_references(demux_dir: Path, constructs: set) -> dict:
+    """``{(plate, 384-well): construct}`` the pipeline assigned each well's reads to.
+
+    Read from the pipeline's ``well_df.csv``; wells assigned to nothing on the
+    plate are left out.
+    """
+    import csv
+
+    path = demux_dir / "well_df.csv"
+    if not path.exists():
+        return {}
+    out = {}
+    with open(path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            ref = (row.get("major_ref") or "").strip()
+            try:
+                key = (int(row["plate"]), str(row["well"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if ref in constructs:
+                out[key] = ref
+    return out
+
+
+def _verdict_note(v, ref: str) -> str:
+    """The line heading a well's summary: where it is, what was expected, the call."""
+    where = f"Barcode plate {v.plate}, well {v.label}"
+    if v.sample:
+        where += f" (sample {v.sample})"
+    if v.expected:
+        what = f"expected {v.expected}: {v.verdict}"
+        if v.observed and v.observed != v.expected:
+            what += f", holds {v.observed}"
+    else:
+        what = f"not in the expected plate; drawn against {ref}"
+    return f"{where} · {what} · {v.reads} reads"
+
+
 def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
                     flank_5p: str, flank_3p: str, tools: dict, workers: int) -> dict:
     """A pileup and its summary for every well with reads, against the
@@ -84,7 +122,9 @@ def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
     Against the expected construct rather than the one the pipeline assigned,
     so a well holding the wrong thing shows its reads disagreeing with what
     should be there.  A well with no expectation -- expected empty, or not
-    listed -- is shown against what it appears to hold.
+    listed -- is shown against what it appears to hold, or failing that
+    against the construct the pipeline assigned its reads to.  Each summary
+    is headed by the well's verdict.
 
     Returns:
         ``{"<plate>_<384-well>": {"pileup": href, "summary": href}}``, relative
@@ -102,17 +142,22 @@ def _render_pileups(plate, verdicts, demux_dir: Path, output_dir: Path,
 
     constructs = set(plate.constructs().values())
     first = next(iter(plate.constructs().values()), None)
+    assigned = _assigned_references(demux_dir, constructs)
     pick_list = []
     for v in verdicts:
         if v.reads <= 0:
             continue
-        ref = v.expected or (v.observed if v.observed in constructs else first)
+        ref = (v.expected
+               or (v.observed if v.observed in constructs else None)
+               or assigned.get((v.plate, v.well))
+               or first)
         if not ref:
             continue
         pick_list.append({
             "source_plate": v.plate, "source_well": v.well, "variant": ref,
             "reads": v.reads, "consensus_fraction": 0.0, "cons_check": "",
             "target_plate": v.plate, "target_well": v.well,
+            "note": _verdict_note(v, ref),
         })
     if not pick_list:
         return {}
